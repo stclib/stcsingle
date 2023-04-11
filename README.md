@@ -1,7 +1,6 @@
 # stcsingle
-Single headers for STC. Useful for inclusion with Compiler Explorer https://godbolt.org
+Single headers for [STC](https://github.com/stclib/STC). For use with [Compiler Explorer](https://godbolt.org/z/KfejMYTeo)
 
-E.g:
 ```c
 #define i_type Vec
 #define i_val float
