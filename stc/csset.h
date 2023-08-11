@@ -125,20 +125,19 @@ typedef long long _llong;
 #define c_no_atomic             (1<<1)
 #define c_no_clone              (1<<2)
 #define c_no_emplace            (1<<3)
-#define c_no_cmp                (1<<4)
-#define c_native_cmp            (1<<5)
-#define c_no_hash               (1<<6)
+#define c_no_hash               (1<<4)
+#define c_use_cmp               (1<<5)
 /* Function macros and others */
 
 #define c_litstrlen(literal) (c_sizeof("" literal) - 1)
 #define c_arraylen(a) (intptr_t)(sizeof(a)/sizeof 0[a])
 
-// Non-owning c-string
-typedef const char* crawstr;
-#define crawstr_clone(s) (s)
-#define crawstr_drop(p) ((void)p)
-#define crawstr_cmp(xp, yp) strcmp(*(xp), *(yp))
-#define crawstr_hash(p) cstrhash(*(p))
+// Non-owning c-string "class"
+typedef const char* ccharptr;
+#define ccharptr_cmp(xp, yp) strcmp(*(xp), *(yp))
+#define ccharptr_hash(p) cstrhash(*(p))
+#define ccharptr_clone(s) (s)
+#define ccharptr_drop(p) ((void)p)
 
 #define c_sv(...) c_MACRO_OVERLOAD(c_sv, __VA_ARGS__)
 #define c_sv_1(lit) c_sv_2(lit, c_litstrlen(lit))
@@ -341,8 +340,6 @@ typedef union {
         SELF##_node *last; \
     } SELF
 
-typedef struct chash_slot chash_slot;
-
 #define _c_chash_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
@@ -354,16 +351,17 @@ typedef struct chash_slot chash_slot;
     typedef struct { \
         SELF##_value *ref; \
         bool inserted; \
+        uint8_t hashx; \
     } SELF##_result; \
 \
     typedef struct { \
         SELF##_value *ref, *_end; \
-        chash_slot* sref; \
+        struct chash_slot* sref; \
     } SELF##_iter; \
 \
     typedef struct SELF { \
         SELF##_value* data; \
-        chash_slot* slot; \
+        struct chash_slot* slot; \
         intptr_t size, bucket_count; \
     } SELF
 
@@ -505,17 +503,14 @@ typedef struct chash_slot chash_slot;
 #if c_option(c_is_forward)
   #define i_is_forward
 #endif
-#if c_option(c_no_cmp)
-  #define i_no_cmp
-#endif
 #if c_option(c_no_hash)
   #define i_no_hash
 #endif
 #if c_option(c_no_emplace)
   #define i_no_emplace
 #endif
-#if c_option(c_native_cmp)
-  #define i_cmp_native
+#if c_option(c_use_cmp) || defined _i_ismap || defined _i_isset || defined _i_ispque
+  #define i_use_cmp
 #endif
 #if c_option(c_no_clone) || defined _i_carc
   #define i_no_clone
@@ -523,7 +518,7 @@ typedef struct chash_slot chash_slot;
 
 #if defined i_key_str
   #define i_keyclass cstr
-  #define i_rawclass crawstr
+  #define i_rawclass ccharptr
   #ifndef i_tag
     #define i_tag str
   #endif
@@ -539,7 +534,7 @@ typedef struct chash_slot chash_slot;
 #elif defined i_keyboxed
   #define i_keyclass i_keyboxed
   #define i_rawclass c_PASTE(i_keyboxed, _raw)
-  #ifndef i_no_cmp
+  #if defined i_use_cmp
     #define i_eq c_PASTE(i_keyboxed, _raw_eq)
   #endif
 #endif
@@ -550,37 +545,42 @@ typedef struct chash_slot chash_slot;
   #define i_rawclass i_key
 #endif
 
-#ifdef i_keyclass
+#if defined i_keyclass
   #define i_key i_keyclass
   #ifndef i_keyclone
     #define i_keyclone c_PASTE(i_key, _clone)
   #endif
-  #if !defined i_keyto && defined i_keyraw
-    #define i_keyto c_PASTE(i_key, _toraw)
+  #ifndef i_keydrop
+    #define i_keydrop c_PASTE(i_key, _drop)
   #endif
   #if !defined i_keyfrom && defined i_keyraw
     #define i_keyfrom c_PASTE(i_key, _from)
   #endif
-  #ifndef i_keydrop
-    #define i_keydrop c_PASTE(i_key, _drop)
+  #if !defined i_keyto && defined i_keyraw
+    #define i_keyto c_PASTE(i_key, _toraw)
+  #endif
+  #if !defined i_keyraw && (defined i_cmp || defined i_less || defined i_eq || defined i_hash)
+    #define i_use_cmp
   #endif
 #endif
 
-#ifdef i_rawclass
-  #if !(defined i_cmp || defined i_no_cmp)
+#if defined i_rawclass && defined i_use_cmp
+  #if !(defined i_cmp || defined i_less)
     #define i_cmp c_PASTE(i_keyraw, _cmp)
   #endif
-  #if !(defined i_hash || defined i_no_hash || defined i_no_cmp)
+  #if !(defined i_hash || defined i_no_hash)
     #define i_hash c_PASTE(i_keyraw, _hash)
   #endif
 #endif
 
-#if !defined i_keyraw && !defined i_no_clone
-  #if !defined i_keyfrom && defined i_keyclone
-    #define i_keyfrom i_keyclone
-  #elif !defined i_keyclone && defined i_keyfrom
-    #define i_keyclone i_keyfrom
-  #endif
+#if defined i_cmp || defined i_less || defined i_use_cmp
+  #define _i_has_cmp
+#endif
+#if defined i_eq || defined i_use_cmp
+  #define _i_has_eq
+#endif
+#if !(defined i_hash || defined i_no_hash)
+  #define i_hash c_default_hash
 #endif
 
 #if !defined i_key
@@ -588,9 +588,13 @@ typedef struct chash_slot chash_slot;
 #elif defined i_keyraw ^ defined i_keyto
   #error "Both i_keyraw/i_valraw and i_keyto/i_valto must be defined, if any"
 #elif !defined i_no_clone && (defined i_keyclone ^ defined i_keydrop)
-  #error "Both i_keyclone/i_valclone and i_keydrop/i_valdrop must be defined, if any"
+  #error "Both i_keyclone/i_valclone and i_keydrop/i_valdrop must be defined, if any (unless i_no_clone defined)."
 #elif defined i_from || defined i_drop
   #error "i_from / i_drop not supported. Define i_keyfrom/i_valfrom and/or i_keydrop/i_valdrop instead"
+#elif defined i_keyraw && defined _i_ishash && !(defined i_hash && (defined _i_has_cmp || defined i_eq))
+  #error "For cmap/cset, both i_hash and i_eq (or i_less or i_cmp) must be defined when i_keyraw is defined."
+#elif defined i_keyraw && defined i_use_cmp && !defined _i_has_cmp
+  #error "For csmap/csset/cpque, i_cmp or i_less must be defined when i_keyraw is defined."
 #endif
 
 #ifndef i_tag
@@ -614,34 +618,21 @@ typedef struct chash_slot chash_slot;
   #define i_keydrop c_default_drop
 #endif
 
-#ifndef i_no_cmp
-  #if defined i_cmp || defined i_less || defined i_cmp_native
-    #define _i_has_cmp
-  #endif
-  #if defined i_eq || defined i_cmp_native
-    #define _i_has_eq
-  #endif
-  
-  // i_eq, i_less, i_cmp
-  #if !defined i_eq && (defined i_cmp || defined i_less)
-    #define i_eq(x, y) !(i_cmp(x, y))
-  #elif !defined i_eq
-    #define i_eq(x, y) *x == *y
-  #endif
-  #if defined i_cmp && defined i_less
-    #error "Only one of i_cmp and i_less may be defined"
-  #elif defined i_cmp
-    #define i_less(x, y) (i_cmp(x, y)) < 0
-  #elif !defined i_less
-    #define i_less(x, y) *x < *y
-  #endif
-  #ifndef i_cmp
-    #define i_cmp(x, y) (i_less(y, x)) - (i_less(x, y))
-  #endif
+// i_eq, i_less, i_cmp
+#if !defined i_eq && (defined i_cmp || defined i_less)
+  #define i_eq(x, y) !(i_cmp(x, y))
+#elif !defined i_eq
+  #define i_eq(x, y) *x == *y
 #endif
-
-#if !defined i_hash && (!(defined _i_cbox || defined _i_carc) || defined i_cmp_native)
-  #define i_hash c_default_hash
+#if defined i_cmp && defined i_less
+  #error "Only one of i_cmp and i_less may be defined"
+#elif defined i_cmp
+  #define i_less(x, y) (i_cmp(x, y)) < 0
+#elif !defined i_less
+  #define i_less(x, y) *x < *y
+#endif
+#ifndef i_cmp
+  #define i_cmp(x, y) (i_less(y, x)) - (i_less(x, y))
 #endif
 
 #if defined _i_ismap // ---- process cmap/csmap value i_val, ... ----
@@ -664,22 +655,14 @@ typedef struct chash_slot chash_slot;
   #ifndef i_valclone
     #define i_valclone c_PASTE(i_val, _clone)
   #endif
-  #if !defined i_valto && defined i_valraw
-    #define i_valto c_PASTE(i_val, _toraw)
+  #ifndef i_valdrop
+    #define i_valdrop c_PASTE(i_val, _drop)
   #endif
   #if !defined i_valfrom && defined i_valraw
     #define i_valfrom c_PASTE(i_val, _from)
   #endif
-  #ifndef i_valdrop
-    #define i_valdrop c_PASTE(i_val, _drop)
-  #endif
-#endif
-
-#if !defined i_valraw && !defined i_no_clone
-  #if !defined i_valfrom && defined i_valclone
-    #define i_valfrom i_valclone
-  #elif !defined i_valclone && defined i_valfrom
-    #define i_valclone i_valfrom
+  #if !defined i_valto && defined i_valraw
+    #define i_valto c_PASTE(i_val, _toraw)
   #endif
 #endif
 
@@ -820,19 +803,29 @@ _cx_MEMB(_shrink_to_fit)(_cx_Self *self) {
 }
 #endif // !i_no_clone
 
-#ifndef _i_isset
+STC_API _cx_result _cx_MEMB(_insert_entry_)(_cx_Self* self, _cx_keyraw rkey);
+
+#ifdef _i_ismap
     STC_API _cx_result _cx_MEMB(_insert_or_assign)(_cx_Self* self, i_key key, i_val mapped);
     #if !defined i_no_emplace
         STC_API _cx_result  _cx_MEMB(_emplace_or_assign)(_cx_Self* self, _cx_keyraw rkey, i_valraw rmapped);
-    #endif
 
+        STC_INLINE _cx_result
+        _cx_MEMB(_emplace_key)(_cx_Self* self, _cx_keyraw rkey) {
+            _cx_result res = _cx_MEMB(_insert_entry_)(self, rkey);
+            if (res.inserted)
+                res.ref->first = i_keyfrom(rkey);
+            return res;
+        }
+    #endif
     STC_INLINE const _cx_mapped*
     _cx_MEMB(_at)(const _cx_Self* self, _cx_keyraw rkey)
         { _cx_iter it; return &_cx_MEMB(_find_it)(self, rkey, &it)->second; }
+
     STC_INLINE _cx_mapped*
     _cx_MEMB(_at_mut)(_cx_Self* self, _cx_keyraw rkey)
         { _cx_iter it; return &_cx_MEMB(_find_it)(self, rkey, &it)->second; }
-#endif // !_i_isset
+#endif // _i_ismap
 
 STC_INLINE _cx_iter
 _cx_MEMB(_end)(const _cx_Self* self) {
@@ -858,8 +851,6 @@ _cx_MEMB(_eq)(const _cx_Self* self, const _cx_Self* other) {
     }
     return true;
 }
-
-static _cx_result _cx_MEMB(_insert_entry_)(_cx_Self* self, _cx_keyraw rkey);
 
 STC_INLINE _cx_result
 _cx_MEMB(_insert)(_cx_Self* self, i_key _key _i_MAP_ONLY(, i_val _mapped)) {
@@ -976,7 +967,7 @@ _cx_MEMB(_new_node_)(_cx_Self* self, int level) {
     return tn;
 }
 
-#ifndef _i_isset
+#ifdef _i_ismap
     STC_DEF _cx_result
     _cx_MEMB(_insert_or_assign)(_cx_Self* self, i_key _key, i_val _mapped) {
         _cx_result _res = _cx_MEMB(_insert_entry_)(self, i_keyto((&_key)));
@@ -1003,7 +994,7 @@ _cx_MEMB(_new_node_)(_cx_Self* self, int level) {
         return _res;
     }
     #endif // !i_no_emplace
-#endif // !_i_isset
+#endif // !_i_ismap
 
 STC_DEF _cx_value*
 _cx_MEMB(_find_it)(const _cx_Self* self, _cx_keyraw rkey, _cx_iter* out) {
@@ -1057,7 +1048,7 @@ _cx_MEMB(_split_)(_cx_node *d, int32_t tn) {
     return tn;
 }
 
-static int32_t
+STC_DEF int32_t
 _cx_MEMB(_insert_entry_i_)(_cx_Self* self, int32_t tn, const _cx_keyraw* rkey, _cx_result* _res) {
     int32_t up[64], tx = tn;
     _cx_node* d = self->nodes;
@@ -1089,7 +1080,7 @@ _cx_MEMB(_insert_entry_i_)(_cx_Self* self, int32_t tn, const _cx_keyraw* rkey, _
     return up[0];
 }
 
-static _cx_result
+STC_DEF _cx_result
 _cx_MEMB(_insert_entry_)(_cx_Self* self, _cx_keyraw rkey) {
     _cx_result res = {NULL};
     int32_t tn = _cx_MEMB(_insert_entry_i_)(self, self->root, &rkey, &res);
@@ -1098,7 +1089,7 @@ _cx_MEMB(_insert_entry_)(_cx_Self* self, _cx_keyraw rkey) {
     return res;
 }
 
-static int32_t
+STC_DEF int32_t
 _cx_MEMB(_erase_r_)(_cx_Self *self, int32_t tn, const _cx_keyraw* rkey, int *erased) {
     _cx_node *d = self->nodes;
     if (tn == 0)
@@ -1183,7 +1174,7 @@ _cx_MEMB(_erase_range)(_cx_Self* self, _cx_iter it1, _cx_iter it2) {
 }
 
 #if !defined i_no_clone
-static int32_t
+STC_DEF int32_t
 _cx_MEMB(_clone_r_)(_cx_Self* self, _cx_node* src, int32_t sn) {
     if (sn == 0)
         return 0;
@@ -1288,8 +1279,7 @@ _cx_MEMB(_drop)(_cx_Self* self) {
 #undef i_realloc
 #undef i_free
 
-#undef i_cmp_native
-#undef i_no_cmp
+#undef i_use_cmp
 #undef i_no_hash
 #undef i_no_clone
 #undef i_no_emplace

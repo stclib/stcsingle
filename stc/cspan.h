@@ -119,20 +119,19 @@ typedef long long _llong;
 #define c_no_atomic             (1<<1)
 #define c_no_clone              (1<<2)
 #define c_no_emplace            (1<<3)
-#define c_no_cmp                (1<<4)
-#define c_native_cmp            (1<<5)
-#define c_no_hash               (1<<6)
+#define c_no_hash               (1<<4)
+#define c_use_cmp               (1<<5)
 /* Function macros and others */
 
 #define c_litstrlen(literal) (c_sizeof("" literal) - 1)
 #define c_arraylen(a) (intptr_t)(sizeof(a)/sizeof 0[a])
 
-// Non-owning c-string
-typedef const char* crawstr;
-#define crawstr_clone(s) (s)
-#define crawstr_drop(p) ((void)p)
-#define crawstr_cmp(xp, yp) strcmp(*(xp), *(yp))
-#define crawstr_hash(p) cstrhash(*(p))
+// Non-owning c-string "class"
+typedef const char* ccharptr;
+#define ccharptr_cmp(xp, yp) strcmp(*(xp), *(yp))
+#define ccharptr_hash(p) cstrhash(*(p))
+#define ccharptr_clone(s) (s)
+#define ccharptr_drop(p) ((void)p)
 
 #define c_sv(...) c_MACRO_OVERLOAD(c_sv, __VA_ARGS__)
 #define c_sv_1(lit) c_sv_2(lit, c_litstrlen(lit))
@@ -250,7 +249,11 @@ STC_INLINE intptr_t cnextpow2(intptr_t n) {
 
 #define using_cspan(...) c_MACRO_OVERLOAD(using_cspan, __VA_ARGS__)
 #define using_cspan_2(Self, T) \
-    using_cspan_3(Self, T, 1)
+    using_cspan_3(Self, T, 1); \
+    STC_INLINE Self Self##_from_n(Self##_raw* raw, const intptr_t n) { \
+        return (Self){.data=raw, .shape={(int32_t)n}, .stride={.d={1}}}; \
+    } \
+    struct stc_nostruct
 
 #define using_cspan_3(Self, T, RANK) \
     typedef T Self##_value; typedef T Self##_raw; \
@@ -262,9 +265,6 @@ STC_INLINE intptr_t cnextpow2(intptr_t n) {
     \
     typedef struct { Self##_value *ref; int32_t pos[RANK]; const Self *_s; } Self##_iter; \
     \
-    STC_INLINE Self Self##_from_n(Self##_raw* raw, const intptr_t n) { \
-        return (Self){.data=raw, .shape={(int32_t)n}}; \
-    } \
     STC_INLINE Self Self##_slice_(Self##_value* d, const int32_t shape[], const int32_t stri[], \
                                   const int rank, const int32_t a[][2]) { \
         Self s; int outrank; \
@@ -289,7 +289,7 @@ STC_INLINE intptr_t cnextpow2(intptr_t n) {
     } \
     struct stc_nostruct
 
-#define using_cspan2(Self, T) using_cspan_3(Self, T, 1); using_cspan_3(Self##2, T, 2)
+#define using_cspan2(Self, T) using_cspan_2(Self, T); using_cspan_3(Self##2, T, 2)
 #define using_cspan3(Self, T) using_cspan2(Self, T); using_cspan_3(Self##3, T, 3)
 #define using_cspan4(Self, T) using_cspan3(Self, T); using_cspan_3(Self##4, T, 4)
 #define using_cspan_tuple(N) typedef struct { int32_t d[N]; } cspan_tuple##N
@@ -309,8 +309,11 @@ using_cspan_tuple(7); using_cspan_tuple(8);
 #define cspan_from(container) \
     {.data=(container)->data, .shape={(int32_t)(container)->_len}, .stride={.d={1}}}
 
+#define cspan_from_n(ptr, n) \
+    {.data=(ptr), .shape={n}, .stride={.d={1}}}
+
 #define cspan_from_array(array) \
-    {.data=(array), .shape={c_arraylen(array)}, .stride={.d={1}}}
+    cspan_from_n(array, c_arraylen(array))
 
 #define cspan_size(self) _cspan_size((self)->shape, cspan_rank(self))
 #define cspan_rank(self) c_arraylen((self)->shape)

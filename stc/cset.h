@@ -125,20 +125,19 @@ typedef long long _llong;
 #define c_no_atomic             (1<<1)
 #define c_no_clone              (1<<2)
 #define c_no_emplace            (1<<3)
-#define c_no_cmp                (1<<4)
-#define c_native_cmp            (1<<5)
-#define c_no_hash               (1<<6)
+#define c_no_hash               (1<<4)
+#define c_use_cmp               (1<<5)
 /* Function macros and others */
 
 #define c_litstrlen(literal) (c_sizeof("" literal) - 1)
 #define c_arraylen(a) (intptr_t)(sizeof(a)/sizeof 0[a])
 
-// Non-owning c-string
-typedef const char* crawstr;
-#define crawstr_clone(s) (s)
-#define crawstr_drop(p) ((void)p)
-#define crawstr_cmp(xp, yp) strcmp(*(xp), *(yp))
-#define crawstr_hash(p) cstrhash(*(p))
+// Non-owning c-string "class"
+typedef const char* ccharptr;
+#define ccharptr_cmp(xp, yp) strcmp(*(xp), *(yp))
+#define ccharptr_hash(p) cstrhash(*(p))
+#define ccharptr_clone(s) (s)
+#define ccharptr_drop(p) ((void)p)
 
 #define c_sv(...) c_MACRO_OVERLOAD(c_sv, __VA_ARGS__)
 #define c_sv_1(lit) c_sv_2(lit, c_litstrlen(lit))
@@ -341,8 +340,6 @@ typedef union {
         SELF##_node *last; \
     } SELF
 
-typedef struct chash_slot chash_slot;
-
 #define _c_chash_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
@@ -354,16 +351,17 @@ typedef struct chash_slot chash_slot;
     typedef struct { \
         SELF##_value *ref; \
         bool inserted; \
+        uint8_t hashx; \
     } SELF##_result; \
 \
     typedef struct { \
         SELF##_value *ref, *_end; \
-        chash_slot* sref; \
+        struct chash_slot* sref; \
     } SELF##_iter; \
 \
     typedef struct SELF { \
         SELF##_value* data; \
-        chash_slot* slot; \
+        struct chash_slot* slot; \
         intptr_t size, bucket_count; \
     } SELF
 
@@ -417,7 +415,6 @@ typedef struct chash_slot chash_slot;
 #include <stdlib.h>
 #include <string.h>
 struct chash_slot { uint8_t hashx; };
-typedef struct { intptr_t idx; uint8_t hashx, found; } chash_bucket;
 #endif // CMAP_H_INCLUDED
 
 #ifndef _i_prefix
@@ -432,6 +429,7 @@ typedef struct { intptr_t idx; uint8_t hashx, found; } chash_bucket;
   #define _i_SET_ONLY c_true
   #define _i_keyref(vp) (vp)
 #endif
+#define _i_ishash
 // ### BEGIN_FILE_INCLUDE: template.h
 #ifndef _i_template
 #define _i_template
@@ -506,17 +504,14 @@ typedef struct { intptr_t idx; uint8_t hashx, found; } chash_bucket;
 #if c_option(c_is_forward)
   #define i_is_forward
 #endif
-#if c_option(c_no_cmp)
-  #define i_no_cmp
-#endif
 #if c_option(c_no_hash)
   #define i_no_hash
 #endif
 #if c_option(c_no_emplace)
   #define i_no_emplace
 #endif
-#if c_option(c_native_cmp)
-  #define i_cmp_native
+#if c_option(c_use_cmp) || defined _i_ismap || defined _i_isset || defined _i_ispque
+  #define i_use_cmp
 #endif
 #if c_option(c_no_clone) || defined _i_carc
   #define i_no_clone
@@ -524,7 +519,7 @@ typedef struct { intptr_t idx; uint8_t hashx, found; } chash_bucket;
 
 #if defined i_key_str
   #define i_keyclass cstr
-  #define i_rawclass crawstr
+  #define i_rawclass ccharptr
   #ifndef i_tag
     #define i_tag str
   #endif
@@ -540,7 +535,7 @@ typedef struct { intptr_t idx; uint8_t hashx, found; } chash_bucket;
 #elif defined i_keyboxed
   #define i_keyclass i_keyboxed
   #define i_rawclass c_PASTE(i_keyboxed, _raw)
-  #ifndef i_no_cmp
+  #if defined i_use_cmp
     #define i_eq c_PASTE(i_keyboxed, _raw_eq)
   #endif
 #endif
@@ -551,37 +546,42 @@ typedef struct { intptr_t idx; uint8_t hashx, found; } chash_bucket;
   #define i_rawclass i_key
 #endif
 
-#ifdef i_keyclass
+#if defined i_keyclass
   #define i_key i_keyclass
   #ifndef i_keyclone
     #define i_keyclone c_PASTE(i_key, _clone)
   #endif
-  #if !defined i_keyto && defined i_keyraw
-    #define i_keyto c_PASTE(i_key, _toraw)
+  #ifndef i_keydrop
+    #define i_keydrop c_PASTE(i_key, _drop)
   #endif
   #if !defined i_keyfrom && defined i_keyraw
     #define i_keyfrom c_PASTE(i_key, _from)
   #endif
-  #ifndef i_keydrop
-    #define i_keydrop c_PASTE(i_key, _drop)
+  #if !defined i_keyto && defined i_keyraw
+    #define i_keyto c_PASTE(i_key, _toraw)
+  #endif
+  #if !defined i_keyraw && (defined i_cmp || defined i_less || defined i_eq || defined i_hash)
+    #define i_use_cmp
   #endif
 #endif
 
-#ifdef i_rawclass
-  #if !(defined i_cmp || defined i_no_cmp)
+#if defined i_rawclass && defined i_use_cmp
+  #if !(defined i_cmp || defined i_less)
     #define i_cmp c_PASTE(i_keyraw, _cmp)
   #endif
-  #if !(defined i_hash || defined i_no_hash || defined i_no_cmp)
+  #if !(defined i_hash || defined i_no_hash)
     #define i_hash c_PASTE(i_keyraw, _hash)
   #endif
 #endif
 
-#if !defined i_keyraw && !defined i_no_clone
-  #if !defined i_keyfrom && defined i_keyclone
-    #define i_keyfrom i_keyclone
-  #elif !defined i_keyclone && defined i_keyfrom
-    #define i_keyclone i_keyfrom
-  #endif
+#if defined i_cmp || defined i_less || defined i_use_cmp
+  #define _i_has_cmp
+#endif
+#if defined i_eq || defined i_use_cmp
+  #define _i_has_eq
+#endif
+#if !(defined i_hash || defined i_no_hash)
+  #define i_hash c_default_hash
 #endif
 
 #if !defined i_key
@@ -589,9 +589,13 @@ typedef struct { intptr_t idx; uint8_t hashx, found; } chash_bucket;
 #elif defined i_keyraw ^ defined i_keyto
   #error "Both i_keyraw/i_valraw and i_keyto/i_valto must be defined, if any"
 #elif !defined i_no_clone && (defined i_keyclone ^ defined i_keydrop)
-  #error "Both i_keyclone/i_valclone and i_keydrop/i_valdrop must be defined, if any"
+  #error "Both i_keyclone/i_valclone and i_keydrop/i_valdrop must be defined, if any (unless i_no_clone defined)."
 #elif defined i_from || defined i_drop
   #error "i_from / i_drop not supported. Define i_keyfrom/i_valfrom and/or i_keydrop/i_valdrop instead"
+#elif defined i_keyraw && defined _i_ishash && !(defined i_hash && (defined _i_has_cmp || defined i_eq))
+  #error "For cmap/cset, both i_hash and i_eq (or i_less or i_cmp) must be defined when i_keyraw is defined."
+#elif defined i_keyraw && defined i_use_cmp && !defined _i_has_cmp
+  #error "For csmap/csset/cpque, i_cmp or i_less must be defined when i_keyraw is defined."
 #endif
 
 #ifndef i_tag
@@ -615,34 +619,21 @@ typedef struct { intptr_t idx; uint8_t hashx, found; } chash_bucket;
   #define i_keydrop c_default_drop
 #endif
 
-#ifndef i_no_cmp
-  #if defined i_cmp || defined i_less || defined i_cmp_native
-    #define _i_has_cmp
-  #endif
-  #if defined i_eq || defined i_cmp_native
-    #define _i_has_eq
-  #endif
-  
-  // i_eq, i_less, i_cmp
-  #if !defined i_eq && (defined i_cmp || defined i_less)
-    #define i_eq(x, y) !(i_cmp(x, y))
-  #elif !defined i_eq
-    #define i_eq(x, y) *x == *y
-  #endif
-  #if defined i_cmp && defined i_less
-    #error "Only one of i_cmp and i_less may be defined"
-  #elif defined i_cmp
-    #define i_less(x, y) (i_cmp(x, y)) < 0
-  #elif !defined i_less
-    #define i_less(x, y) *x < *y
-  #endif
-  #ifndef i_cmp
-    #define i_cmp(x, y) (i_less(y, x)) - (i_less(x, y))
-  #endif
+// i_eq, i_less, i_cmp
+#if !defined i_eq && (defined i_cmp || defined i_less)
+  #define i_eq(x, y) !(i_cmp(x, y))
+#elif !defined i_eq
+  #define i_eq(x, y) *x == *y
 #endif
-
-#if !defined i_hash && (!(defined _i_cbox || defined _i_carc) || defined i_cmp_native)
-  #define i_hash c_default_hash
+#if defined i_cmp && defined i_less
+  #error "Only one of i_cmp and i_less may be defined"
+#elif defined i_cmp
+  #define i_less(x, y) (i_cmp(x, y)) < 0
+#elif !defined i_less
+  #define i_less(x, y) *x < *y
+#endif
+#ifndef i_cmp
+  #define i_cmp(x, y) (i_less(y, x)) - (i_less(x, y))
 #endif
 
 #if defined _i_ismap // ---- process cmap/csmap value i_val, ... ----
@@ -665,22 +656,14 @@ typedef struct { intptr_t idx; uint8_t hashx, found; } chash_bucket;
   #ifndef i_valclone
     #define i_valclone c_PASTE(i_val, _clone)
   #endif
-  #if !defined i_valto && defined i_valraw
-    #define i_valto c_PASTE(i_val, _toraw)
+  #ifndef i_valdrop
+    #define i_valdrop c_PASTE(i_val, _drop)
   #endif
   #if !defined i_valfrom && defined i_valraw
     #define i_valfrom c_PASTE(i_val, _from)
   #endif
-  #ifndef i_valdrop
-    #define i_valdrop c_PASTE(i_val, _drop)
-  #endif
-#endif
-
-#if !defined i_valraw && !defined i_no_clone
-  #if !defined i_valfrom && defined i_valclone
-    #define i_valfrom i_valclone
-  #elif !defined i_valclone && defined i_valfrom
-    #define i_valclone i_valfrom
+  #if !defined i_valto && defined i_valraw
+    #define i_valto c_PASTE(i_val, _toraw)
   #endif
 #endif
 
@@ -746,7 +729,7 @@ STC_API _cx_Self        _cx_MEMB(_clone)(_cx_Self map);
 STC_API void            _cx_MEMB(_drop)(_cx_Self* self);
 STC_API void            _cx_MEMB(_clear)(_cx_Self* self);
 STC_API bool            _cx_MEMB(_reserve)(_cx_Self* self, intptr_t capacity);
-STC_API chash_bucket    _cx_MEMB(_bucket_)(const _cx_Self* self, const _cx_keyraw* rkeyptr);
+STC_API _cx_result      _cx_MEMB(_bucket_)(const _cx_Self* self, const _cx_keyraw* rkeyptr);
 STC_API _cx_result      _cx_MEMB(_insert_entry_)(_cx_Self* self, _cx_keyraw rkey);
 STC_API void            _cx_MEMB(_erase_entry)(_cx_Self* self, _cx_value* val);
 STC_API float           _cx_MEMB(_max_load_factor)(const _cx_Self* self);
@@ -758,9 +741,9 @@ STC_INLINE bool         _cx_MEMB(_empty)(const _cx_Self* map) { return !map->siz
 STC_INLINE intptr_t     _cx_MEMB(_size)(const _cx_Self* map) { return (intptr_t)map->size; }
 STC_INLINE intptr_t     _cx_MEMB(_bucket_count)(_cx_Self* map) { return map->bucket_count; }
 STC_INLINE bool         _cx_MEMB(_contains)(const _cx_Self* self, _cx_keyraw rkey)
-                            { return self->size && _cx_MEMB(_bucket_)(self, &rkey).found; }
+                            { return self->size && !_cx_MEMB(_bucket_)(self, &rkey).inserted; }
 
-#ifndef _i_isset
+#ifdef _i_ismap
     STC_API _cx_result _cx_MEMB(_insert_or_assign)(_cx_Self* self, i_key key, i_val mapped);
     #if !defined i_no_emplace
         STC_API _cx_result  _cx_MEMB(_emplace_or_assign)(_cx_Self* self, _cx_keyraw rkey, i_valraw rmapped);
@@ -768,14 +751,15 @@ STC_INLINE bool         _cx_MEMB(_contains)(const _cx_Self* self, _cx_keyraw rke
 
     STC_INLINE const _cx_mapped*
     _cx_MEMB(_at)(const _cx_Self* self, _cx_keyraw rkey) {
-        chash_bucket b = _cx_MEMB(_bucket_)(self, &rkey);
-        c_assert(b.found);
-        return &self->data[b.idx].second;
+        _cx_result b = _cx_MEMB(_bucket_)(self, &rkey);
+        c_assert(!b.inserted);
+        return &b.ref->second;
     }
+
     STC_INLINE _cx_mapped*
     _cx_MEMB(_at_mut)(_cx_Self* self, _cx_keyraw rkey)
         { return (_cx_mapped*)_cx_MEMB(_at)(self, rkey); }
-#endif // !_i_isset
+#endif // _i_ismap
 
 #if !defined i_no_clone
 STC_INLINE void _cx_MEMB(_copy)(_cx_Self *self, const _cx_Self* other) {
@@ -803,6 +787,16 @@ _cx_MEMB(_emplace)(_cx_Self* self, _cx_keyraw rkey _i_MAP_ONLY(, i_valraw rmappe
     }
     return _res;
 }
+
+#ifdef _i_ismap
+    STC_INLINE _cx_result
+    _cx_MEMB(_emplace_key)(_cx_Self* self, _cx_keyraw rkey) {
+        _cx_result _res = _cx_MEMB(_insert_entry_)(self, rkey);
+        if (_res.inserted)
+            _res.ref->first = i_keyfrom(rkey);
+        return _res;
+    }
+#endif // _i_ismap
 #endif // !i_no_emplace
 
 STC_INLINE _cx_raw _cx_MEMB(_value_toraw)(const _cx_value* val) {
@@ -867,19 +861,19 @@ STC_INLINE _cx_iter _cx_MEMB(_advance)(_cx_iter it, size_t n) {
 
 STC_INLINE _cx_iter
 _cx_MEMB(_find)(const _cx_Self* self, _cx_keyraw rkey) {
-    chash_bucket b;
-    if (self->size && (b = _cx_MEMB(_bucket_)(self, &rkey)).found)
-        return c_LITERAL(_cx_iter){self->data + b.idx, 
+    _cx_result b;
+    if (self->size && !(b = _cx_MEMB(_bucket_)(self, &rkey)).inserted)
+        return c_LITERAL(_cx_iter){b.ref, 
                                    self->data + self->bucket_count,
-                                   self->slot + b.idx};
+                                   self->slot + (b.ref - self->data)};
     return _cx_MEMB(_end)(self);
 }
 
 STC_INLINE const _cx_value*
 _cx_MEMB(_get)(const _cx_Self* self, _cx_keyraw rkey) {
-    chash_bucket b;
-    if (self->size && (b = _cx_MEMB(_bucket_)(self, &rkey)).found)
-        return self->data + b.idx;
+    _cx_result b;
+    if (self->size && !(b = _cx_MEMB(_bucket_)(self, &rkey)).inserted)
+        return b.ref;
     return NULL;
 }
 
@@ -889,10 +883,10 @@ _cx_MEMB(_get_mut)(_cx_Self* self, _cx_keyraw rkey)
 
 STC_INLINE int
 _cx_MEMB(_erase)(_cx_Self* self, _cx_keyraw rkey) {
-    chash_bucket b = {0};
-    if (self->size && (b = _cx_MEMB(_bucket_)(self, &rkey)).found)
-        _cx_MEMB(_erase_entry)(self, self->data + b.idx);
-    return b.found;
+    _cx_result b;
+    if (self->size && !(b = _cx_MEMB(_bucket_)(self, &rkey)).inserted)
+        { _cx_MEMB(_erase_entry)(self, b.ref); return 1; }
+    return 0;
 }
 
 STC_INLINE _cx_iter
@@ -947,7 +941,7 @@ STC_INLINE void _cx_MEMB(_wipe_)(_cx_Self* self) {
     if (self->size == 0)
         return;
     _cx_value* d = self->data, *_end = d + self->bucket_count;
-    chash_slot* s = self->slot;
+    struct chash_slot* s = self->slot;
     for (; d != _end; ++d)
         if ((s++)->hashx)
             _cx_MEMB(_value_drop)(d);
@@ -962,10 +956,10 @@ STC_DEF void _cx_MEMB(_drop)(_cx_Self* self) {
 STC_DEF void _cx_MEMB(_clear)(_cx_Self* self) {
     _cx_MEMB(_wipe_)(self);
     self->size = 0;
-    c_memset(self->slot, 0, c_sizeof(chash_slot)*self->bucket_count);
+    c_memset(self->slot, 0, c_sizeof(struct chash_slot)*self->bucket_count);
 }
 
-#ifndef _i_isset
+#ifdef _i_ismap
     STC_DEF _cx_result
     _cx_MEMB(_insert_or_assign)(_cx_Self* self, i_key _key, i_val _mapped) {
         _cx_result _res = _cx_MEMB(_insert_entry_)(self, i_keyto((&_key)));
@@ -992,42 +986,41 @@ STC_DEF void _cx_MEMB(_clear)(_cx_Self* self) {
         return _res;
     }
     #endif // !i_no_emplace
-#endif // !_i_isset
+#endif // _i_ismap
 
-STC_DEF chash_bucket
+STC_DEF _cx_result
 _cx_MEMB(_bucket_)(const _cx_Self* self, const _cx_keyraw* rkeyptr) {
     const uint64_t _hash = i_hash(rkeyptr);
     intptr_t _cap = self->bucket_count;
-    chash_bucket b = {fastrange_2(_hash, _cap), (uint8_t)(_hash | 0x80)};
-    const chash_slot* s = self->slot;
-    while (s[b.idx].hashx) {
-        if (s[b.idx].hashx == b.hashx) {
-            const _cx_keyraw _raw = i_keyto(_i_keyref(self->data + b.idx));
+    intptr_t _idx = fastrange_2(_hash, _cap);
+    _cx_result b = {NULL, true, (uint8_t)(_hash | 0x80)};
+    const struct chash_slot* s = self->slot;
+    while (s[_idx].hashx) {
+        if (s[_idx].hashx == b.hashx) {
+            const _cx_keyraw _raw = i_keyto(_i_keyref(self->data + _idx));
             if (i_eq((&_raw), rkeyptr)) {
-                b.found = true; 
+                b.inserted = false; 
                 break;
             }
         }
-        if (++b.idx == _cap) b.idx = 0;
+        if (++_idx == _cap) _idx = 0;
     }
+    b.ref = self->data + _idx;
     return b;
 }
 
 STC_DEF _cx_result
 _cx_MEMB(_insert_entry_)(_cx_Self* self, _cx_keyraw rkey) {
-    _cx_result res = {NULL};
     if (self->size >= (intptr_t)((float)self->bucket_count * (i_max_load_factor)))
         if (!_cx_MEMB(_reserve)(self, (intptr_t)(self->size*3/2 + 2)))
-            return res;
+            return c_LITERAL(_cx_result){NULL};
 
-    chash_bucket b = _cx_MEMB(_bucket_)(self, &rkey);
-    res.ref = &self->data[b.idx];
-    if (!b.found) {
-        self->slot[b.idx].hashx = b.hashx;
-        res.inserted = true;
+    _cx_result b = _cx_MEMB(_bucket_)(self, &rkey);
+    if (b.inserted) {
+        self->slot[b.ref - self->data].hashx = b.hashx;
         ++self->size;
     }
-    return res;
+    return b;
 }
 
 #if !defined i_no_clone
@@ -1036,8 +1029,8 @@ _cx_MEMB(_clone)(_cx_Self m) {
     if (m.data) {
         _cx_value *d = (_cx_value *)i_malloc(c_sizeof(_cx_value)*m.bucket_count),
                   *_dst = d, *_end = m.data + m.bucket_count;
-        const intptr_t _mem = c_sizeof(chash_slot)*(m.bucket_count + 1);
-        chash_slot *s = (chash_slot *)c_memcpy(i_malloc(_mem), m.slot, _mem);
+        const intptr_t _mem = c_sizeof(struct chash_slot)*(m.bucket_count + 1);
+        struct chash_slot *s = (struct chash_slot *)c_memcpy(i_malloc(_mem), m.slot, _mem);
         if (!(d && s)) 
             { i_free(d), i_free(s), d = 0, s = 0, m.bucket_count = 0; }
         else
@@ -1059,19 +1052,19 @@ _cx_MEMB(_reserve)(_cx_Self* self, const intptr_t _newcap) {
     _newbucks = cnextpow2(_newbucks);
     _cx_Self m = {
         (_cx_value *)i_malloc(_newbucks*c_sizeof(_cx_value)),
-        (chash_slot *)i_calloc(_newbucks + 1, sizeof(chash_slot)),
+        (struct chash_slot *)i_calloc(_newbucks + 1, sizeof(struct chash_slot)),
         self->size, _newbucks
     };
     bool ok = m.data && m.slot;
     if (ok) {  // Rehash:
         m.slot[_newbucks].hashx = 0xff;
         const _cx_value* d = self->data;
-        const chash_slot* s = self->slot;
+        const struct chash_slot* s = self->slot;
         for (intptr_t i = 0; i < _oldbucks; ++i, ++d) if ((s++)->hashx) {
             _cx_keyraw r = i_keyto(_i_keyref(d));
-            chash_bucket b = _cx_MEMB(_bucket_)(&m, &r);
-            m.slot[b.idx].hashx = b.hashx;
-            m.data[b.idx] = *d; // move
+            _cx_result b = _cx_MEMB(_bucket_)(&m, &r);
+            m.slot[b.ref - m.data].hashx = b.hashx;
+            *b.ref = *d; // move
         }
         c_swap(_cx_Self, self, &m);
     }
@@ -1083,7 +1076,7 @@ _cx_MEMB(_reserve)(_cx_Self* self, const intptr_t _newcap) {
 STC_DEF void
 _cx_MEMB(_erase_entry)(_cx_Self* self, _cx_value* _val) {
     _cx_value* d = self->data;
-    chash_slot* s = self->slot;
+    struct chash_slot* s = self->slot;
     intptr_t i = _val - d, j = i, k;
     const intptr_t _cap = self->bucket_count;
     _cx_MEMB(_value_drop)(_val);
@@ -1106,6 +1099,7 @@ _cx_MEMB(_erase_entry)(_cx_Self* self, _cx_value* _val) {
 #undef i_max_load_factor
 #undef _i_isset
 #undef _i_ismap
+#undef _i_ishash
 #undef _i_keyref
 #undef _i_MAP_ONLY
 #undef _i_SET_ONLY
@@ -1158,8 +1152,7 @@ _cx_MEMB(_erase_entry)(_cx_Self* self, _cx_value* _val) {
 #undef i_realloc
 #undef i_free
 
-#undef i_cmp_native
-#undef i_no_cmp
+#undef i_use_cmp
 #undef i_no_hash
 #undef i_no_clone
 #undef i_no_emplace

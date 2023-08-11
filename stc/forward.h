@@ -86,8 +86,6 @@ typedef union {
         SELF##_node *last; \
     } SELF
 
-typedef struct chash_slot chash_slot;
-
 #define _c_chash_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
@@ -99,16 +97,17 @@ typedef struct chash_slot chash_slot;
     typedef struct { \
         SELF##_value *ref; \
         bool inserted; \
+        uint8_t hashx; \
     } SELF##_result; \
 \
     typedef struct { \
         SELF##_value *ref, *_end; \
-        chash_slot* sref; \
+        struct chash_slot* sref; \
     } SELF##_iter; \
 \
     typedef struct SELF { \
         SELF##_value* data; \
-        chash_slot* slot; \
+        struct chash_slot* slot; \
         intptr_t size, bucket_count; \
     } SELF
 
