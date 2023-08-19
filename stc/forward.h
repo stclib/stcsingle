@@ -18,19 +18,35 @@
 #define forward_cqueue(CX, VAL) _c_cdeq_types(CX, VAL)
 #define forward_cvec(CX, VAL) _c_cvec_types(CX, VAL)
 
-// csview
+// csview : non-null terminated string view
 typedef const char csview_value;
 typedef struct csview { 
-    csview_value* str; 
+    csview_value* buf; 
     intptr_t size;
 } csview;
 
 typedef union { 
     csview_value* ref; 
+    csview chr;
     struct { csview chr; csview_value* end; } u8;
 } csview_iter;
 
-// cstr
+
+// crawstr : null-terminated string view
+typedef csview_value crawstr_value;
+typedef struct crawstr { 
+    crawstr_value* str; 
+    intptr_t size;
+} crawstr;
+
+typedef union { 
+    crawstr_value* ref; 
+    csview chr;
+    struct { csview chr; } u8; // [deprecated]
+} crawstr_iter;
+
+
+// cstr : null-terminated string (short string optimized - sso)
 typedef char cstr_value;
 typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {
@@ -40,8 +56,10 @@ typedef union cstr {
 
 typedef union { 
     cstr_value* ref; 
-    struct { csview chr; } u8;
+    csview chr;
+    struct { csview chr; } u8; // [deprecated]
 } cstr_iter;
+
 
 #define c_true(...) __VA_ARGS__
 #define c_false(...)

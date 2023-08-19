@@ -91,16 +91,16 @@ typedef long long _llong;
 #define c_const_cast(T, p)      ((T)(1 ? (p) : (T)0))
 #define c_swap(T, xp, yp)       do { T *_xp = xp, *_yp = yp, \
                                     _tv = *_xp; *_xp = *_yp; *_yp = _tv; } while (0)
+// use with gcc -Wsign-conversion
 #define c_sizeof                (intptr_t)sizeof
 #define c_strlen(s)             (intptr_t)strlen(s)
-
 #define c_strncmp(a, b, ilen)   strncmp(a, b, c_i2u(ilen))
 #define c_memcpy(d, s, ilen)    memcpy(d, s, c_i2u(ilen))
 #define c_memmove(d, s, ilen)   memmove(d, s, c_i2u(ilen))
 #define c_memset(d, val, ilen)  memset(d, val, c_i2u(ilen))
 #define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u(ilen))
-#define c_u2i(u)                ((intptr_t)(1 ? (u) : (size_t)1))
-#define c_i2u(i)                ((size_t)(1 ? (i) : (intptr_t)1))
+#define c_u2i(u)                (intptr_t)(1 ? (u) : (size_t)1)
+#define c_i2u(i)                (size_t)(1 ? (i) : -1)
 #define c_LTu(a, b)             ((size_t)(a) < (size_t)(b))
 
 // x and y are i_keyraw* type, defaults to i_key*:
@@ -134,10 +134,13 @@ typedef const char* ccharptr;
 #define ccharptr_drop(p) ((void)p)
 
 #define c_sv(...) c_MACRO_OVERLOAD(c_sv, __VA_ARGS__)
-#define c_sv_1(lit) c_sv_2(lit, c_litstrlen(lit))
+#define c_sv_1(literal) c_sv_2(literal, c_litstrlen(literal))
 #define c_sv_2(str, n) (c_LITERAL(csview){str, n})
+#define c_SV(sv) (int)(sv).size, (sv).buf // printf("%.*s\n", c_SV(sv));
 
-#define c_SV(sv) (int)(sv).size, (sv).str // print csview: use format "%.*s"
+#define c_rs(literal) c_rs_2(literal, c_litstrlen(literal))
+#define c_rs_2(str, n) (c_LITERAL(crawstr){str, n})
+
 #define c_ROTL(x, k) (x << (k) | x >> (8*sizeof(x) - (k)))
 
 STC_INLINE uint64_t cfasthash(const void* key, intptr_t len) {
@@ -281,11 +284,9 @@ STC_INLINE intptr_t cnextpow2(intptr_t n) {
         return it; \
     } \
     STC_INLINE void Self##_next(Self##_iter* it) { \
-        static const struct { int8_t i, j, inc; } t[2] = {{RANK - 1, 0, -1}, {0, RANK - 1, 1}}; \
-        const int order = (it->_s->stride.d[0] < it->_s->stride.d[RANK - 1]); /* 0='C', 1='F' */ \
-        it->ref += _cspan_next##RANK(it->pos, it->_s->shape, it->_s->stride.d, RANK, t[order].i, t[order].inc); \
-        if (it->pos[t[order].j] == it->_s->shape[t[order].j]) \
-            it->ref = NULL; \
+        int done; \
+        it->ref += _cspan_next##RANK(it->pos, it->_s->shape, it->_s->stride.d, RANK, &done); \
+        if (done) it->ref = NULL; \
     } \
     struct stc_nostruct
 
@@ -409,16 +410,8 @@ STC_INLINE intptr_t _cspan_idxN(int rank, const int32_t shape[], const int32_t s
     return off;
 }
 
-STC_INLINE intptr_t _cspan_next2(int32_t pos[], const int32_t shape[], const int32_t stride[], int rank, int i, int inc) {
-    intptr_t off = stride[i];
-    ++pos[i];
-    for (; --rank && pos[i] == shape[i]; i += inc) {
-        pos[i] = 0; ++pos[i + inc];
-        off += stride[i + inc] - stride[i]*shape[i];
-    }
-    return off;
-}
-#define _cspan_next1(pos, shape, stride, rank, i, inc) (++pos[0], stride[0])
+STC_API intptr_t _cspan_next2(int32_t pos[], const int32_t shape[], const int32_t stride[], int rank, int* done);
+#define _cspan_next1(pos, shape, stride, rank, done) (*done = ++pos[0]==shape[0], stride[0])
 #define _cspan_next3 _cspan_next2
 #define _cspan_next4 _cspan_next2
 #define _cspan_next5 _cspan_next2
@@ -435,6 +428,19 @@ STC_API int32_t* _cspan_shape2stride(char order, int32_t shape[], int rank);
 
 /* --------------------- IMPLEMENTATION --------------------- */
 #if defined(i_implement) || defined(i_static)
+
+STC_DEF intptr_t _cspan_next2(int32_t pos[], const int32_t shape[], const int32_t stride[], int rank, int* done) {
+    int i, inc;
+    if (stride[0] < stride[rank - 1]) i = rank - 1, inc = -1; else i = 0, inc = 1;
+    intptr_t off = stride[i];
+    ++pos[i];
+    for (; --rank && pos[i] == shape[i]; i += inc) {
+        pos[i] = 0; ++pos[i + inc];
+        off += stride[i + inc] - stride[i]*shape[i];
+    }
+    *done = pos[i] == shape[i];
+    return off;
+}
 
 STC_DEF int32_t* _cspan_shape2stride(char order, int32_t shape[], int rank) {
     int32_t k = 1, i, j, inc, s1, s2;

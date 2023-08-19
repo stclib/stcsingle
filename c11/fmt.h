@@ -18,7 +18,7 @@
 #define _fmt_ARG_N(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
                    _14, _15, _16, N, ...) N
 
-#if defined FMT_NDEBUG || defined NDEBUG
+#if defined FMT_NDEBUG || defined STC_NDEBUG || defined NDEBUG
 #  define fmt_OK(exp) (void)(exp)
 #else
 #  define fmt_OK(exp) assert(exp)
@@ -130,7 +130,7 @@ void _fmt_bprint(fmt_stream*, const char* fmt, ...);
     const wchar_t*: "ls", \
     const void*: "p")
 
-#if defined FMT_IMPLEMENT || defined i_implement
+#if defined FMT_IMPLEMENT || defined STC_IMPLEMENT || defined i_implement
 
 #include <stdlib.h>
 #include <stdarg.h>
@@ -142,9 +142,9 @@ void fmt_close(fmt_stream* ss) {
 }
 
 const char* fmt_tm(const char *fmt, const struct tm *tp) {
-    static char buf[2][64], i = 0;
-    i = !i;
-    strftime(buf[i], 64, fmt, tp);
+    static char buf[2][64];
+    static  int i;
+    strftime(buf[(i = !i)], sizeof buf[0], fmt, tp);
     return buf[i];
 }
 

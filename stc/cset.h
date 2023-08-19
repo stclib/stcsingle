@@ -97,16 +97,16 @@ typedef long long _llong;
 #define c_const_cast(T, p)      ((T)(1 ? (p) : (T)0))
 #define c_swap(T, xp, yp)       do { T *_xp = xp, *_yp = yp, \
                                     _tv = *_xp; *_xp = *_yp; *_yp = _tv; } while (0)
+// use with gcc -Wsign-conversion
 #define c_sizeof                (intptr_t)sizeof
 #define c_strlen(s)             (intptr_t)strlen(s)
-
 #define c_strncmp(a, b, ilen)   strncmp(a, b, c_i2u(ilen))
 #define c_memcpy(d, s, ilen)    memcpy(d, s, c_i2u(ilen))
 #define c_memmove(d, s, ilen)   memmove(d, s, c_i2u(ilen))
 #define c_memset(d, val, ilen)  memset(d, val, c_i2u(ilen))
 #define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u(ilen))
-#define c_u2i(u)                ((intptr_t)(1 ? (u) : (size_t)1))
-#define c_i2u(i)                ((size_t)(1 ? (i) : (intptr_t)1))
+#define c_u2i(u)                (intptr_t)(1 ? (u) : (size_t)1)
+#define c_i2u(i)                (size_t)(1 ? (i) : -1)
 #define c_LTu(a, b)             ((size_t)(a) < (size_t)(b))
 
 // x and y are i_keyraw* type, defaults to i_key*:
@@ -140,10 +140,13 @@ typedef const char* ccharptr;
 #define ccharptr_drop(p) ((void)p)
 
 #define c_sv(...) c_MACRO_OVERLOAD(c_sv, __VA_ARGS__)
-#define c_sv_1(lit) c_sv_2(lit, c_litstrlen(lit))
+#define c_sv_1(literal) c_sv_2(literal, c_litstrlen(literal))
 #define c_sv_2(str, n) (c_LITERAL(csview){str, n})
+#define c_SV(sv) (int)(sv).size, (sv).buf // printf("%.*s\n", c_SV(sv));
 
-#define c_SV(sv) (int)(sv).size, (sv).str // print csview: use format "%.*s"
+#define c_rs(literal) c_rs_2(literal, c_litstrlen(literal))
+#define c_rs_2(str, n) (c_LITERAL(crawstr){str, n})
+
 #define c_ROTL(x, k) (x << (k) | x >> (8*sizeof(x) - (k)))
 
 STC_INLINE uint64_t cfasthash(const void* key, intptr_t len) {
@@ -272,19 +275,35 @@ STC_INLINE intptr_t cnextpow2(intptr_t n) {
 #define forward_cqueue(CX, VAL) _c_cdeq_types(CX, VAL)
 #define forward_cvec(CX, VAL) _c_cvec_types(CX, VAL)
 
-// csview
+// csview : non-null terminated string view
 typedef const char csview_value;
 typedef struct csview { 
-    csview_value* str; 
+    csview_value* buf; 
     intptr_t size;
 } csview;
 
 typedef union { 
     csview_value* ref; 
+    csview chr;
     struct { csview chr; csview_value* end; } u8;
 } csview_iter;
 
-// cstr
+
+// crawstr : null-terminated string view
+typedef csview_value crawstr_value;
+typedef struct crawstr { 
+    crawstr_value* str; 
+    intptr_t size;
+} crawstr;
+
+typedef union { 
+    crawstr_value* ref; 
+    csview chr;
+    struct { csview chr; } u8; // [deprecated]
+} crawstr_iter;
+
+
+// cstr : null-terminated string (short string optimized - sso)
 typedef char cstr_value;
 typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {
@@ -294,8 +313,10 @@ typedef union cstr {
 
 typedef union { 
     cstr_value* ref; 
-    struct { csview chr; } u8;
+    csview chr;
+    struct { csview chr; } u8; // [deprecated]
 } cstr_iter;
+
 
 #define c_true(...) __VA_ARGS__
 #define c_false(...)
@@ -1052,7 +1073,7 @@ _cx_MEMB(_reserve)(_cx_Self* self, const intptr_t _newcap) {
     _newbucks = cnextpow2(_newbucks);
     _cx_Self m = {
         (_cx_value *)i_malloc(_newbucks*c_sizeof(_cx_value)),
-        (struct chash_slot *)i_calloc(_newbucks + 1, sizeof(struct chash_slot)),
+        (struct chash_slot *)i_calloc(_newbucks + 1, c_sizeof(struct chash_slot)),
         self->size, _newbucks
     };
     bool ok = m.data && m.slot;
