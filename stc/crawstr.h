@@ -14,8 +14,8 @@
   #define STC_DEF
 #else
   #define i_static
-  #define STC_API static inline
-  #define STC_DEF static inline
+  #define STC_API static
+  #define STC_DEF STC_API
 #endif
 #if defined(STC_IMPLEMENT) || defined(i_import)
   #define i_implement
@@ -53,9 +53,9 @@ typedef long long _llong;
 
 /* Macro overloading feature support based on: https://rextester.com/ONP80107 */
 #define c_MACRO_OVERLOAD(name, ...) \
-    c_PASTE(c_CONCAT(name,_), c_NUMARGS(__VA_ARGS__))(__VA_ARGS__)
-#define c_CONCAT(a, b) a ## b
-#define c_PASTE(a, b) c_CONCAT(a, b)
+    c_JOIN(c_JOIN0(name,_),c_NUMARGS(__VA_ARGS__))(__VA_ARGS__)
+#define c_JOIN0(a, b) a ## b
+#define c_JOIN(a, b) c_JOIN0(a, b)
 #define c_EXPAND(...) __VA_ARGS__
 #define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
 #define _c_APPLY_ARG_N(args) c_EXPAND(_c_ARG_N args)
@@ -75,43 +75,42 @@ typedef long long _llong;
   #define c_new(T, ...)         ((T*)memcpy(malloc(sizeof(T)), ((T[]){__VA_ARGS__}), sizeof(T)))
   #define c_LITERAL(T)          (T)
 #endif
-#define c_new_n(T, n)           ((T*)malloc(sizeof(T)*(size_t)(n)))
-#define c_malloc(sz)            malloc(c_i2u(sz))
-#define c_calloc(n, sz)         calloc(c_i2u(n), c_i2u(sz))
-#define c_realloc(p, sz)        realloc(p, c_i2u(sz))
+#define c_new_n(T, n)           ((T*)malloc(sizeof(T)*c_i2u_size(n)))
+#define c_malloc(sz)            malloc(c_i2u_size(sz))
+#define c_calloc(n, sz)         calloc(c_i2u_size(n), c_i2u_size(sz))
+#define c_realloc(p, sz)        realloc(p, c_i2u_size(sz))
 #define c_free(p)               free(p)
 #define c_delete(T, ptr)        do { T *_tp = ptr; T##_drop(_tp); free(_tp); } while (0)
 
-#define c_static_assert(...)    c_MACRO_OVERLOAD(c_static_assert, __VA_ARGS__)
-#define c_static_assert_1(b)    ((int)(0*sizeof(int[(b) ? 1 : -1])))
-#define c_static_assert_2(b, m) c_static_assert_1(b)
+#define c_static_assert(expr)   (1 ? 0 : (int)sizeof(int[(expr) ? 1 : -1]))
 #if defined STC_NDEBUG || defined NDEBUG
-  #define c_assert(expr)        ((void)0)
+  #define c_assert(expr)        (0)
 #else
   #define c_assert(expr)        assert(expr)
 #endif
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
-#define c_const_cast(T, p)      ((T)(1 ? (p) : (T)0))
+#define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
+#define c_safe_cast(T, F, x)    ((T)(1 ? (x) : *(F*)0))
 #define c_swap(T, xp, yp)       do { T *_xp = xp, *_yp = yp, \
                                     _tv = *_xp; *_xp = *_yp; *_yp = _tv; } while (0)
-// use with gcc -Wsign-conversion
+// use with gcc -Wconversion
 #define c_sizeof                (intptr_t)sizeof
 #define c_strlen(s)             (intptr_t)strlen(s)
-#define c_strncmp(a, b, ilen)   strncmp(a, b, c_i2u(ilen))
-#define c_memcpy(d, s, ilen)    memcpy(d, s, c_i2u(ilen))
-#define c_memmove(d, s, ilen)   memmove(d, s, c_i2u(ilen))
-#define c_memset(d, val, ilen)  memset(d, val, c_i2u(ilen))
-#define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u(ilen))
-#define c_u2i(u)                (intptr_t)(1 ? (u) : (size_t)1)
-#define c_i2u(i)                (size_t)(1 ? (i) : -1)
-#define c_LTu(a, b)             ((size_t)(a) < (size_t)(b))
+#define c_strncmp(a, b, ilen)   strncmp(a, b, c_i2u_size(ilen))
+#define c_memcpy(d, s, ilen)    memcpy(d, s, c_i2u_size(ilen))
+#define c_memmove(d, s, ilen)   memmove(d, s, c_i2u_size(ilen))
+#define c_memset(d, val, ilen)  memset(d, val, c_i2u_size(ilen))
+#define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u_size(ilen))
+#define c_u2i_size(u)           (intptr_t)(1 ? (u) : (size_t)1)
+#define c_i2u_size(i)           (size_t)(1 ? (i) : -1)
+#define c_less_unsigned(a, b)   ((size_t)(a) < (size_t)(b))
 
 // x and y are i_keyraw* type, defaults to i_key*:
 #define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
 #define c_default_less(x, y)    (*(x) < *(y))
 #define c_default_eq(x, y)      (*(x) == *(y))
 #define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
-#define c_default_hash(x)       cfasthash(x, c_sizeof(*(x)))
+#define c_default_hash(x)       stc_hash(x, c_sizeof(*(x)))
 
 #define c_default_clone(v)      (v)
 #define c_default_toraw(vp)     (*(vp))
@@ -132,7 +131,7 @@ typedef long long _llong;
 // Non-owning c-string "class"
 typedef const char* ccharptr;
 #define ccharptr_cmp(xp, yp) strcmp(*(xp), *(yp))
-#define ccharptr_hash(p) cstrhash(*(p))
+#define ccharptr_hash(p) stc_strhash(*(p))
 #define ccharptr_clone(s) (s)
 #define ccharptr_drop(p) ((void)p)
 
@@ -146,7 +145,7 @@ typedef const char* ccharptr;
 
 #define c_ROTL(x, k) (x << (k) | x >> (8*sizeof(x) - (k)))
 
-STC_INLINE uint64_t cfasthash(const void* key, intptr_t len) {
+STC_INLINE uint64_t stc_hash(const void* key, intptr_t len) {
     uint32_t u4; uint64_t u8;
     switch (len) {
         case 8: memcpy(&u8, key, 8); return u8*0xc6a4a7935bd1e99d;
@@ -164,11 +163,11 @@ STC_INLINE uint64_t cfasthash(const void* key, intptr_t len) {
     return h ^ c_ROTL(h, 26);
 }
 
-STC_INLINE uint64_t cstrhash(const char *str)
-    { return cfasthash(str, c_strlen(str)); }
+STC_INLINE uint64_t stc_strhash(const char *str)
+    { return stc_hash(str, c_strlen(str)); }
 
-STC_INLINE char* cstrnstrn(const char *str, const char *needle,
-                           intptr_t slen, const intptr_t nlen) {
+STC_INLINE char* stc_strnstrn(const char *str, intptr_t slen, 
+                              const char *needle, intptr_t nlen) {
     if (!nlen) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
@@ -180,7 +179,7 @@ STC_INLINE char* cstrnstrn(const char *str, const char *needle,
     return NULL;
 }
 
-STC_INLINE intptr_t cnextpow2(intptr_t n) {
+STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
     n--;
     n |= n >> 1, n |= n >> 2;
     n |= n >> 4, n |= n >> 8;
@@ -196,7 +195,7 @@ STC_INLINE intptr_t cnextpow2(intptr_t n) {
 #define c_foreach_3(it, C, cnt) \
     for (C##_iter it = C##_begin(&cnt); it.ref; C##_next(&it))
 #define c_foreach_4(it, C, start, finish) \
-    for (C##_iter it = start, *_endref = (C##_iter*)(finish).ref \
+    for (C##_iter it = (start), *_endref = c_safe_cast(C##_iter*, C##_value*, (finish).ref) \
          ; it.ref != (C##_value*)_endref; C##_next(&it))
 
 #define c_forpair(key, val, C, cnt) /* structured binding */ \
@@ -204,13 +203,14 @@ STC_INLINE intptr_t cnextpow2(intptr_t n) {
          ; _.it.ref && (_.key = &_.it.ref->first, _.val = &_.it.ref->second) \
          ; C##_next(&_.it))
 
-#define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
-#define c_forrange_1(stop) c_forrange_3(_c_i, 0, stop)
-#define c_forrange_2(i, stop) c_forrange_3(i, 0, stop)
-#define c_forrange_3(i, start, stop) \
-    for (_llong i=start, _end=(_llong)(stop); i < _end; ++i)
-#define c_forrange_4(i, start, stop, step) \
-    for (_llong i=start, _inc=step, _end=(_llong)(stop) - (_inc > 0) \
+#define c_forrange(...) c_for(long long, __VA_ARGS__)
+#define c_for(...) c_MACRO_OVERLOAD(c_for, __VA_ARGS__)
+#define c_for_2(T, stop) c_for_4(T, _c_i, 0, stop)
+#define c_for_3(T, i, stop) c_for_4(T, i, 0, stop)
+#define c_for_4(T, i, start, stop) \
+    for (T i=start, _end=stop; i < _end; ++i)
+#define c_for_5(T, i, start, stop, step) \
+    for (T i=start, _inc=step, _end=(T)(stop) - (_inc > 0) \
          ; (_inc > 0) ^ (i > _end); i += _inc)
 
 #ifndef __cplusplus
@@ -275,13 +275,13 @@ STC_INLINE intptr_t cnextpow2(intptr_t n) {
 
 // csview : non-null terminated string view
 typedef const char csview_value;
-typedef struct csview { 
-    csview_value* buf; 
+typedef struct csview {
+    csview_value* buf;
     intptr_t size;
 } csview;
 
-typedef union { 
-    csview_value* ref; 
+typedef union {
+    csview_value* ref;
     csview chr;
     struct { csview chr; csview_value* end; } u8;
 } csview_iter;
@@ -289,13 +289,13 @@ typedef union {
 
 // crawstr : null-terminated string view
 typedef csview_value crawstr_value;
-typedef struct crawstr { 
-    crawstr_value* str; 
+typedef struct crawstr {
+    crawstr_value* str;
     intptr_t size;
 } crawstr;
 
-typedef union { 
-    crawstr_value* ref; 
+typedef union {
+    crawstr_value* ref;
     csview chr;
     struct { csview chr; } u8; // [deprecated]
 } crawstr_iter;
@@ -309,8 +309,8 @@ typedef union cstr {
     struct { cstr_value* data; size_t size, ncap; } lon;
 } cstr;
 
-typedef union { 
-    cstr_value* ref; 
+typedef union {
+    cstr_value* ref;
     csview chr;
     struct { csview chr; } u8; // [deprecated]
 } cstr_iter;
@@ -1319,7 +1319,7 @@ STC_INLINE bool crawstr_equals(crawstr rs, const char* str) {
 }
 
 STC_INLINE intptr_t crawstr_find(crawstr rs, const char* search) {
-    char* res = cstrnstrn(rs.str, search, rs.size, c_strlen(search));
+    char* res = strstr(rs.str, search);
     return res ? (res - rs.str) : c_NPOS;
 }
 
@@ -1372,7 +1372,7 @@ STC_INLINE bool crawstr_eq(const crawstr* x, const crawstr* y)
     { return x->size == y->size && !c_memcmp(x->str, y->str, x->size); }
 
 STC_INLINE uint64_t crawstr_hash(const crawstr *self)
-    { return cfasthash(self->str, self->size); }
+    { return stc_hash(self->str, self->size); }
 
 #endif // CRAWSTR_H_INCLUDED
 #undef i_static
