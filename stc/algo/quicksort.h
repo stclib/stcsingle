@@ -1,9 +1,11 @@
-// ### BEGIN_FILE_INCLUDE: sort.h
+// ### BEGIN_FILE_INCLUDE: quicksort.h
 // ### BEGIN_FILE_INCLUDE: ccommon.h
 #ifndef CCOMMON_H_INCLUDED
 #define CCOMMON_H_INCLUDED
 
-#define _CRT_SECURE_NO_WARNINGS
+#ifdef _MSC_VER
+    #pragma warning(disable: 4116 4996) // unnamed type definition in parentheses
+#endif
 #include <inttypes.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -15,15 +17,11 @@ typedef long long _llong;
 #define c_ZI PRIiPTR
 #define c_ZU PRIuPTR
 
-#if defined(_MSC_VER)
-  #pragma warning(disable: 4116 4996) // unnamed type definition in parentheses
-  #define STC_FORCE_INLINE static __forceinline
-#elif defined(__GNUC__) || defined(__clang__)
-  #define STC_FORCE_INLINE static inline __attribute((always_inline))
+#if defined __GNUC__ // includes __clang__
+    #define STC_INLINE static inline __attribute((unused))
 #else
-  #define STC_FORCE_INLINE static inline
+    #define STC_INLINE static inline
 #endif
-#define STC_INLINE static inline
 
 /* Macro overloading feature support based on: https://rextester.com/ONP80107 */
 #define c_MACRO_OVERLOAD(name, ...) \
@@ -37,34 +35,34 @@ typedef long long _llong;
 #define _c_ARG_N(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
                  _14, _15, _16, N, ...) N
 
-#ifdef __cplusplus 
-  #include <new>
-  #define _i_alloc(T)           static_cast<T*>(i_malloc(c_sizeof(T)))
-  #define _i_new(T, ...)        new (_i_alloc(T)) T(__VA_ARGS__)
-  #define c_new(T, ...)         new (malloc(sizeof(T))) T(__VA_ARGS__)
-  #define c_LITERAL(T)          T
+#ifndef __cplusplus
+    #define _i_alloc(T)         ((T*)i_malloc(c_sizeof(T)))
+    #define _i_new(T, ...)      ((T*)memcpy(_i_alloc(T), ((T[]){__VA_ARGS__}), sizeof(T)))
+    #define c_new(T, ...)       ((T*)memcpy(malloc(sizeof(T)), ((T[]){__VA_ARGS__}), sizeof(T)))
+    #define c_LITERAL(T)        (T)
 #else
-  #define _i_alloc(T)           ((T*)i_malloc(c_sizeof(T)))
-  #define _i_new(T, ...)        ((T*)memcpy(_i_alloc(T), ((T[]){__VA_ARGS__}), sizeof(T)))
-  #define c_new(T, ...)         ((T*)memcpy(malloc(sizeof(T)), ((T[]){__VA_ARGS__}), sizeof(T)))
-  #define c_LITERAL(T)          (T)
+    #include <new>
+    #define _i_alloc(T)         static_cast<T*>(i_malloc(c_sizeof(T)))
+    #define _i_new(T, ...)      new (_i_alloc(T)) T(__VA_ARGS__)
+    #define c_new(T, ...)       new (malloc(sizeof(T))) T(__VA_ARGS__)
+    #define c_LITERAL(T)        T
 #endif
 #define c_new_n(T, n)           ((T*)malloc(sizeof(T)*c_i2u_size(n)))
 #define c_malloc(sz)            malloc(c_i2u_size(sz))
 #define c_calloc(n, sz)         calloc(c_i2u_size(n), c_i2u_size(sz))
-#define c_realloc(p, sz)        realloc(p, c_i2u_size(sz))
-#define c_free(p)               free(p)
+#define c_realloc(p, old_sz, sz) realloc(p, c_i2u_size(1 ? (sz) : (old_sz)))
+#define c_free(p, sz)           do { (void)(sz); free(p); } while(0)
 #define c_delete(T, ptr)        do { T *_tp = ptr; T##_drop(_tp); free(_tp); } while (0)
 
 #define c_static_assert(expr)   (1 ? 0 : (int)sizeof(int[(expr) ? 1 : -1]))
 #if defined STC_NDEBUG || defined NDEBUG
-  #define c_assert(expr)        (0)
+    #define c_assert(expr)      ((void)0)
 #else
-  #define c_assert(expr)        assert(expr)
+    #define c_assert(expr)      assert(expr)
 #endif
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
 #define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
-#define c_safe_cast(T, F, x)    ((T)(1 ? (x) : *(F*)0))
+#define c_safe_cast(T, F, x)    ((T)(1 ? (x) : (F){0}))
 #define c_swap(T, xp, yp)       do { T *_xp = xp, *_yp = yp, \
                                     _tv = *_xp; *_xp = *_yp; *_yp = _tv; } while (0)
 // use with gcc -Wconversion
@@ -77,26 +75,19 @@ typedef long long _llong;
 #define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u_size(ilen))
 #define c_u2i_size(u)           (intptr_t)(1 ? (u) : (size_t)1)
 #define c_i2u_size(i)           (size_t)(1 ? (i) : -1)
-#define c_less_unsigned(a, b)   ((size_t)(a) < (size_t)(b))
+#define c_uless(a, b)           ((size_t)(a) < (size_t)(b))
 
 // x and y are i_keyraw* type, defaults to i_key*:
 #define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
 #define c_default_less(x, y)    (*(x) < *(y))
 #define c_default_eq(x, y)      (*(x) == *(y))
 #define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
-#define c_default_hash(x)       stc_hash(x, c_sizeof(*(x)))
+#define c_default_hash          stc_hash_1
 
 #define c_default_clone(v)      (v)
 #define c_default_toraw(vp)     (*(vp))
 #define c_default_drop(vp)      ((void) (vp))
 
-#define c_option(flag)          ((i_opt) & (flag))
-#define c_is_forward            (1<<0)
-#define c_no_atomic             (1<<1)
-#define c_no_clone              (1<<2)
-#define c_no_emplace            (1<<3)
-#define c_no_hash               (1<<4)
-#define c_use_cmp               (1<<5)
 /* Function macros and others */
 
 #define c_litstrlen(literal) (c_sizeof("" literal) - 1)
@@ -109,17 +100,12 @@ typedef const char* ccharptr;
 #define ccharptr_clone(s) (s)
 #define ccharptr_drop(p) ((void)p)
 
-#define c_sv(...) c_MACRO_OVERLOAD(c_sv, __VA_ARGS__)
-#define c_sv_1(literal) c_sv_2(literal, c_litstrlen(literal))
-#define c_sv_2(str, n) (c_LITERAL(csview){str, n})
-#define c_SV(sv) (int)(sv).size, (sv).buf // printf("%.*s\n", c_SV(sv));
-
-#define c_rs(literal) c_rs_2(literal, c_litstrlen(literal))
-#define c_rs_2(str, n) (c_LITERAL(crawstr){str, n})
-
 #define c_ROTL(x, k) (x << (k) | x >> (8*sizeof(x) - (k)))
 
-STC_INLINE uint64_t stc_hash(const void* key, intptr_t len) {
+#define stc_hash(...) c_MACRO_OVERLOAD(stc_hash, __VA_ARGS__)
+#define stc_hash_1(x) stc_hash_2(x, c_sizeof(*(x)))
+
+STC_INLINE uint64_t stc_hash_2(const void* key, intptr_t len) {
     uint32_t u4; uint64_t u8;
     switch (len) {
         case 8: memcpy(&u8, key, 8); return u8*0xc6a4a7935bd1e99d;
@@ -138,9 +124,14 @@ STC_INLINE uint64_t stc_hash(const void* key, intptr_t len) {
 }
 
 STC_INLINE uint64_t stc_strhash(const char *str)
-    { return stc_hash(str, c_strlen(str)); }
+    { return stc_hash_2(str, c_strlen(str)); }
 
-STC_INLINE char* stc_strnstrn(const char *str, intptr_t slen, 
+STC_INLINE uint64_t _stc_hash_mix(uint64_t h[], int n) { // n > 0
+    for (int i = 1; i < n; ++i) h[0] ^= h[0] + h[i]; // non-commutative!
+    return h[0];
+}
+
+STC_INLINE char* stc_strnstrn(const char *str, intptr_t slen,
                               const char *needle, intptr_t nlen) {
     if (!nlen) return (char *)str;
     if (nlen > slen) return NULL;
@@ -173,42 +164,65 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
          ; it.ref != (C##_value*)_endref; C##_next(&it))
 
 #define c_forpair(key, val, C, cnt) /* structured binding */ \
-    for (struct {C##_iter it; const C##_key* key; C##_mapped* val;} _ = {.it=C##_begin(&cnt)} \
-         ; _.it.ref && (_.key = &_.it.ref->first, _.val = &_.it.ref->second) \
-         ; C##_next(&_.it))
+    for (struct {C##_iter iter; const C##_key* key; C##_mapped* val;} _ = {.iter=C##_begin(&cnt)} \
+         ; _.iter.ref && (_.key = &_.iter.ref->first, _.val = &_.iter.ref->second) \
+         ; C##_next(&_.iter))
 
-#define c_forrange(...) c_for(long long, __VA_ARGS__)
-#define c_for(...) c_MACRO_OVERLOAD(c_for, __VA_ARGS__)
-#define c_for_2(T, stop) c_for_4(T, _c_i, 0, stop)
-#define c_for_3(T, i, stop) c_for_4(T, i, 0, stop)
-#define c_for_4(T, i, start, stop) \
-    for (T i=start, _end=stop; i < _end; ++i)
-#define c_for_5(T, i, start, stop, step) \
-    for (T i=start, _inc=step, _end=(T)(stop) - (_inc > 0) \
+#define c_forindexed(it, C, cnt) \
+    for (struct {C##_iter iter; C##_value* ref; intptr_t index;} it = {.iter=C##_begin(&cnt)} \
+         ; (it.ref = it.iter.ref) ; C##_next(&it.iter), ++it.index)
+
+#define c_foriter(existing_iter, C, cnt) \
+    for (existing_iter = C##_begin(&cnt); (existing_iter).ref; C##_next(&existing_iter))
+
+#define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
+#define c_forrange_1(stop) c_forrange_3(_i, 0, stop)
+#define c_forrange_2(i, stop) c_forrange_3(i, 0, stop)
+#define c_forrange_3(i, start, stop) \
+    for (_llong i=start, _end=stop; i < _end; ++i)
+#define c_forrange_4(i, start, stop, step) \
+    for (_llong i=start, _inc=step, _end=(_llong)(stop) - (_inc > 0) \
          ; (_inc > 0) ^ (i > _end); i += _inc)
 
 #ifndef __cplusplus
-  #define c_init(C, ...) \
-      C##_from_n((C##_raw[])__VA_ARGS__, c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
-  #define c_forlist(it, T, ...) \
-      for (struct {T* ref; int size, index;} \
-           it = {.ref=(T[])__VA_ARGS__, .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
-           ; it.index < it.size; ++it.ref, ++it.index)
+    #define c_init(C, ...) \
+        C##_from_n((C##_raw[])__VA_ARGS__, c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
+    #define c_forlist(it, T, ...) \
+        for (struct {T* ref; int size, index;} \
+             it = {.ref=(T[])__VA_ARGS__, .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
+             ; it.index < it.size; ++it.ref, ++it.index)
+    #define stc_hash_mix(...) \
+        _stc_hash_mix((uint64_t[]){__VA_ARGS__}, c_NUMARGS(__VA_ARGS__))
 #else
     #include <initializer_list>
+    #include <array>
     template <class C, class T>
     inline C _from_n(C (*func)(const T[], intptr_t), std::initializer_list<T> il)
         { return func(&*il.begin(), il.size()); }
-
     #define c_init(C, ...) _from_n<C,C##_raw>(C##_from_n, __VA_ARGS__)
     #define c_forlist(it, T, ...) \
         for (struct {std::initializer_list<T> _il; std::initializer_list<T>::iterator ref; size_t size, index;} \
              it = {._il=__VA_ARGS__, .ref=it._il.begin(), .size=it._il.size()} \
              ; it.index < it.size; ++it.ref, ++it.index)
+    #define stc_hash_mix(...) \
+        _stc_hash_mix(std::array<uint64_t, c_NUMARGS(__VA_ARGS__)>{__VA_ARGS__}.data(), c_NUMARGS(__VA_ARGS__))
 #endif
 
 #define c_defer(...) \
     for (int _i = 1; _i; _i = 0, __VA_ARGS__)
+
+#define c_with(...) c_MACRO_OVERLOAD(c_with, __VA_ARGS__)
+#define c_with_2(declvar, drop) \
+    for (declvar, *_i, **_ip = &_i; _ip; _ip = 0, drop)
+#define c_with_3(declvar, pred, drop) \
+    for (declvar, *_i, **_ip = &_i; _ip && (pred); _ip = 0, drop)
+
+#define c_scope(...) c_MACRO_OVERLOAD(c_scope, __VA_ARGS__)
+#define c_scope_2(init, drop) \
+    for (int _i = (init, 1); _i; _i = 0, drop)
+#define c_scope_3(init, pred, drop) \
+    for (int _i = (init, 1); _i && (pred); _i = 0, drop)
+
 #define c_drop(C, ...) \
     do { c_forlist (_i, C*, {__VA_ARGS__}) C##_drop(*_i.ref); } while(0)
 
@@ -227,19 +241,20 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
 #endif // CCOMMON_H_INCLUDED
 // ### END_FILE_INCLUDE: ccommon.h
 
-#if !defined i_key && defined i_val
-  #define i_key i_val
-#endif
-#ifndef i_type
-  #define i_at(arr, idx) (&arr[idx])
-  #ifndef i_tag
-    #define i_tag i_key
+#ifndef _i_template
+  #define _i_is_arr
+  #if !defined i_key && defined i_val
+    #define i_key i_val
   #endif
-  #define i_type c_JOIN(i_tag, s)
-  typedef i_key i_type;
-#endif
-#ifndef i_at
-  #define i_at(arr, idx) _cx_MEMB(_at_mut)(arr, idx)
+  #define i_at(arr, idx) (&arr[idx])
+  #define i_at_mut i_at
+  #ifndef i_type
+    #define i_type c_JOIN(i_key, s)
+  #endif
+  typedef i_key i_type, c_JOIN(i_type, _value), c_JOIN(i_type, _raw);
+#else
+  #define i_at(arr, idx) _c_MEMB(_at)(arr, idx)
+  #define i_at_mut(arr, idx) _c_MEMB(_at_mut)(arr, idx)
 #endif
 // ### BEGIN_FILE_INCLUDE: template.h
 #ifndef _i_template
@@ -247,35 +262,41 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
 
 #ifndef STC_TEMPLATE_H_INCLUDED
 #define STC_TEMPLATE_H_INCLUDED
-  #define _cx_Self i_type
-  #define _cx_MEMB(name) c_JOIN(_cx_Self, name)
-  #define _cx_DEFTYPES(macro, SELF, ...) c_EXPAND(macro(SELF, __VA_ARGS__))
-  #define _cx_value _cx_MEMB(_value)
-  #define _cx_key _cx_MEMB(_key)
-  #define _cx_mapped _cx_MEMB(_mapped)
-  #define _cx_raw _cx_MEMB(_raw)
-  #define _cx_keyraw _cx_MEMB(_keyraw)
-  #define _cx_iter _cx_MEMB(_iter)
-  #define _cx_result _cx_MEMB(_result)
-  #define _cx_node _cx_MEMB(_node)
+  #define _c_MEMB(name) c_JOIN(i_type, name)
+  #define _c_DEFTYPES(macro, SELF, ...) c_EXPAND(macro(SELF, __VA_ARGS__))
+  #define _m_value _c_MEMB(_value)
+  #define _m_key _c_MEMB(_key)
+  #define _m_mapped _c_MEMB(_mapped)
+  #define _m_rmapped _c_MEMB(_rmapped)
+  #define _m_raw _c_MEMB(_raw)
+  #define _m_keyraw _c_MEMB(_keyraw)
+  #define _m_iter _c_MEMB(_iter)
+  #define _m_result _c_MEMB(_result)
+  #define _m_node _c_MEMB(_node)
 #endif
 
 #ifndef i_type
   #define i_type c_JOIN(_i_prefix, i_tag)
 #endif
 
-#ifndef i_allocator
-  #define i_allocator c
+#ifdef i_keyclass // [deprecated]
+  #define i_key_class i_keyclass
 #endif
-#ifndef i_malloc
-  #define i_malloc c_JOIN(i_allocator, _malloc)
-  #define i_calloc c_JOIN(i_allocator, _calloc)
-  #define i_realloc c_JOIN(i_allocator, _realloc)
-  #define i_free c_JOIN(i_allocator, _free)
+#ifdef i_valclass // [deprecated]
+  #define i_val_class i_valclass
+#endif
+#ifdef i_rawclass // [deprecated]
+  #define i_raw_class i_rawclass
+#endif
+#ifdef i_keyboxed // [deprecated]
+  #define i_key_arcbox i_keyboxed
+#endif
+#ifdef i_valboxed // [deprecated]
+  #define i_val_arcbox i_valboxed
 #endif
 
 #if !(defined i_key || defined i_key_str || defined i_key_ssv || \
-      defined i_keyclass || defined i_keyboxed)
+      defined i_key_class || defined i_key_arcbox)
   #if defined _i_ismap
     #error "i_key* must be defined for maps"
   #endif
@@ -286,11 +307,11 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
   #if defined i_val_ssv
     #define i_key_ssv i_val_ssv
   #endif  
-  #if defined i_valboxed
-    #define i_keyboxed i_valboxed
+  #if defined i_val_arcbox
+    #define i_key_arcbox i_val_arcbox
   #endif
-  #if defined i_valclass
-    #define i_keyclass i_valclass
+  #if defined i_val_class
+    #define i_key_class i_val_class
   #endif
   #if defined i_val
     #define i_key i_val
@@ -312,6 +333,15 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
   #endif
 #endif
 
+#define c_option(flag)          ((i_opt) & (flag))
+#define c_is_forward            (1<<0)
+#define c_no_atomic             (1<<1)
+#define c_no_clone              (1<<2)
+#define c_no_emplace            (1<<3)
+#define c_no_hash               (1<<4)
+#define c_use_cmp               (1<<5)
+#define c_more                  (1<<6)
+
 #if c_option(c_is_forward)
   #define i_is_forward
 #endif
@@ -321,44 +351,47 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
 #if c_option(c_no_emplace)
   #define i_no_emplace
 #endif
-#if c_option(c_use_cmp) || defined _i_ismap || defined _i_isset || defined _i_ispque
+#if c_option(c_use_cmp) || defined i_cmp || defined i_less || \
+                           defined _i_ismap || defined _i_isset || defined _i_ispque
   #define i_use_cmp
 #endif
 #if c_option(c_no_clone) || defined _i_carc
   #define i_no_clone
 #endif
+#if c_option(c_more)
+  #define i_more
+#endif
 
 #if defined i_key_str
-  #define i_keyclass cstr
-  #define i_rawclass ccharptr
+  #define i_key_class cstr
+  #define i_raw_class ccharptr
   #ifndef i_tag
     #define i_tag str
   #endif
 #elif defined i_key_ssv
-  #define i_keyclass cstr
-  #define i_rawclass csview
+  #define i_key_class cstr
+  #define i_raw_class csview
   #define i_keyfrom cstr_from_sv
   #define i_keyto cstr_sv
-  #define i_eq csview_eq
   #ifndef i_tag
     #define i_tag ssv
   #endif
-#elif defined i_keyboxed
-  #define i_keyclass i_keyboxed
-  #define i_rawclass c_JOIN(i_keyboxed, _raw)
+#elif defined i_key_arcbox
+  #define i_key_class i_key_arcbox
+  #define i_raw_class c_JOIN(i_key_arcbox, _raw)
   #if defined i_use_cmp
-    #define i_eq c_JOIN(i_keyboxed, _raw_eq)
+    #define i_eq c_JOIN(i_key_arcbox, _raw_eq)
   #endif
 #endif
 
-#if defined i_rawclass
-  #define i_keyraw i_rawclass
-#elif defined i_keyclass && !defined i_keyraw
-  #define i_rawclass i_key
+#if defined i_raw_class
+  #define i_keyraw i_raw_class
+#elif defined i_key_class && !defined i_keyraw
+  #define i_raw_class i_key
 #endif
 
-#if defined i_keyclass
-  #define i_key i_keyclass
+#if defined i_key_class
+  #define i_key i_key_class
   #ifndef i_keyclone
     #define i_keyclone c_JOIN(i_key, _clone)
   #endif
@@ -371,13 +404,10 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
   #if !defined i_keyto && defined i_keyraw
     #define i_keyto c_JOIN(i_key, _toraw)
   #endif
-  #if !defined i_keyraw && (defined i_cmp || defined i_less || defined i_eq || defined i_hash)
-    #define i_use_cmp
-  #endif
 #endif
 
-#if defined i_rawclass && defined i_use_cmp
-  #if !(defined i_cmp || defined i_less)
+#if defined i_raw_class
+  #if !(defined i_cmp || defined i_less) && defined i_use_cmp
     #define i_cmp c_JOIN(i_keyraw, _cmp)
   #endif
   #if !(defined i_hash || defined i_no_hash)
@@ -409,6 +439,21 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
   #error "For csmap/csset/cpque, i_cmp or i_less must be defined when i_keyraw is defined."
 #endif
 
+// i_eq, i_less, i_cmp
+#if !defined i_eq && defined i_cmp
+  #define i_eq(x, y) !(i_cmp(x, y))
+#elif !defined i_eq && !defined i_keyraw
+  #define i_eq(x, y) *x == *y // for integral types, else define i_eq or i_cmp yourself
+#endif
+#if !defined i_less && defined i_cmp
+  #define i_less(x, y) (i_cmp(x, y)) < 0
+#elif !defined i_less && !defined i_keyraw
+  #define i_less(x, y) *x < *y // for integral types, else define i_less or i_cmp yourself
+#endif
+#if !defined i_cmp && defined i_less
+  #define i_cmp(x, y) (i_less(y, x)) - (i_less(x, y))
+#endif
+
 #ifndef i_tag
   #define i_tag i_key
 #endif
@@ -430,40 +475,23 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
   #define i_keydrop c_default_drop
 #endif
 
-// i_eq, i_less, i_cmp
-#if !defined i_eq && defined i_cmp
-  #define i_eq(x, y) !(i_cmp(x, y))
-#elif !defined i_eq
-  #define i_eq(x, y) *x == *y
-#endif
-#if defined i_cmp && defined i_less
-  #error "Only one of i_cmp and i_less may be defined"
-#elif defined i_cmp
-  #define i_less(x, y) (i_cmp(x, y)) < 0
-#elif !defined i_less
-  #define i_less(x, y) *x < *y
-#endif
-#ifndef i_cmp
-  #define i_cmp(x, y) (i_less(y, x)) - (i_less(x, y))
-#endif
-
 #if defined _i_ismap // ---- process cmap/csmap value i_val, ... ----
 
 #ifdef i_val_str
-  #define i_valclass cstr
+  #define i_val_class cstr
   #define i_valraw const char*
 #elif defined i_val_ssv
-  #define i_valclass cstr
+  #define i_val_class cstr
   #define i_valraw csview
   #define i_valfrom cstr_from_sv
   #define i_valto cstr_sv
-#elif defined i_valboxed
-  #define i_valclass i_valboxed
-  #define i_valraw c_JOIN(i_valboxed, _raw)
+#elif defined i_val_arcbox
+  #define i_val_class i_val_arcbox
+  #define i_valraw c_JOIN(i_val_arcbox, _raw)
 #endif
 
-#ifdef i_valclass
-  #define i_val i_valclass
+#ifdef i_val_class
+  #define i_val i_val_class
   #ifndef i_valclone
     #define i_valclone c_JOIN(i_val, _clone)
   #endif
@@ -518,46 +546,105 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
 #endif
 // ### END_FILE_INCLUDE: template.h
 
+// quick sort
 
-static inline void _cx_MEMB(_insertsort_ij)(_cx_Self* arr, intptr_t lo, intptr_t hi) {
+static inline void _c_MEMB(_insertsort_ij)(i_type* arr, intptr_t lo, intptr_t hi) {
     for (intptr_t j = lo, i = lo + 1; i <= hi; j = i, ++i) {
-        i_key key = *i_at(arr, i);
-        while (j >= 0 && (i_less((&key), i_at(arr, j)))) {
-            *i_at(arr, j + 1) = *i_at(arr, j);
+        _m_value x = *i_at(arr, i);
+        _m_raw rx = i_keyto(&x);
+        while (j >= 0) {
+            _m_raw ry = i_keyto(i_at(arr, j));
+            if (!(i_less((&rx), (&ry)))) break;
+            *i_at_mut(arr, j + 1) = *i_at(arr, j);
             --j;
         }
-        *i_at(arr, j + 1) = key;
+        *i_at_mut(arr, j + 1) = x;
     }
 }
 
-static inline void _cx_MEMB(_sort_ij)(_cx_Self* arr, intptr_t lo, intptr_t hi) {
+static inline void _c_MEMB(_quicksort_ij)(i_type* arr, intptr_t lo, intptr_t hi) {
     intptr_t i = lo, j;
     while (lo < hi) {
-        i_key pivot = *i_at(arr, lo + (hi - lo)*7/16);
+        _m_raw pivot = i_keyto(i_at(arr, (intptr_t)(lo + (hi - lo)*7LL/16))), rx;
         j = hi;
+        do {
+            do { rx = i_keyto(i_at(arr, i)); } while (i_less((&rx), (&pivot)) && ++i);
+            do { rx = i_keyto(i_at(arr, j)); } while (i_less((&pivot), (&rx)) && --j);
+            if (i > j) break;
+            c_swap(i_key, i_at_mut(arr, i), i_at_mut(arr, j));
+            ++i; --j;
+        } while (i <= j);
 
-        while (i <= j) {
-            while (i_less(i_at(arr, i), (&pivot))) ++i;
-            while (i_less((&pivot), i_at(arr, j))) --j;
-            if (i <= j) {
-                c_swap(i_key, i_at(arr, i), i_at(arr, j));
-                ++i; --j;
-            }
-        }
         if (j - lo > hi - i) {
             c_swap(intptr_t, &lo, &i);
             c_swap(intptr_t, &hi, &j);
         }
-
-        if (j - lo > 64) _cx_MEMB(_sort_ij)(arr, lo, j);
-        else if (j > lo) _cx_MEMB(_insertsort_ij)(arr, lo, j);
+        if (j - lo > 64) _c_MEMB(_quicksort_ij)(arr, lo, j);
+        else if (j > lo) _c_MEMB(_insertsort_ij)(arr, lo, j);
         lo = i;
     }
 }
 
-static inline void _cx_MEMB(_sort_n)(_cx_Self* arr, intptr_t len) {
-    _cx_MEMB(_sort_ij)(arr, 0, len - 1);
+// lower bound
+
+static inline intptr_t // -1 = not found
+_c_MEMB(_lower_bound_range)(const i_type* arr, const _m_raw raw, intptr_t first, intptr_t last) {
+    intptr_t step, count = last - first;
+
+    while (count > 0) {
+        intptr_t it = first;
+        step = count / 2;
+        it += step;
+
+        const _m_raw rx = i_keyto(i_at(arr, it));
+        if (i_less((&rx), (&raw))) {
+            first = ++it;
+            count -= step + 1;
+        } else
+            count = step;
+    }
+    return first == last ? -1 : first;
 }
+
+// binary search
+
+static inline intptr_t // -1 = not found
+_c_MEMB(_binary_search_range)(const i_type* arr, const _m_raw raw, intptr_t first, intptr_t last) {
+    intptr_t res = _c_MEMB(_lower_bound_range)(arr, raw, first, last);
+    if (res != -1) {
+        const _m_raw rx = i_keyto(i_at(arr, res));
+        if (i_less((&raw), (&rx))) res = -1;
+    }
+    return res;
+}
+
+#ifdef _i_is_arr
+
+static inline void _c_MEMB(_quicksort)(i_type* arr, intptr_t n)
+    { _c_MEMB(_quicksort_ij)(arr, 0, n - 1); }
+
+static inline intptr_t // -1 = not found
+_c_MEMB(_lower_bound)(const i_type* arr, const _m_raw raw, intptr_t n)
+    { return _c_MEMB(_lower_bound_range)(arr, raw, 0, n); }
+
+static inline intptr_t // -1 = not found
+_c_MEMB(_binary_search)(const i_type* arr, const _m_raw raw, intptr_t n)
+    { return _c_MEMB(_binary_search_range)(arr, raw, 0, n); }
+
+#else
+
+static inline void _c_MEMB(_quicksort)(i_type* arr)
+    { _c_MEMB(_quicksort_ij)(arr, 0, _c_MEMB(_size)(arr) - 1); }
+
+static inline intptr_t // -1 = not found
+_c_MEMB(_lower_bound)(const i_type* arr, const _m_raw raw)
+    { return _c_MEMB(_lower_bound_range)(arr, raw, 0, _c_MEMB(_size)(arr)); }
+
+static inline intptr_t // -1 = not found
+_c_MEMB(_binary_search)(const i_type* arr, const _m_raw raw)
+    { return _c_MEMB(_binary_search_range)(arr, raw, 0, _c_MEMB(_size)(arr)); }
+
+#endif
 
 // ### BEGIN_FILE_INCLUDE: template2.h
 #ifdef i_more
@@ -571,14 +658,14 @@ static inline void _cx_MEMB(_sort_n)(_cx_Self* arr, intptr_t len) {
 #undef i_cmp
 #undef i_eq
 #undef i_hash
-#undef i_rawclass
 #undef i_capacity
+#undef i_raw_class
 
 #undef i_val
 #undef i_val_str
 #undef i_val_ssv
-#undef i_valboxed
-#undef i_valclass
+#undef i_val_arcbox
+#undef i_val_class
 #undef i_valraw
 #undef i_valclone
 #undef i_valfrom
@@ -588,24 +675,13 @@ static inline void _cx_MEMB(_sort_n)(_cx_Self* arr, intptr_t len) {
 #undef i_key
 #undef i_key_str
 #undef i_key_ssv
-#undef i_keyboxed
-#undef i_keyclass
+#undef i_key_arcbox
+#undef i_key_class
 #undef i_keyraw
 #undef i_keyclone
 #undef i_keyfrom
 #undef i_keyto
 #undef i_keydrop
-
-#undef i_header
-#undef i_implement
-#undef i_static
-#undef i_import
-
-#undef i_allocator
-#undef i_malloc
-#undef i_calloc
-#undef i_realloc
-#undef i_free
 
 #undef i_use_cmp
 #undef i_no_hash
@@ -617,10 +693,17 @@ static inline void _cx_MEMB(_sort_n)(_cx_Self* arr, intptr_t len) {
 #undef _i_has_cmp
 #undef _i_has_eq
 #undef _i_prefix
-#undef _i_expandby
 #undef _i_template
+
+#undef i_keyclass // [deprecated]
+#undef i_valclass // [deprecated]
+#undef i_rawclass // [deprecated]
+#undef i_keyboxed // [deprecated]
+#undef i_valboxed // [deprecated]
 #endif
 // ### END_FILE_INCLUDE: template2.h
+#undef _i_is_arr
 #undef i_at
-// ### END_FILE_INCLUDE: sort.h
+#undef i_at_mut
+// ### END_FILE_INCLUDE: quicksort.h
 

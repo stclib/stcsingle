@@ -1,10 +1,68 @@
 // ### BEGIN_FILE_INCLUDE: cbits.h
+// ### BEGIN_FILE_INCLUDE: linkage.h
+#undef STC_API
+#undef STC_DEF
+
+#if !defined i_static  && !defined STC_STATIC  && (defined i_header || defined STC_HEADER  || \
+                                                   defined i_implement || defined STC_IMPLEMENT)
+  #define STC_API extern
+  #define STC_DEF
+#else
+  #define i_static
+  #if defined __GNUC__ || defined __clang__
+    #define STC_API static __attribute__((unused))
+  #else
+    #define STC_API static
+  #endif
+  #define STC_DEF static
+#endif
+#if defined STC_IMPLEMENT || defined i_import
+  #define i_implement
+#endif
+
+#if defined STC_ALLOCATOR && !defined i_allocator
+  #define i_allocator STC_ALLOCATOR
+#elif !defined i_allocator
+  #define i_allocator c
+#endif
+#ifndef i_malloc
+  #define i_malloc c_JOIN(i_allocator, _malloc)
+  #define i_calloc c_JOIN(i_allocator, _calloc)
+  #define i_realloc c_JOIN(i_allocator, _realloc)
+  #define i_free c_JOIN(i_allocator, _free)
+#endif
+
+#if defined __clang__ && !defined __cplusplus
+  #pragma clang diagnostic push
+  #pragma clang diagnostic warning "-Wall"
+  #pragma clang diagnostic warning "-Wextra"
+  #pragma clang diagnostic warning "-Wpedantic"
+  #pragma clang diagnostic warning "-Wconversion"
+  #pragma clang diagnostic warning "-Wdouble-promotion"
+  #pragma clang diagnostic warning "-Wwrite-strings"
+  // ignored
+  #pragma clang diagnostic ignored "-Wmissing-field-initializers"
+#elif defined __GNUC__ && !defined __cplusplus
+  #pragma GCC diagnostic push
+  #pragma GCC diagnostic warning "-Wall"
+  #pragma GCC diagnostic warning "-Wextra"
+  #pragma GCC diagnostic warning "-Wpedantic"
+  #pragma GCC diagnostic warning "-Wconversion"
+  #pragma GCC diagnostic warning "-Wdouble-promotion"
+  #pragma GCC diagnostic warning "-Wwrite-strings"
+  // ignored
+  #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
+// ### END_FILE_INCLUDE: linkage.h
 #ifndef CBITS_H_INCLUDED
+#define CBITS_H_INCLUDED
 // ### BEGIN_FILE_INCLUDE: ccommon.h
 #ifndef CCOMMON_H_INCLUDED
 #define CCOMMON_H_INCLUDED
 
-#define _CRT_SECURE_NO_WARNINGS
+#ifdef _MSC_VER
+    #pragma warning(disable: 4116 4996) // unnamed type definition in parentheses
+#endif
 #include <inttypes.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -16,15 +74,11 @@ typedef long long _llong;
 #define c_ZI PRIiPTR
 #define c_ZU PRIuPTR
 
-#if defined(_MSC_VER)
-  #pragma warning(disable: 4116 4996) // unnamed type definition in parentheses
-  #define STC_FORCE_INLINE static __forceinline
-#elif defined(__GNUC__) || defined(__clang__)
-  #define STC_FORCE_INLINE static inline __attribute((always_inline))
+#if defined __GNUC__ // includes __clang__
+    #define STC_INLINE static inline __attribute((unused))
 #else
-  #define STC_FORCE_INLINE static inline
+    #define STC_INLINE static inline
 #endif
-#define STC_INLINE static inline
 
 /* Macro overloading feature support based on: https://rextester.com/ONP80107 */
 #define c_MACRO_OVERLOAD(name, ...) \
@@ -38,34 +92,34 @@ typedef long long _llong;
 #define _c_ARG_N(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
                  _14, _15, _16, N, ...) N
 
-#ifdef __cplusplus 
-  #include <new>
-  #define _i_alloc(T)           static_cast<T*>(i_malloc(c_sizeof(T)))
-  #define _i_new(T, ...)        new (_i_alloc(T)) T(__VA_ARGS__)
-  #define c_new(T, ...)         new (malloc(sizeof(T))) T(__VA_ARGS__)
-  #define c_LITERAL(T)          T
+#ifndef __cplusplus
+    #define _i_alloc(T)         ((T*)i_malloc(c_sizeof(T)))
+    #define _i_new(T, ...)      ((T*)memcpy(_i_alloc(T), ((T[]){__VA_ARGS__}), sizeof(T)))
+    #define c_new(T, ...)       ((T*)memcpy(malloc(sizeof(T)), ((T[]){__VA_ARGS__}), sizeof(T)))
+    #define c_LITERAL(T)        (T)
 #else
-  #define _i_alloc(T)           ((T*)i_malloc(c_sizeof(T)))
-  #define _i_new(T, ...)        ((T*)memcpy(_i_alloc(T), ((T[]){__VA_ARGS__}), sizeof(T)))
-  #define c_new(T, ...)         ((T*)memcpy(malloc(sizeof(T)), ((T[]){__VA_ARGS__}), sizeof(T)))
-  #define c_LITERAL(T)          (T)
+    #include <new>
+    #define _i_alloc(T)         static_cast<T*>(i_malloc(c_sizeof(T)))
+    #define _i_new(T, ...)      new (_i_alloc(T)) T(__VA_ARGS__)
+    #define c_new(T, ...)       new (malloc(sizeof(T))) T(__VA_ARGS__)
+    #define c_LITERAL(T)        T
 #endif
 #define c_new_n(T, n)           ((T*)malloc(sizeof(T)*c_i2u_size(n)))
 #define c_malloc(sz)            malloc(c_i2u_size(sz))
 #define c_calloc(n, sz)         calloc(c_i2u_size(n), c_i2u_size(sz))
-#define c_realloc(p, sz)        realloc(p, c_i2u_size(sz))
-#define c_free(p)               free(p)
+#define c_realloc(p, old_sz, sz) realloc(p, c_i2u_size(1 ? (sz) : (old_sz)))
+#define c_free(p, sz)           do { (void)(sz); free(p); } while(0)
 #define c_delete(T, ptr)        do { T *_tp = ptr; T##_drop(_tp); free(_tp); } while (0)
 
 #define c_static_assert(expr)   (1 ? 0 : (int)sizeof(int[(expr) ? 1 : -1]))
 #if defined STC_NDEBUG || defined NDEBUG
-  #define c_assert(expr)        (0)
+    #define c_assert(expr)      ((void)0)
 #else
-  #define c_assert(expr)        assert(expr)
+    #define c_assert(expr)      assert(expr)
 #endif
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
 #define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
-#define c_safe_cast(T, F, x)    ((T)(1 ? (x) : *(F*)0))
+#define c_safe_cast(T, F, x)    ((T)(1 ? (x) : (F){0}))
 #define c_swap(T, xp, yp)       do { T *_xp = xp, *_yp = yp, \
                                     _tv = *_xp; *_xp = *_yp; *_yp = _tv; } while (0)
 // use with gcc -Wconversion
@@ -78,26 +132,19 @@ typedef long long _llong;
 #define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u_size(ilen))
 #define c_u2i_size(u)           (intptr_t)(1 ? (u) : (size_t)1)
 #define c_i2u_size(i)           (size_t)(1 ? (i) : -1)
-#define c_less_unsigned(a, b)   ((size_t)(a) < (size_t)(b))
+#define c_uless(a, b)           ((size_t)(a) < (size_t)(b))
 
 // x and y are i_keyraw* type, defaults to i_key*:
 #define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
 #define c_default_less(x, y)    (*(x) < *(y))
 #define c_default_eq(x, y)      (*(x) == *(y))
 #define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
-#define c_default_hash(x)       stc_hash(x, c_sizeof(*(x)))
+#define c_default_hash          stc_hash_1
 
 #define c_default_clone(v)      (v)
 #define c_default_toraw(vp)     (*(vp))
 #define c_default_drop(vp)      ((void) (vp))
 
-#define c_option(flag)          ((i_opt) & (flag))
-#define c_is_forward            (1<<0)
-#define c_no_atomic             (1<<1)
-#define c_no_clone              (1<<2)
-#define c_no_emplace            (1<<3)
-#define c_no_hash               (1<<4)
-#define c_use_cmp               (1<<5)
 /* Function macros and others */
 
 #define c_litstrlen(literal) (c_sizeof("" literal) - 1)
@@ -110,17 +157,12 @@ typedef const char* ccharptr;
 #define ccharptr_clone(s) (s)
 #define ccharptr_drop(p) ((void)p)
 
-#define c_sv(...) c_MACRO_OVERLOAD(c_sv, __VA_ARGS__)
-#define c_sv_1(literal) c_sv_2(literal, c_litstrlen(literal))
-#define c_sv_2(str, n) (c_LITERAL(csview){str, n})
-#define c_SV(sv) (int)(sv).size, (sv).buf // printf("%.*s\n", c_SV(sv));
-
-#define c_rs(literal) c_rs_2(literal, c_litstrlen(literal))
-#define c_rs_2(str, n) (c_LITERAL(crawstr){str, n})
-
 #define c_ROTL(x, k) (x << (k) | x >> (8*sizeof(x) - (k)))
 
-STC_INLINE uint64_t stc_hash(const void* key, intptr_t len) {
+#define stc_hash(...) c_MACRO_OVERLOAD(stc_hash, __VA_ARGS__)
+#define stc_hash_1(x) stc_hash_2(x, c_sizeof(*(x)))
+
+STC_INLINE uint64_t stc_hash_2(const void* key, intptr_t len) {
     uint32_t u4; uint64_t u8;
     switch (len) {
         case 8: memcpy(&u8, key, 8); return u8*0xc6a4a7935bd1e99d;
@@ -139,9 +181,14 @@ STC_INLINE uint64_t stc_hash(const void* key, intptr_t len) {
 }
 
 STC_INLINE uint64_t stc_strhash(const char *str)
-    { return stc_hash(str, c_strlen(str)); }
+    { return stc_hash_2(str, c_strlen(str)); }
 
-STC_INLINE char* stc_strnstrn(const char *str, intptr_t slen, 
+STC_INLINE uint64_t _stc_hash_mix(uint64_t h[], int n) { // n > 0
+    for (int i = 1; i < n; ++i) h[0] ^= h[0] + h[i]; // non-commutative!
+    return h[0];
+}
+
+STC_INLINE char* stc_strnstrn(const char *str, intptr_t slen,
                               const char *needle, intptr_t nlen) {
     if (!nlen) return (char *)str;
     if (nlen > slen) return NULL;
@@ -174,42 +221,65 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
          ; it.ref != (C##_value*)_endref; C##_next(&it))
 
 #define c_forpair(key, val, C, cnt) /* structured binding */ \
-    for (struct {C##_iter it; const C##_key* key; C##_mapped* val;} _ = {.it=C##_begin(&cnt)} \
-         ; _.it.ref && (_.key = &_.it.ref->first, _.val = &_.it.ref->second) \
-         ; C##_next(&_.it))
+    for (struct {C##_iter iter; const C##_key* key; C##_mapped* val;} _ = {.iter=C##_begin(&cnt)} \
+         ; _.iter.ref && (_.key = &_.iter.ref->first, _.val = &_.iter.ref->second) \
+         ; C##_next(&_.iter))
 
-#define c_forrange(...) c_for(long long, __VA_ARGS__)
-#define c_for(...) c_MACRO_OVERLOAD(c_for, __VA_ARGS__)
-#define c_for_2(T, stop) c_for_4(T, _c_i, 0, stop)
-#define c_for_3(T, i, stop) c_for_4(T, i, 0, stop)
-#define c_for_4(T, i, start, stop) \
-    for (T i=start, _end=stop; i < _end; ++i)
-#define c_for_5(T, i, start, stop, step) \
-    for (T i=start, _inc=step, _end=(T)(stop) - (_inc > 0) \
+#define c_forindexed(it, C, cnt) \
+    for (struct {C##_iter iter; C##_value* ref; intptr_t index;} it = {.iter=C##_begin(&cnt)} \
+         ; (it.ref = it.iter.ref) ; C##_next(&it.iter), ++it.index)
+
+#define c_foriter(existing_iter, C, cnt) \
+    for (existing_iter = C##_begin(&cnt); (existing_iter).ref; C##_next(&existing_iter))
+
+#define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
+#define c_forrange_1(stop) c_forrange_3(_i, 0, stop)
+#define c_forrange_2(i, stop) c_forrange_3(i, 0, stop)
+#define c_forrange_3(i, start, stop) \
+    for (_llong i=start, _end=stop; i < _end; ++i)
+#define c_forrange_4(i, start, stop, step) \
+    for (_llong i=start, _inc=step, _end=(_llong)(stop) - (_inc > 0) \
          ; (_inc > 0) ^ (i > _end); i += _inc)
 
 #ifndef __cplusplus
-  #define c_init(C, ...) \
-      C##_from_n((C##_raw[])__VA_ARGS__, c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
-  #define c_forlist(it, T, ...) \
-      for (struct {T* ref; int size, index;} \
-           it = {.ref=(T[])__VA_ARGS__, .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
-           ; it.index < it.size; ++it.ref, ++it.index)
+    #define c_init(C, ...) \
+        C##_from_n((C##_raw[])__VA_ARGS__, c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
+    #define c_forlist(it, T, ...) \
+        for (struct {T* ref; int size, index;} \
+             it = {.ref=(T[])__VA_ARGS__, .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
+             ; it.index < it.size; ++it.ref, ++it.index)
+    #define stc_hash_mix(...) \
+        _stc_hash_mix((uint64_t[]){__VA_ARGS__}, c_NUMARGS(__VA_ARGS__))
 #else
     #include <initializer_list>
+    #include <array>
     template <class C, class T>
     inline C _from_n(C (*func)(const T[], intptr_t), std::initializer_list<T> il)
         { return func(&*il.begin(), il.size()); }
-
     #define c_init(C, ...) _from_n<C,C##_raw>(C##_from_n, __VA_ARGS__)
     #define c_forlist(it, T, ...) \
         for (struct {std::initializer_list<T> _il; std::initializer_list<T>::iterator ref; size_t size, index;} \
              it = {._il=__VA_ARGS__, .ref=it._il.begin(), .size=it._il.size()} \
              ; it.index < it.size; ++it.ref, ++it.index)
+    #define stc_hash_mix(...) \
+        _stc_hash_mix(std::array<uint64_t, c_NUMARGS(__VA_ARGS__)>{__VA_ARGS__}.data(), c_NUMARGS(__VA_ARGS__))
 #endif
 
 #define c_defer(...) \
     for (int _i = 1; _i; _i = 0, __VA_ARGS__)
+
+#define c_with(...) c_MACRO_OVERLOAD(c_with, __VA_ARGS__)
+#define c_with_2(declvar, drop) \
+    for (declvar, *_i, **_ip = &_i; _ip; _ip = 0, drop)
+#define c_with_3(declvar, pred, drop) \
+    for (declvar, *_i, **_ip = &_i; _ip && (pred); _ip = 0, drop)
+
+#define c_scope(...) c_MACRO_OVERLOAD(c_scope, __VA_ARGS__)
+#define c_scope_2(init, drop) \
+    for (int _i = (init, 1); _i; _i = 0, drop)
+#define c_scope_3(init, pred, drop) \
+    for (int _i = (init, 1); _i && (pred); _i = 0, drop)
+
 #define c_drop(C, ...) \
     do { c_forlist (_i, C*, {__VA_ARGS__}) C##_drop(*_i.ref); } while(0)
 
@@ -234,42 +304,41 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
 #define _cbits_words(n) (_llong)(((n) + 63)>>6)
 #define _cbits_bytes(n) (_cbits_words(n) * c_sizeof(uint64_t))
 
-#if defined(__GNUC__)
-    STC_INLINE int cpopcount64(uint64_t x) {return __builtin_popcountll(x);}
-    #ifndef __clang__
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wstringop-overflow="
-    #pragma GCC diagnostic ignored "-Walloc-size-larger-than="
-    #endif
-#elif defined(_MSC_VER) && defined(_WIN64)
-    #include <intrin.h>
-    STC_INLINE int cpopcount64(uint64_t x) {return (int)__popcnt64(x);}
+#if defined __GNUC__
+  STC_INLINE int stc_popcount64(uint64_t x) { return __builtin_popcountll(x); }
+#elif defined _MSC_VER && defined _WIN64
+  #include <intrin.h>
+  STC_INLINE int stc_popcount64(uint64_t x) { return (int)__popcnt64(x); }
 #else
-    STC_INLINE int cpopcount64(uint64_t x) { /* http://en.wikipedia.org/wiki/Hamming_weight */
-        x -= (x >> 1) & 0x5555555555555555;
-        x = (x & 0x3333333333333333) + ((x >> 2) & 0x3333333333333333);
-        x = (x + (x >> 4)) & 0x0f0f0f0f0f0f0f0f;
-        return (int)((x * 0x0101010101010101) >> 56);
-    }
+  STC_INLINE int stc_popcount64(uint64_t x) { /* http://en.wikipedia.org/wiki/Hamming_weight */
+    x -= (x >> 1) & 0x5555555555555555;
+    x = (x & 0x3333333333333333) + ((x >> 2) & 0x3333333333333333);
+    x = (x + (x >> 4)) & 0x0f0f0f0f0f0f0f0f;
+    return (int)((x * 0x0101010101010101) >> 56);
+  }
+#endif
+#if defined __GNUC__ && !defined __clang__ && !defined __cplusplus
+#pragma GCC diagnostic ignored "-Walloc-size-larger-than=" // gcc 11.4
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"     // gcc 11.4
 #endif
 
 STC_INLINE _llong _cbits_count(const uint64_t* set, const _llong sz) {
     const _llong n = sz>>6;
     _llong count = 0;
     for (_llong i = 0; i < n; ++i)
-        count += cpopcount64(set[i]);
+        count += stc_popcount64(set[i]);
     if (sz & 63)
-        count += cpopcount64(set[n] & (_cbits_bit(sz) - 1));
+        count += stc_popcount64(set[n] & (_cbits_bit(sz) - 1));
     return count;
 }
 
-STC_INLINE char* _cbits_to_str(const uint64_t* set, const _llong sz, 
+STC_INLINE char* _cbits_to_str(const uint64_t* set, const _llong sz,
                                char* out, _llong start, _llong stop) {
     if (stop > sz) stop = sz;
     c_assert(start <= stop);
 
     c_memset(out, '0', stop - start);
-    for (_llong i = start; i < stop; ++i) 
+    for (_llong i = start; i < stop; ++i)
         if ((set[i>>6] & _cbits_bit(i)) != 0)
             out[i - start] = '1';
     out[stop - start] = '\0';
@@ -304,7 +373,7 @@ STC_INLINE bool _cbits_disjoint(const uint64_t* set, const uint64_t* other, cons
 typedef struct { uint64_t *data64; _llong _size; } i_type;
 
 STC_INLINE cbits   cbits_init(void) { return c_LITERAL(cbits){NULL}; }
-STC_INLINE void    cbits_drop(cbits* self) { c_free(self->data64); }
+STC_INLINE void    cbits_drop(cbits* self) { i_free(self->data64, _cbits_bytes(self->_size)); }
 STC_INLINE _llong  cbits_size(const cbits* self) { return self->_size; }
 
 STC_INLINE cbits* cbits_take(cbits* self, cbits other) {
@@ -317,7 +386,7 @@ STC_INLINE cbits* cbits_take(cbits* self, cbits other) {
 
 STC_INLINE cbits cbits_clone(cbits other) {
     const _llong bytes = _cbits_bytes(other._size);
-    cbits set = {(uint64_t *)c_memcpy(c_malloc(bytes), other.data64, bytes), other._size};
+    cbits set = {(uint64_t *)c_memcpy(i_malloc(bytes), other.data64, bytes), other._size};
     return set;
 }
 
@@ -332,13 +401,13 @@ STC_INLINE cbits* cbits_copy(cbits* self, const cbits* other) {
 
 STC_INLINE void cbits_resize(cbits* self, const _llong size, const bool value) {
     const _llong new_n = _cbits_words(size), osize = self->_size, old_n = _cbits_words(osize);
-    self->data64 = (uint64_t *)c_realloc(self->data64, new_n*8);
+    self->data64 = (uint64_t *)i_realloc(self->data64, old_n*8, new_n*8);
     self->_size = size;
     if (new_n >= old_n) {
         c_memset(self->data64 + old_n, -(int)value, (new_n - old_n)*8);
         if (old_n > 0) {
             uint64_t mask = _cbits_bit(osize) - 1;
-            if (value) self->data64[old_n - 1] |= ~mask; 
+            if (value) self->data64[old_n - 1] |= ~mask;
             else       self->data64[old_n - 1] &= mask;
         }
     }
@@ -354,13 +423,13 @@ STC_INLINE cbits cbits_move(cbits* self) {
 }
 
 STC_INLINE cbits cbits_with_size(const _llong size, const bool value) {
-    cbits set = {(uint64_t *)c_malloc(_cbits_bytes(size)), size};
+    cbits set = {(uint64_t *)i_malloc(_cbits_bytes(size)), size};
     cbits_set_all(&set, value);
     return set;
 }
 
 STC_INLINE cbits cbits_with_pattern(const _llong size, const uint64_t pattern) {
-    cbits set = {(uint64_t *)c_malloc(_cbits_bytes(size)), size};
+    cbits set = {(uint64_t *)i_malloc(_cbits_bytes(size)), size};
     cbits_set_pattern(&set, pattern);
     return set;
 }
@@ -375,8 +444,8 @@ STC_INLINE cbits cbits_with_pattern(const _llong size, const uint64_t pattern) {
 typedef struct { uint64_t data64[(i_capacity - 1)/64 + 1]; } i_type;
 
 STC_INLINE void     _i_memb(_init)(i_type* self) { memset(self->data64, 0, i_capacity*8); }
-STC_INLINE void     _i_memb(_drop)(i_type* self) {}
-STC_INLINE _llong   _i_memb(_size)(const i_type* self) { return i_capacity; }
+STC_INLINE void     _i_memb(_drop)(i_type* self) { (void)self; }
+STC_INLINE _llong   _i_memb(_size)(const i_type* self) { (void)self; return i_capacity; }
 STC_INLINE i_type   _i_memb(_move)(i_type* self) { return *self; }
 
 STC_INLINE i_type*  _i_memb(_take)(i_type* self, i_type other)
@@ -385,7 +454,7 @@ STC_INLINE i_type*  _i_memb(_take)(i_type* self, i_type other)
 STC_INLINE i_type _i_memb(_clone)(i_type other)
     { return other; }
 
-STC_INLINE i_type* _i_memb(_copy)(i_type* self, const i_type* other) 
+STC_INLINE i_type* _i_memb(_copy)(i_type* self, const i_type* other)
     { *self = *other; return self; }
 
 STC_INLINE void _i_memb(_set_all)(i_type *self, const bool value);
@@ -414,7 +483,7 @@ STC_INLINE void _i_memb(_set_pattern)(i_type *self, const uint64_t pattern) {
     while (n--) self->data64[n] = pattern;
 }
 
-STC_INLINE bool _i_memb(_test)(const i_type* self, const _llong i) 
+STC_INLINE bool _i_memb(_test)(const i_type* self, const _llong i)
     { return (self->data64[i>>6] & _cbits_bit(i)) != 0; }
 
 STC_INLINE bool _i_memb(_at)(const i_type* self, const _llong i)
@@ -470,7 +539,7 @@ STC_INLINE _llong _i_memb(_count)(const i_type* self)
 STC_INLINE char* _i_memb(_to_str)(const i_type* self, char* out, _llong start, _llong stop)
     { return _cbits_to_str(self->data64, _i_memb(_size)(self), out, start, stop); }
 
-STC_INLINE bool _i_memb(_subset_of)(const i_type* self, const i_type* other) { 
+STC_INLINE bool _i_memb(_subset_of)(const i_type* self, const i_type* other) {
     _i_assert(self->_size == other->_size);
     return _cbits_subset_of(self->data64, other->data64, _i_memb(_size)(self));
 }
@@ -479,18 +548,29 @@ STC_INLINE bool _i_memb(_disjoint)(const i_type* self, const i_type* other) {
     _i_assert(self->_size == other->_size);
     return _cbits_disjoint(self->data64, other->data64, _i_memb(_size)(self));
 }
-#if defined __GNUC__ && !defined __clang__
-#pragma GCC diagnostic pop
+
+// ### BEGIN_FILE_INCLUDE: linkage2.h
+
+#undef i_allocator
+#undef i_malloc
+#undef i_calloc
+#undef i_realloc
+#undef i_free
+
+#undef i_static
+#undef i_header
+#undef i_implement
+#undef i_import
+
+#if defined __clang__ && !defined __cplusplus
+  #pragma clang diagnostic pop
+#elif defined __GNUC__ && !defined __cplusplus
+  #pragma GCC diagnostic pop
 #endif
-#define CBITS_H_INCLUDED
+// ### END_FILE_INCLUDE: linkage2.h
 #undef _i_memb
 #undef _i_assert
 #undef i_capacity
 #undef i_type
-#undef i_opt
-#undef i_header
-#undef i_implement
-#undef i_static
-#undef i_exterm
 // ### END_FILE_INCLUDE: cbits.h
 

@@ -5,18 +5,31 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define forward_carc(CX, VAL) _c_carc_types(CX, VAL)
-#define forward_cbox(CX, VAL) _c_cbox_types(CX, VAL)
-#define forward_cdeq(CX, VAL) _c_cdeq_types(CX, VAL)
-#define forward_clist(CX, VAL) _c_clist_types(CX, VAL)
-#define forward_cmap(CX, KEY, VAL) _c_chash_types(CX, KEY, VAL, c_true, c_false)
-#define forward_cset(CX, KEY) _c_chash_types(CX, cset, KEY, KEY, c_false, c_true)
-#define forward_csmap(CX, KEY, VAL) _c_aatree_types(CX, KEY, VAL, c_true, c_false)
-#define forward_csset(CX, KEY) _c_aatree_types(CX, KEY, KEY, c_false, c_true)
-#define forward_cstack(CX, VAL) _c_cstack_types(CX, VAL)
-#define forward_cpque(CX, VAL) _c_cpque_types(CX, VAL)
-#define forward_cqueue(CX, VAL) _c_cdeq_types(CX, VAL)
-#define forward_cvec(CX, VAL) _c_cvec_types(CX, VAL)
+#define forward_carc(C, VAL) _c_carc_types(C, VAL)
+#define forward_cbox(C, VAL) _c_cbox_types(C, VAL)
+#define forward_cdeq(C, VAL) _c_cdeq_types(C, VAL)
+#define forward_clist(C, VAL) _c_clist_types(C, VAL)
+#define forward_cmap(C, KEY, VAL) _c_chash_types(C, KEY, VAL, c_true, c_false)
+#define forward_cset(C, KEY) _c_chash_types(C, cset, KEY, KEY, c_false, c_true)
+#define forward_csmap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
+#define forward_csset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
+#define forward_cstack(C, VAL) _c_cstack_types(C, VAL)
+#define forward_cpque(C, VAL) _c_cpque_types(C, VAL)
+#define forward_cqueue(C, VAL) _c_cdeq_types(C, VAL)
+#define forward_cvec(C, VAL) _c_cvec_types(C, VAL)
+// alternative names (include/stx):
+#define forward_arc forward_carc
+#define forward_box forward_cbox
+#define forward_deq forward_cdeq
+#define forward_list forward_clist
+#define forward_hmap forward_cmap
+#define forward_hset forward_cset
+#define forward_smap forward_csmap
+#define forward_sset forward_csset
+#define forward_stack forward_cstack
+#define forward_pque forward_cpque
+#define forward_queue forward_cqueue
+#define forward_vec forward_cvec
 
 // csview : non-null terminated string view
 typedef const char csview_value;
@@ -31,6 +44,10 @@ typedef union {
     struct { csview chr; csview_value* end; } u8;
 } csview_iter;
 
+#define c_sv(...) c_MACRO_OVERLOAD(c_sv, __VA_ARGS__)
+#define c_sv_1(literal) c_sv_2(literal, c_litstrlen(literal))
+#define c_sv_2(str, n) (c_LITERAL(csview){str, n})
+#define c_SV(sv) (int)(sv).size, (sv).buf // printf("%.*s\n", c_SV(sv));
 
 // crawstr : null-terminated string view
 typedef csview_value crawstr_value;
@@ -42,24 +59,36 @@ typedef struct crawstr {
 typedef union {
     crawstr_value* ref;
     csview chr;
-    struct { csview chr; } u8; // [deprecated]
 } crawstr_iter;
 
+#define c_rs(literal) c_rs_2(literal, c_litstrlen(literal))
+#define c_rs_2(str, n) (c_LITERAL(crawstr){str, n})
 
-// cstr : null-terminated string (short string optimized - sso)
+typedef crawstr czview;
+typedef crawstr_iter czview_iter;
+typedef crawstr_value czview_value;
+#define c_zv(lit) c_rs(lit)
+#define c_zv_2(str, n) c_rs_2(str, n)
+
+// cstr : null-terminated owning string (short string optimized - sso)
 typedef char cstr_value;
 typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {
-    struct { cstr_value data[sizeof(cstr_buf) - 1]; unsigned char size; } sml;
+    struct { cstr_value data[ sizeof(cstr_buf) ]; } sml;
     struct { cstr_value* data; size_t size, ncap; } lon;
 } cstr;
 
 typedef union {
     cstr_value* ref;
-    csview chr;
-    struct { csview chr; } u8; // [deprecated]
+    csview chr; // utf8 character/codepoint
 } cstr_iter;
 
+
+#if defined __GNUC__ || defined __clang__ || defined _MSC_VER
+    typedef long catomic_long;
+#else
+    typedef _Atomic(long) catomic_long;
+#endif
 
 #define c_true(...) __VA_ARGS__
 #define c_false(...)
@@ -81,7 +110,7 @@ typedef union {
     typedef VAL SELF##_value; \
 \
     typedef struct SELF { \
-        SELF##_value *data; \
+        SELF##_value *cbuf; \
         intptr_t start, end, capmask; \
     } SELF; \
 \
@@ -120,11 +149,11 @@ typedef union {
 \
     typedef struct { \
         SELF##_value *ref, *_end; \
-        struct chash_slot* sref; \
+        struct chash_slot *_sref; \
     } SELF##_iter; \
 \
     typedef struct SELF { \
-        SELF##_value* data; \
+        SELF##_value* table; \
         struct chash_slot* slot; \
         intptr_t size, bucket_count; \
     } SELF
