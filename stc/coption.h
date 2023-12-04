@@ -1,6 +1,6 @@
 // ### BEGIN_FILE_INCLUDE: coption.h
-#ifndef COPTION_H_INCLUDED
-#define COPTION_H_INCLUDED
+#ifndef STC_COPTION_H_INCLUDED
+#define STC_COPTION_H_INCLUDED
 
 #include <string.h>
 #include <stdbool.h>
@@ -112,6 +112,6 @@ static int coption_get(coption *opt, int argc, char *argv[],
     return optc;
 }
 
-#endif
+#endif // STC_COPTION_H_INCLUDED
 // ### END_FILE_INCLUDE: coption.h
 

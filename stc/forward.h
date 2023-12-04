@@ -5,31 +5,31 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define forward_carc(C, VAL) _c_carc_types(C, VAL)
-#define forward_cbox(C, VAL) _c_cbox_types(C, VAL)
-#define forward_cdeq(C, VAL) _c_cdeq_types(C, VAL)
-#define forward_clist(C, VAL) _c_clist_types(C, VAL)
-#define forward_cmap(C, KEY, VAL) _c_chash_types(C, KEY, VAL, c_true, c_false)
-#define forward_cset(C, KEY) _c_chash_types(C, cset, KEY, KEY, c_false, c_true)
-#define forward_csmap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
-#define forward_csset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
-#define forward_cstack(C, VAL) _c_cstack_types(C, VAL)
-#define forward_cpque(C, VAL) _c_cpque_types(C, VAL)
-#define forward_cqueue(C, VAL) _c_cdeq_types(C, VAL)
-#define forward_cvec(C, VAL) _c_cvec_types(C, VAL)
-// alternative names (include/stx):
-#define forward_arc forward_carc
-#define forward_box forward_cbox
-#define forward_deq forward_cdeq
-#define forward_list forward_clist
-#define forward_hmap forward_cmap
-#define forward_hset forward_cset
-#define forward_smap forward_csmap
-#define forward_sset forward_csset
-#define forward_stack forward_cstack
-#define forward_pque forward_cpque
-#define forward_queue forward_cqueue
-#define forward_vec forward_cvec
+#define forward_arc(C, VAL) _c_arc_types(C, VAL)
+#define forward_box(C, VAL) _c_box_types(C, VAL)
+#define forward_deq(C, VAL) _c_deq_types(C, VAL)
+#define forward_list(C, VAL) _c_list_types(C, VAL)
+#define forward_hmap(C, KEY, VAL) _c_htable_types(C, KEY, VAL, c_true, c_false)
+#define forward_hset(C, KEY) _c_htable_types(C, cset, KEY, KEY, c_false, c_true)
+#define forward_smap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
+#define forward_sset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
+#define forward_stack(C, VAL) _c_stack_types(C, VAL)
+#define forward_pque(C, VAL) _c_pque_types(C, VAL)
+#define forward_queue(C, VAL) _c_deq_types(C, VAL)
+#define forward_vec(C, VAL) _c_vec_types(C, VAL)
+// OLD deprecated names:
+#define forward_carc forward_arc
+#define forward_cbox forward_box
+#define forward_cdeq forward_deq
+#define forward_clist forward_list
+#define forward_cmap forward_hmap
+#define forward_cset forward_hset
+#define forward_csmap forward_smap
+#define forward_csset forward_sset
+#define forward_cstack forward_stack
+#define forward_cpque forward_pque
+#define forward_cqueue forward_queue
+#define forward_cvec forward_vec
 
 // csview : non-null terminated string view
 typedef const char csview_value;
@@ -49,26 +49,20 @@ typedef union {
 #define c_sv_2(str, n) (c_LITERAL(csview){str, n})
 #define c_SV(sv) (int)(sv).size, (sv).buf // printf("%.*s\n", c_SV(sv));
 
-// crawstr : null-terminated string view
-typedef csview_value crawstr_value;
-typedef struct crawstr {
-    crawstr_value* str;
+// czview : null-terminated string view
+typedef csview_value czview_value;
+typedef struct czview {
+    czview_value* str;
     intptr_t size;
-} crawstr;
+} czview;
 
 typedef union {
-    crawstr_value* ref;
+    czview_value* ref;
     csview chr;
-} crawstr_iter;
+} czview_iter;
 
-#define c_rs(literal) c_rs_2(literal, c_litstrlen(literal))
-#define c_rs_2(str, n) (c_LITERAL(crawstr){str, n})
-
-typedef crawstr czview;
-typedef crawstr_iter czview_iter;
-typedef crawstr_value czview_value;
-#define c_zv(lit) c_rs(lit)
-#define c_zv_2(str, n) c_rs_2(str, n)
+#define c_zv(literal) c_zv_2(literal, c_litstrlen(literal))
+#define c_zv_2(str, n) (c_LITERAL(czview){str, n})
 
 // cstr : null-terminated owning string (short string optimized - sso)
 typedef char cstr_value;
@@ -93,20 +87,20 @@ typedef union {
 #define c_true(...) __VA_ARGS__
 #define c_false(...)
 
-#define _c_carc_types(SELF, VAL) \
+#define _c_arc_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct SELF { \
         SELF##_value* get; \
         catomic_long* use_count; \
     } SELF
 
-#define _c_cbox_types(SELF, VAL) \
+#define _c_box_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct SELF { \
         SELF##_value* get; \
     } SELF
 
-#define _c_cdeq_types(SELF, VAL) \
+#define _c_deq_types(SELF, VAL) \
     typedef VAL SELF##_value; \
 \
     typedef struct SELF { \
@@ -120,7 +114,7 @@ typedef union {
         const SELF* _s; \
     } SELF##_iter
 
-#define _c_clist_types(SELF, VAL) \
+#define _c_list_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct SELF##_node SELF##_node; \
 \
@@ -133,7 +127,7 @@ typedef union {
         SELF##_node *last; \
     } SELF
 
-#define _c_chash_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
+#define _c_htable_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
 \
@@ -149,12 +143,12 @@ typedef union {
 \
     typedef struct { \
         SELF##_value *ref, *_end; \
-        struct chash_slot *_sref; \
+        struct hmap_slot *_sref; \
     } SELF##_iter; \
 \
     typedef struct SELF { \
         SELF##_value* table; \
-        struct chash_slot* slot; \
+        struct hmap_slot* slot; \
         intptr_t size, bucket_count; \
     } SELF
 
@@ -184,22 +178,22 @@ typedef union {
         int32_t root, disp, head, size, cap; \
     } SELF
 
-#define _c_cstack_fixed(SELF, VAL, CAP) \
+#define _c_stack_fixed(SELF, VAL, CAP) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value data[CAP]; intptr_t _len; } SELF
 
-#define _c_cstack_types(SELF, VAL) \
+#define _c_stack_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value* data; intptr_t _len, _cap; } SELF
 
-#define _c_cvec_types(SELF, VAL) \
+#define _c_vec_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value *data; intptr_t _len, _cap; } SELF
 
-#define _c_cpque_types(SELF, VAL) \
+#define _c_pque_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct SELF { SELF##_value* data; intptr_t _len, _cap; } SELF
 

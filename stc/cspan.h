@@ -61,9 +61,9 @@
   #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 // ### END_FILE_INCLUDE: linkage.h
-// ### BEGIN_FILE_INCLUDE: ccommon.h
-#ifndef CCOMMON_H_INCLUDED
-#define CCOMMON_H_INCLUDED
+// ### BEGIN_FILE_INCLUDE: common.h
+#ifndef STC_COMMON_H_INCLUDED
+#define STC_COMMON_H_INCLUDED
 
 #ifdef _MSC_VER
     #pragma warning(disable: 4116 4996) // unnamed type definition in parentheses
@@ -96,6 +96,13 @@ typedef long long _llong;
 #define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
 #define _c_ARG_N(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
                  _14, _15, _16, N, ...) N
+
+#define _c_SEL21(a, b) a
+#define _c_SEL22(a, b) b
+#define _c_SEL31(a, b, c) a
+#define _c_SEL32(a, b, c) b
+#define _c_SEL33(a, b, c) c
+#define _c_SEL(S, ...) S(__VA_ARGS__)
 
 #ifndef __cplusplus
     #define _i_alloc(T)         ((T*)i_malloc(c_sizeof(T)))
@@ -300,8 +307,8 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
         asm("mulq %3" : "=a"(*(lo)), "=d"(*(hi)) : "a"(a), "rm"(b))
 #endif
 
-#endif // CCOMMON_H_INCLUDED
-// ### END_FILE_INCLUDE: ccommon.h
+#endif // STC_COMMON_H_INCLUDED
+// ### END_FILE_INCLUDE: common.h
 typedef STC_CSPAN_INDEX_TYPE cextent_t, cstride_t;
 
 #define using_cspan(...) c_MACRO_OVERLOAD(using_cspan, __VA_ARGS__)

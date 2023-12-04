@@ -1,7 +1,7 @@
 // ### BEGIN_FILE_INCLUDE: quicksort.h
-// ### BEGIN_FILE_INCLUDE: ccommon.h
-#ifndef CCOMMON_H_INCLUDED
-#define CCOMMON_H_INCLUDED
+// ### BEGIN_FILE_INCLUDE: common.h
+#ifndef STC_COMMON_H_INCLUDED
+#define STC_COMMON_H_INCLUDED
 
 #ifdef _MSC_VER
     #pragma warning(disable: 4116 4996) // unnamed type definition in parentheses
@@ -34,6 +34,13 @@ typedef long long _llong;
 #define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
 #define _c_ARG_N(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
                  _14, _15, _16, N, ...) N
+
+#define _c_SEL21(a, b) a
+#define _c_SEL22(a, b) b
+#define _c_SEL31(a, b, c) a
+#define _c_SEL32(a, b, c) b
+#define _c_SEL33(a, b, c) c
+#define _c_SEL(S, ...) S(__VA_ARGS__)
 
 #ifndef __cplusplus
     #define _i_alloc(T)         ((T*)i_malloc(c_sizeof(T)))
@@ -238,20 +245,20 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
         asm("mulq %3" : "=a"(*(lo)), "=d"(*(hi)) : "a"(a), "rm"(b))
 #endif
 
-#endif // CCOMMON_H_INCLUDED
-// ### END_FILE_INCLUDE: ccommon.h
+#endif // STC_COMMON_H_INCLUDED
+// ### END_FILE_INCLUDE: common.h
 
 #ifndef _i_template
   #define _i_is_arr
-  #if !defined i_key && defined i_val
-    #define i_key i_val
-  #endif
-  #define i_at(arr, idx) (&arr[idx])
-  #define i_at_mut i_at
-  #ifndef i_type
+  #ifdef i_TYPE
+    #define i_type _c_SEL(_c_SEL21, i_TYPE)
+    #define i_key _c_SEL(_c_SEL22, i_TYPE)
+  #elif !defined i_type
     #define i_type c_JOIN(i_key, s)
   #endif
   typedef i_key i_type, c_JOIN(i_type, _value), c_JOIN(i_type, _raw);
+  #define i_at(arr, idx) (&arr[idx])
+  #define i_at_mut i_at
 #else
   #define i_at(arr, idx) _c_MEMB(_at)(arr, idx)
   #define i_at_mut(arr, idx) _c_MEMB(_at_mut)(arr, idx)
@@ -262,6 +269,15 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
 
 #ifndef STC_TEMPLATE_H_INCLUDED
 #define STC_TEMPLATE_H_INCLUDED
+  #define c_option(flag)  ((i_opt) & (flag))
+  #define c_is_forward    (1<<0)
+  #define c_no_atomic     (1<<1)
+  #define c_no_clone      (1<<2)
+  #define c_no_emplace    (1<<3)
+  #define c_no_hash       (1<<4)
+  #define c_use_cmp       (1<<5)
+  #define c_more          (1<<6)
+
   #define _c_MEMB(name) c_JOIN(i_type, name)
   #define _c_DEFTYPES(macro, SELF, ...) c_EXPAND(macro(SELF, __VA_ARGS__))
   #define _m_value _c_MEMB(_value)
@@ -275,27 +291,26 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
   #define _m_node _c_MEMB(_node)
 #endif
 
+#if defined i_TYPE && defined _i_ismap
+  #define i_type _c_SEL(_c_SEL31, i_TYPE)
+  #define i_key _c_SEL(_c_SEL32, i_TYPE)
+  #define i_val _c_SEL(_c_SEL33, i_TYPE)
+#elif defined i_TYPE
+  #define i_type _c_SEL(_c_SEL21, i_TYPE)
+  #define i_key _c_SEL(_c_SEL22, i_TYPE)
+#endif
 #ifndef i_type
   #define i_type c_JOIN(_i_prefix, i_tag)
 #endif
 
-#ifdef i_keyclass // [deprecated]
-  #define i_key_class i_keyclass
-#endif
-#ifdef i_valclass // [deprecated]
-  #define i_val_class i_valclass
-#endif
-#ifdef i_rawclass // [deprecated]
-  #define i_raw_class i_rawclass
-#endif
-#ifdef i_keyboxed // [deprecated]
-  #define i_key_arcbox i_keyboxed
-#endif
-#ifdef i_valboxed // [deprecated]
-  #define i_val_arcbox i_valboxed
+#if defined i_keyclass || defined i_valclass || defined i_rawclass || \
+    defined i_keyboxed || defined i_valboxed
+  #error "i_keyclass, i_valclass, i_rawclass, i_keyboxed, i_valboxed is not supported. " \
+         "Use: i_key_class, i_val_class, i_raw_class, i_key_arcbox, i_val_arcbox."
 #endif
 
-#if !(defined i_key || defined i_key_str || defined i_key_ssv || \
+#if !(defined i_key || \
+      defined i_key_str || defined i_key_ssv || \
       defined i_key_class || defined i_key_arcbox)
   #if defined _i_ismap
     #error "i_key* must be defined for maps"
@@ -306,7 +321,7 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
   #endif
   #if defined i_val_ssv
     #define i_key_ssv i_val_ssv
-  #endif  
+  #endif
   #if defined i_val_arcbox
     #define i_key_arcbox i_val_arcbox
   #endif
@@ -332,15 +347,6 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
     #define i_keydrop i_valdrop
   #endif
 #endif
-
-#define c_option(flag)          ((i_opt) & (flag))
-#define c_is_forward            (1<<0)
-#define c_no_atomic             (1<<1)
-#define c_no_clone              (1<<2)
-#define c_no_emplace            (1<<3)
-#define c_no_hash               (1<<4)
-#define c_use_cmp               (1<<5)
-#define c_more                  (1<<6)
 
 #if c_option(c_is_forward)
   #define i_is_forward
@@ -542,7 +548,7 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
 #endif
 #ifndef i_has_emplace
   #define i_no_emplace
-#endif
+#endif // STC_TEMPLATE_H_INCLUDED
 #endif
 // ### END_FILE_INCLUDE: template.h
 
@@ -650,6 +656,7 @@ _c_MEMB(_binary_search)(const i_type* arr, const _m_raw raw)
 #ifdef i_more
 #undef i_more
 #else
+#undef i_TYPE
 #undef i_type
 #undef i_tag
 #undef i_imp

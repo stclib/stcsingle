@@ -1,6 +1,6 @@
 // ### BEGIN_FILE_INCLUDE: algorithm.h
-#ifndef STC_ALGORITHM_INCLUDED
-#define STC_ALGORITHM_INCLUDED
+#ifndef STC_ALGORITHM_H_INCLUDED
+#define STC_ALGORITHM_H_INCLUDED
 
 // ### BEGIN_FILE_INCLUDE: crange.h
 #ifndef STC_CRANGE_H_INCLUDED
@@ -61,9 +61,9 @@
   #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 // ### END_FILE_INCLUDE: linkage.h
-// ### BEGIN_FILE_INCLUDE: ccommon.h
-#ifndef CCOMMON_H_INCLUDED
-#define CCOMMON_H_INCLUDED
+// ### BEGIN_FILE_INCLUDE: common.h
+#ifndef STC_COMMON_H_INCLUDED
+#define STC_COMMON_H_INCLUDED
 
 #ifdef _MSC_VER
     #pragma warning(disable: 4116 4996) // unnamed type definition in parentheses
@@ -96,6 +96,13 @@ typedef long long _llong;
 #define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
 #define _c_ARG_N(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
                  _14, _15, _16, N, ...) N
+
+#define _c_SEL21(a, b) a
+#define _c_SEL22(a, b) b
+#define _c_SEL31(a, b, c) a
+#define _c_SEL32(a, b, c) b
+#define _c_SEL33(a, b, c) c
+#define _c_SEL(S, ...) S(__VA_ARGS__)
 
 #ifndef __cplusplus
     #define _i_alloc(T)         ((T*)i_malloc(c_sizeof(T)))
@@ -300,8 +307,8 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
         asm("mulq %3" : "=a"(*(lo)), "=d"(*(hi)) : "a"(a), "rm"(b))
 #endif
 
-#endif // CCOMMON_H_INCLUDED
-// ### END_FILE_INCLUDE: ccommon.h
+#endif // STC_COMMON_H_INCLUDED
+// ### END_FILE_INCLUDE: common.h
 
 typedef long long crange_value;
 typedef struct { crange_value start, end, step, value; } crange;
@@ -343,7 +350,7 @@ STC_INLINE void crange_next(crange_iter* it)
   #pragma GCC diagnostic pop
 #endif
 // ### END_FILE_INCLUDE: linkage2.h
-#endif
+#endif // STC_CRANGE_H_INCLUDE
 // ### END_FILE_INCLUDE: crange.h
 // ### BEGIN_FILE_INCLUDE: filter.h
 #ifndef STC_FILTER_H_INCLUDED
@@ -394,11 +401,11 @@ static inline bool _flt_takewhile(struct _flt_base* b, bool pred) {
 #endif
 // ### END_FILE_INCLUDE: filter.h
 // ### BEGIN_FILE_INCLUDE: misc.h
-#ifndef STC_MISC_INCLUDED
-#define STC_MISC_INCLUDED
+#ifndef STC_MISC_H_INCLUDED
+#define STC_MISC_H_INCLUDED
 
 // ----------------------------------
-// c_auto init+drop containers (RAII) 
+// c_auto init+drop containers (RAII)
 // ----------------------------------
 
 #define c_auto(...) c_MACRO_OVERLOAD(c_auto, __VA_ARGS__)
@@ -445,7 +452,7 @@ static inline bool _flt_takewhile(struct _flt_base* b, bool pred) {
 // stc_eraseremove_if
 // --------------------------------
 
-// Use with: cstack, cvec, cdeq, cqueue:
+// Use with: stack, vec, deq, queue:
 #define stc_eraseremove_if(C, cnt_p, pred) do { \
     C* _cnt = cnt_p; \
     intptr_t _n = 0; \
@@ -483,9 +490,9 @@ static inline bool _flt_takewhile(struct _flt_base* b, bool pred) {
     *(boolptr) = it.ref == NULL; \
 } while (0)
 
-#endif
+#endif // STC_MISC_H_INCLUDED
 // ### END_FILE_INCLUDE: misc.h
 
-#endif
+#endif // STC_ALGORITHM_H_INCLUDED
 // ### END_FILE_INCLUDE: algorithm.h
 

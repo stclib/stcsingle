@@ -1,6 +1,5 @@
-// ### BEGIN_FILE_INCLUDE: cmap.h
+// ### BEGIN_FILE_INCLUDE: vec.h
 
-// Unordered set/map - implemented as closed hashing with linear probing and no tombstones.
 // ### BEGIN_FILE_INCLUDE: linkage.h
 #undef STC_API
 #undef STC_DEF
@@ -57,10 +56,11 @@
 #endif
 // ### END_FILE_INCLUDE: linkage.h
 
-#ifndef CMAP_H_INCLUDED
-// ### BEGIN_FILE_INCLUDE: ccommon.h
-#ifndef CCOMMON_H_INCLUDED
-#define CCOMMON_H_INCLUDED
+#ifndef STC_VEC_H_INCLUDED
+#define STC_VEC_H_INCLUDED
+// ### BEGIN_FILE_INCLUDE: common.h
+#ifndef STC_COMMON_H_INCLUDED
+#define STC_COMMON_H_INCLUDED
 
 #ifdef _MSC_VER
     #pragma warning(disable: 4116 4996) // unnamed type definition in parentheses
@@ -93,6 +93,13 @@ typedef long long _llong;
 #define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
 #define _c_ARG_N(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
                  _14, _15, _16, N, ...) N
+
+#define _c_SEL21(a, b) a
+#define _c_SEL22(a, b) b
+#define _c_SEL31(a, b, c) a
+#define _c_SEL32(a, b, c) b
+#define _c_SEL33(a, b, c) c
+#define _c_SEL(S, ...) S(__VA_ARGS__)
 
 #ifndef __cplusplus
     #define _i_alloc(T)         ((T*)i_malloc(c_sizeof(T)))
@@ -297,8 +304,8 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
         asm("mulq %3" : "=a"(*(lo)), "=d"(*(hi)) : "a"(a), "rm"(b))
 #endif
 
-#endif // CCOMMON_H_INCLUDED
-// ### END_FILE_INCLUDE: ccommon.h
+#endif // STC_COMMON_H_INCLUDED
+// ### END_FILE_INCLUDE: common.h
 // ### BEGIN_FILE_INCLUDE: forward.h
 #ifndef STC_FORWARD_H_INCLUDED
 #define STC_FORWARD_H_INCLUDED
@@ -306,31 +313,31 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
 #include <stdint.h>
 #include <stddef.h>
 
-#define forward_carc(C, VAL) _c_carc_types(C, VAL)
-#define forward_cbox(C, VAL) _c_cbox_types(C, VAL)
-#define forward_cdeq(C, VAL) _c_cdeq_types(C, VAL)
-#define forward_clist(C, VAL) _c_clist_types(C, VAL)
-#define forward_cmap(C, KEY, VAL) _c_chash_types(C, KEY, VAL, c_true, c_false)
-#define forward_cset(C, KEY) _c_chash_types(C, cset, KEY, KEY, c_false, c_true)
-#define forward_csmap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
-#define forward_csset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
-#define forward_cstack(C, VAL) _c_cstack_types(C, VAL)
-#define forward_cpque(C, VAL) _c_cpque_types(C, VAL)
-#define forward_cqueue(C, VAL) _c_cdeq_types(C, VAL)
-#define forward_cvec(C, VAL) _c_cvec_types(C, VAL)
-// alternative names (include/stx):
-#define forward_arc forward_carc
-#define forward_box forward_cbox
-#define forward_deq forward_cdeq
-#define forward_list forward_clist
-#define forward_hmap forward_cmap
-#define forward_hset forward_cset
-#define forward_smap forward_csmap
-#define forward_sset forward_csset
-#define forward_stack forward_cstack
-#define forward_pque forward_cpque
-#define forward_queue forward_cqueue
-#define forward_vec forward_cvec
+#define forward_arc(C, VAL) _c_arc_types(C, VAL)
+#define forward_box(C, VAL) _c_box_types(C, VAL)
+#define forward_deq(C, VAL) _c_deq_types(C, VAL)
+#define forward_list(C, VAL) _c_list_types(C, VAL)
+#define forward_hmap(C, KEY, VAL) _c_htable_types(C, KEY, VAL, c_true, c_false)
+#define forward_hset(C, KEY) _c_htable_types(C, cset, KEY, KEY, c_false, c_true)
+#define forward_smap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
+#define forward_sset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
+#define forward_stack(C, VAL) _c_stack_types(C, VAL)
+#define forward_pque(C, VAL) _c_pque_types(C, VAL)
+#define forward_queue(C, VAL) _c_deq_types(C, VAL)
+#define forward_vec(C, VAL) _c_vec_types(C, VAL)
+// OLD deprecated names:
+#define forward_carc forward_arc
+#define forward_cbox forward_box
+#define forward_cdeq forward_deq
+#define forward_clist forward_list
+#define forward_cmap forward_hmap
+#define forward_cset forward_hset
+#define forward_csmap forward_smap
+#define forward_csset forward_sset
+#define forward_cstack forward_stack
+#define forward_cpque forward_pque
+#define forward_cqueue forward_queue
+#define forward_cvec forward_vec
 
 // csview : non-null terminated string view
 typedef const char csview_value;
@@ -350,26 +357,20 @@ typedef union {
 #define c_sv_2(str, n) (c_LITERAL(csview){str, n})
 #define c_SV(sv) (int)(sv).size, (sv).buf // printf("%.*s\n", c_SV(sv));
 
-// crawstr : null-terminated string view
-typedef csview_value crawstr_value;
-typedef struct crawstr {
-    crawstr_value* str;
+// czview : null-terminated string view
+typedef csview_value czview_value;
+typedef struct czview {
+    czview_value* str;
     intptr_t size;
-} crawstr;
+} czview;
 
 typedef union {
-    crawstr_value* ref;
+    czview_value* ref;
     csview chr;
-} crawstr_iter;
+} czview_iter;
 
-#define c_rs(literal) c_rs_2(literal, c_litstrlen(literal))
-#define c_rs_2(str, n) (c_LITERAL(crawstr){str, n})
-
-typedef crawstr czview;
-typedef crawstr_iter czview_iter;
-typedef crawstr_value czview_value;
-#define c_zv(lit) c_rs(lit)
-#define c_zv_2(str, n) c_rs_2(str, n)
+#define c_zv(literal) c_zv_2(literal, c_litstrlen(literal))
+#define c_zv_2(str, n) (c_LITERAL(czview){str, n})
 
 // cstr : null-terminated owning string (short string optimized - sso)
 typedef char cstr_value;
@@ -394,20 +395,20 @@ typedef union {
 #define c_true(...) __VA_ARGS__
 #define c_false(...)
 
-#define _c_carc_types(SELF, VAL) \
+#define _c_arc_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct SELF { \
         SELF##_value* get; \
         catomic_long* use_count; \
     } SELF
 
-#define _c_cbox_types(SELF, VAL) \
+#define _c_box_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct SELF { \
         SELF##_value* get; \
     } SELF
 
-#define _c_cdeq_types(SELF, VAL) \
+#define _c_deq_types(SELF, VAL) \
     typedef VAL SELF##_value; \
 \
     typedef struct SELF { \
@@ -421,7 +422,7 @@ typedef union {
         const SELF* _s; \
     } SELF##_iter
 
-#define _c_clist_types(SELF, VAL) \
+#define _c_list_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct SELF##_node SELF##_node; \
 \
@@ -434,7 +435,7 @@ typedef union {
         SELF##_node *last; \
     } SELF
 
-#define _c_chash_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
+#define _c_htable_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
 \
@@ -450,12 +451,12 @@ typedef union {
 \
     typedef struct { \
         SELF##_value *ref, *_end; \
-        struct chash_slot *_sref; \
+        struct hmap_slot *_sref; \
     } SELF##_iter; \
 \
     typedef struct SELF { \
         SELF##_value* table; \
-        struct chash_slot* slot; \
+        struct hmap_slot* slot; \
         intptr_t size, bucket_count; \
     } SELF
 
@@ -485,22 +486,22 @@ typedef union {
         int32_t root, disp, head, size, cap; \
     } SELF
 
-#define _c_cstack_fixed(SELF, VAL, CAP) \
+#define _c_stack_fixed(SELF, VAL, CAP) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value data[CAP]; intptr_t _len; } SELF
 
-#define _c_cstack_types(SELF, VAL) \
+#define _c_stack_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value* data; intptr_t _len, _cap; } SELF
 
-#define _c_cvec_types(SELF, VAL) \
+#define _c_vec_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value *data; intptr_t _len, _cap; } SELF
 
-#define _c_cpque_types(SELF, VAL) \
+#define _c_pque_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct SELF { SELF##_value* data; intptr_t _len, _cap; } SELF
 
@@ -508,29 +509,29 @@ typedef union {
 // ### END_FILE_INCLUDE: forward.h
 #include <stdlib.h>
 #include <string.h>
-struct chash_slot { uint8_t hashx; };
-#endif // CMAP_H_INCLUDED
+
+#define _it2_ptr(it1, it2) (it1.ref && !it2.ref ? it2.end : it2.ref)
+#define _it_ptr(it) (it.ref ? it.ref : it.end)
+#endif // STC_VEC_H_INCLUDED
 
 #ifndef _i_prefix
-  #define _i_prefix cmap_
+  #define _i_prefix vec_
 #endif
-#ifndef _i_isset
-  #define _i_ismap
-  #define _i_MAP_ONLY c_true
-  #define _i_SET_ONLY c_false
-  #define _i_keyref(vp) (&(vp)->first)
-#else
-  #define _i_MAP_ONLY c_false
-  #define _i_SET_ONLY c_true
-  #define _i_keyref(vp) (vp)
-#endif
-#define _i_ishash
 // ### BEGIN_FILE_INCLUDE: template.h
 #ifndef _i_template
 #define _i_template
 
 #ifndef STC_TEMPLATE_H_INCLUDED
 #define STC_TEMPLATE_H_INCLUDED
+  #define c_option(flag)  ((i_opt) & (flag))
+  #define c_is_forward    (1<<0)
+  #define c_no_atomic     (1<<1)
+  #define c_no_clone      (1<<2)
+  #define c_no_emplace    (1<<3)
+  #define c_no_hash       (1<<4)
+  #define c_use_cmp       (1<<5)
+  #define c_more          (1<<6)
+
   #define _c_MEMB(name) c_JOIN(i_type, name)
   #define _c_DEFTYPES(macro, SELF, ...) c_EXPAND(macro(SELF, __VA_ARGS__))
   #define _m_value _c_MEMB(_value)
@@ -544,27 +545,26 @@ struct chash_slot { uint8_t hashx; };
   #define _m_node _c_MEMB(_node)
 #endif
 
+#if defined i_TYPE && defined _i_ismap
+  #define i_type _c_SEL(_c_SEL31, i_TYPE)
+  #define i_key _c_SEL(_c_SEL32, i_TYPE)
+  #define i_val _c_SEL(_c_SEL33, i_TYPE)
+#elif defined i_TYPE
+  #define i_type _c_SEL(_c_SEL21, i_TYPE)
+  #define i_key _c_SEL(_c_SEL22, i_TYPE)
+#endif
 #ifndef i_type
   #define i_type c_JOIN(_i_prefix, i_tag)
 #endif
 
-#ifdef i_keyclass // [deprecated]
-  #define i_key_class i_keyclass
-#endif
-#ifdef i_valclass // [deprecated]
-  #define i_val_class i_valclass
-#endif
-#ifdef i_rawclass // [deprecated]
-  #define i_raw_class i_rawclass
-#endif
-#ifdef i_keyboxed // [deprecated]
-  #define i_key_arcbox i_keyboxed
-#endif
-#ifdef i_valboxed // [deprecated]
-  #define i_val_arcbox i_valboxed
+#if defined i_keyclass || defined i_valclass || defined i_rawclass || \
+    defined i_keyboxed || defined i_valboxed
+  #error "i_keyclass, i_valclass, i_rawclass, i_keyboxed, i_valboxed is not supported. " \
+         "Use: i_key_class, i_val_class, i_raw_class, i_key_arcbox, i_val_arcbox."
 #endif
 
-#if !(defined i_key || defined i_key_str || defined i_key_ssv || \
+#if !(defined i_key || \
+      defined i_key_str || defined i_key_ssv || \
       defined i_key_class || defined i_key_arcbox)
   #if defined _i_ismap
     #error "i_key* must be defined for maps"
@@ -575,7 +575,7 @@ struct chash_slot { uint8_t hashx; };
   #endif
   #if defined i_val_ssv
     #define i_key_ssv i_val_ssv
-  #endif  
+  #endif
   #if defined i_val_arcbox
     #define i_key_arcbox i_val_arcbox
   #endif
@@ -601,15 +601,6 @@ struct chash_slot { uint8_t hashx; };
     #define i_keydrop i_valdrop
   #endif
 #endif
-
-#define c_option(flag)          ((i_opt) & (flag))
-#define c_is_forward            (1<<0)
-#define c_no_atomic             (1<<1)
-#define c_no_clone              (1<<2)
-#define c_no_emplace            (1<<3)
-#define c_no_hash               (1<<4)
-#define c_use_cmp               (1<<5)
-#define c_more                  (1<<6)
 
 #if c_option(c_is_forward)
   #define i_is_forward
@@ -811,415 +802,323 @@ struct chash_slot { uint8_t hashx; };
 #endif
 #ifndef i_has_emplace
   #define i_no_emplace
-#endif
+#endif // STC_TEMPLATE_H_INCLUDED
 #endif
 // ### END_FILE_INCLUDE: template.h
+
 #ifndef i_is_forward
-  _c_DEFTYPES(_c_chash_types, i_type, i_key, i_val, _i_MAP_ONLY, _i_SET_ONLY);
+   _c_DEFTYPES(_c_vec_types, i_type, i_key);
 #endif
-
-_i_MAP_ONLY( struct _m_value {
-    _m_key first;
-    _m_mapped second;
-}; )
-
-typedef i_keyraw _m_keyraw;
-typedef i_valraw _m_rmapped;
-typedef _i_SET_ONLY( i_keyraw )
-        _i_MAP_ONLY( struct { _m_keyraw first;
-                              _m_rmapped second; } )
-_m_raw;
-
-STC_API i_type          _c_MEMB(_with_capacity)(intptr_t cap);
-#if !defined i_no_clone
-STC_API i_type          _c_MEMB(_clone)(i_type map);
-#endif
+typedef i_keyraw _m_raw;
+STC_API i_type          _c_MEMB(_init)(void);
 STC_API void            _c_MEMB(_drop)(i_type* self);
 STC_API void            _c_MEMB(_clear)(i_type* self);
-STC_API bool            _c_MEMB(_reserve)(i_type* self, intptr_t capacity);
-STC_API _m_result       _c_MEMB(_bucket_)(const i_type* self, const _m_keyraw* rkeyptr);
-STC_API _m_result       _c_MEMB(_insert_entry_)(i_type* self, _m_keyraw rkey);
-STC_API void            _c_MEMB(_erase_entry)(i_type* self, _m_value* val);
-STC_API float           _c_MEMB(_max_load_factor)(const i_type* self);
-STC_API intptr_t        _c_MEMB(_capacity)(const i_type* map);
+STC_API bool            _c_MEMB(_reserve)(i_type* self, intptr_t cap);
+STC_API bool            _c_MEMB(_resize)(i_type* self, intptr_t size, _m_value null);
+STC_API _m_iter         _c_MEMB(_erase_n)(i_type* self, intptr_t idx, intptr_t n);
+STC_API _m_iter         _c_MEMB(_insert_uninit)(i_type* self, intptr_t idx, intptr_t n);
+#if defined _i_has_eq || defined _i_has_cmp
+STC_API _m_iter         _c_MEMB(_find_in)(_m_iter it1, _m_iter it2, _m_raw raw);
+#endif
+STC_INLINE void         _c_MEMB(_value_drop)(_m_value* val) { i_keydrop(val); }
 
-STC_INLINE i_type       _c_MEMB(_init)(void) { i_type map = {0}; return map; }
-STC_INLINE void         _c_MEMB(_shrink_to_fit)(i_type* self) { _c_MEMB(_reserve)(self, (intptr_t)self->size); }
-STC_INLINE bool         _c_MEMB(_empty)(const i_type* map) { return !map->size; }
-STC_INLINE intptr_t     _c_MEMB(_size)(const i_type* map) { return (intptr_t)map->size; }
-STC_INLINE intptr_t     _c_MEMB(_bucket_count)(i_type* map) { return map->bucket_count; }
-STC_INLINE bool         _c_MEMB(_contains)(const i_type* self, _m_keyraw rkey)
-                            { return self->size && !_c_MEMB(_bucket_)(self, &rkey).inserted; }
-
-#ifdef _i_ismap
-    STC_API _m_result _c_MEMB(_insert_or_assign)(i_type* self, _m_key key, _m_mapped mapped);
-    #if !defined i_no_emplace
-        STC_API _m_result  _c_MEMB(_emplace_or_assign)(i_type* self, _m_keyraw rkey, _m_rmapped rmapped);
-    #endif
-
-    STC_INLINE const _m_mapped*
-    _c_MEMB(_at)(const i_type* self, _m_keyraw rkey) {
-        _m_result b = _c_MEMB(_bucket_)(self, &rkey);
-        c_assert(!b.inserted);
-        return &b.ref->second;
-    }
-
-    STC_INLINE _m_mapped*
-    _c_MEMB(_at_mut)(i_type* self, _m_keyraw rkey)
-        { return (_m_mapped*)_c_MEMB(_at)(self, rkey); }
-#endif // _i_ismap
-
-#if !defined i_no_clone
-STC_INLINE void _c_MEMB(_copy)(i_type *self, const i_type* other) {
-    if (self->table == other->table)
-        return;
-    _c_MEMB(_drop)(self);
-    *self = _c_MEMB(_clone)(*other);
-}
-
-STC_INLINE _m_value
-_c_MEMB(_value_clone)(_m_value _val) {
-    *_i_keyref(&_val) = i_keyclone((*_i_keyref(&_val)));
-    _i_MAP_ONLY( _val.second = i_valclone(_val.second); )
-    return _val;
-}
-#endif // !i_no_clone
+STC_INLINE _m_value*    _c_MEMB(_push)(i_type* self, _m_value value) {
+                            if (self->_len == self->_cap)
+                            if (!_c_MEMB(_reserve)(self, self->_len*2 + 4))
+                                return NULL;
+                            _m_value *v = self->data + self->_len++;
+                            *v = value;
+                            return v;
+                        }
 
 #if !defined i_no_emplace
-STC_INLINE _m_result
-_c_MEMB(_emplace)(i_type* self, _m_keyraw rkey _i_MAP_ONLY(, _m_rmapped rmapped)) {
-    _m_result _res = _c_MEMB(_insert_entry_)(self, rkey);
-    if (_res.inserted) {
-        *_i_keyref(_res.ref) = i_keyfrom(rkey);
-        _i_MAP_ONLY( _res.ref->second = i_valfrom(rmapped); )
-    }
-    return _res;
-}
+STC_API _m_iter
+_c_MEMB(_emplace_n)(i_type* self, intptr_t idx, const _m_raw raw[], intptr_t n);
 
-#ifdef _i_ismap
-    STC_INLINE _m_result
-    _c_MEMB(_emplace_key)(i_type* self, _m_keyraw rkey) {
-        _m_result _res = _c_MEMB(_insert_entry_)(self, rkey);
-        if (_res.inserted)
-            _res.ref->first = i_keyfrom(rkey);
-        return _res;
-    }
-#endif // _i_ismap
+STC_INLINE _m_value* _c_MEMB(_emplace)(i_type* self, _m_raw raw) {
+    return _c_MEMB(_push)(self, i_keyfrom(raw));
+}
+STC_INLINE _m_value* _c_MEMB(_emplace_back)(i_type* self, _m_raw raw) {
+     return _c_MEMB(_push)(self, i_keyfrom(raw));
+}
+STC_INLINE _m_iter _c_MEMB(_emplace_at)(i_type* self, _m_iter it, _m_raw raw) {
+    return _c_MEMB(_emplace_n)(self, _it_ptr(it) - self->data, &raw, 1);
+}
 #endif // !i_no_emplace
 
-STC_INLINE _m_raw _c_MEMB(_value_toraw)(const _m_value* val) {
-    return _i_SET_ONLY( i_keyto(val) )
-           _i_MAP_ONLY( c_LITERAL(_m_raw){i_keyto((&val->first)), i_valto((&val->second))} );
+#if !defined i_no_clone
+STC_API i_type          _c_MEMB(_clone)(i_type cx);
+STC_API _m_iter         _c_MEMB(_copy_n)(i_type* self, intptr_t idx, const _m_value arr[], intptr_t n);
+STC_INLINE void         _c_MEMB(_put_n)(i_type* self, const _m_raw* raw, intptr_t n)
+                            { while (n--) _c_MEMB(_push)(self, i_keyfrom(*raw++)); }
+STC_INLINE i_type       _c_MEMB(_from_n)(const _m_raw* raw, intptr_t n)
+                            { i_type cx = {0}; _c_MEMB(_put_n)(&cx, raw, n); return cx; }
+STC_INLINE _m_value     _c_MEMB(_value_clone)(_m_value val)
+                            { return i_keyclone(val); }
+STC_INLINE void         _c_MEMB(_copy)(i_type* self, const i_type* other) {
+                            if (self->data == other->data) return;
+                            _c_MEMB(_clear)(self);
+                            _c_MEMB(_copy_n)(self, 0, other->data, other->_len);
+                        }
+#endif // !i_no_clone
+
+STC_INLINE intptr_t     _c_MEMB(_size)(const i_type* self) { return self->_len; }
+STC_INLINE intptr_t     _c_MEMB(_capacity)(const i_type* self) { return self->_cap; }
+STC_INLINE bool         _c_MEMB(_empty)(const i_type* self) { return !self->_len; }
+STC_INLINE _m_raw       _c_MEMB(_value_toraw)(const _m_value* val) { return i_keyto(val); }
+STC_INLINE _m_value*    _c_MEMB(_front)(const i_type* self) { return self->data; }
+STC_INLINE _m_value*    _c_MEMB(_back)(const i_type* self)
+                            { return self->data + self->_len - 1; }
+STC_INLINE void         _c_MEMB(_pop)(i_type* self)
+                            { c_assert(self->_len); _m_value* p = &self->data[--self->_len]; i_keydrop(p); }
+STC_INLINE _m_value     _c_MEMB(_pull)(i_type* self)
+                            { c_assert(self->_len); return self->data[--self->_len]; }
+STC_INLINE _m_value*    _c_MEMB(_push_back)(i_type* self, _m_value value)
+                            { return _c_MEMB(_push)(self, value); }
+STC_INLINE void         _c_MEMB(_pop_back)(i_type* self) { _c_MEMB(_pop)(self); }
+
+STC_INLINE i_type
+_c_MEMB(_with_size)(const intptr_t size, _m_value null) {
+    i_type cx = _c_MEMB(_init)();
+    _c_MEMB(_resize)(&cx, size, null);
+    return cx;
 }
 
-STC_INLINE void _c_MEMB(_value_drop)(_m_value* _val) {
-    i_keydrop(_i_keyref(_val));
-    _i_MAP_ONLY( i_valdrop((&_val->second)); )
+STC_INLINE i_type
+_c_MEMB(_with_capacity)(const intptr_t cap) {
+    i_type cx = _c_MEMB(_init)();
+    _c_MEMB(_reserve)(&cx, cap);
+    return cx;
 }
 
-STC_INLINE _m_result
-_c_MEMB(_insert)(i_type* self, _m_key _key _i_MAP_ONLY(, _m_mapped _mapped)) {
-    _m_result _res = _c_MEMB(_insert_entry_)(self, i_keyto((&_key)));
-    if (_res.inserted)
-        { *_i_keyref(_res.ref) = _key; _i_MAP_ONLY( _res.ref->second = _mapped; )}
-    else
-        { i_keydrop((&_key)); _i_MAP_ONLY( i_valdrop((&_mapped)); )}
-    return _res;
-}
-
-STC_INLINE _m_value* _c_MEMB(_push)(i_type* self, _m_value _val) {
-    _m_result _res = _c_MEMB(_insert_entry_)(self, i_keyto(_i_keyref(&_val)));
-    if (_res.inserted)
-        *_res.ref = _val;
-    else
-        _c_MEMB(_value_drop)(&_val);
-    return _res.ref;
-}
-
-STC_INLINE void _c_MEMB(_put_n)(i_type* self, const _m_raw* raw, intptr_t n) {
-    while (n--)
-#if defined _i_isset && defined i_no_emplace
-        _c_MEMB(_insert)(self, *raw++);
-#elif defined _i_isset
-        _c_MEMB(_emplace)(self, *raw++);
-#elif defined i_no_emplace
-        _c_MEMB(_insert_or_assign)(self, raw->first, raw->second), ++raw;
-#else
-        _c_MEMB(_emplace_or_assign)(self, raw->first, raw->second), ++raw;
-#endif
-}
-
-STC_INLINE i_type _c_MEMB(_from_n)(const _m_raw* raw, intptr_t n)
-    { i_type cx = {0}; _c_MEMB(_put_n)(&cx, raw, n); return cx; }
-
-STC_API _m_iter _c_MEMB(_begin)(const i_type* self);
-
-STC_INLINE _m_iter _c_MEMB(_end)(const i_type* self)
-    { (void)self; return c_LITERAL(_m_iter){NULL}; }
-
-STC_INLINE void _c_MEMB(_next)(_m_iter* it) {
-    while ((++it->ref, (++it->_sref)->hashx == 0)) ;
-    if (it->ref == it->_end) it->ref = NULL;
-}
-
-STC_INLINE _m_iter _c_MEMB(_advance)(_m_iter it, size_t n) {
-    while (n-- && it.ref) _c_MEMB(_next)(&it);
-    return it;
+STC_INLINE void
+_c_MEMB(_shrink_to_fit)(i_type* self) {
+    _c_MEMB(_reserve)(self, _c_MEMB(_size)(self));
 }
 
 STC_INLINE _m_iter
-_c_MEMB(_find)(const i_type* self, _m_keyraw rkey) {
-    _m_result b;
-    if (self->size && !(b = _c_MEMB(_bucket_)(self, &rkey)).inserted)
-        return c_LITERAL(_m_iter){b.ref,
-                                  self->table + self->bucket_count,
-                                  self->slot + (b.ref - self->table)};
-    return _c_MEMB(_end)(self);
+_c_MEMB(_insert_n)(i_type* self, const intptr_t idx, const _m_value arr[], const intptr_t n) {
+    _m_iter it = _c_MEMB(_insert_uninit)(self, idx, n);
+    if (it.ref)
+        c_memcpy(it.ref, arr, n*c_sizeof *arr);
+    return it;
 }
-
-STC_INLINE const _m_value*
-_c_MEMB(_get)(const i_type* self, _m_keyraw rkey) {
-    _m_result b;
-    if (self->size && !(b = _c_MEMB(_bucket_)(self, &rkey)).inserted)
-        return b.ref;
-    return NULL;
-}
-
-STC_INLINE _m_value*
-_c_MEMB(_get_mut)(i_type* self, _m_keyraw rkey)
-    { return (_m_value*)_c_MEMB(_get)(self, rkey); }
-
-STC_INLINE int
-_c_MEMB(_erase)(i_type* self, _m_keyraw rkey) {
-    _m_result b;
-    if (self->size && !(b = _c_MEMB(_bucket_)(self, &rkey)).inserted)
-        { _c_MEMB(_erase_entry)(self, b.ref); return 1; }
-    return 0;
+STC_INLINE _m_iter
+_c_MEMB(_insert_at)(i_type* self, _m_iter it, const _m_value value) {
+    return _c_MEMB(_insert_n)(self, _it_ptr(it) - self->data, &value, 1);
 }
 
 STC_INLINE _m_iter
 _c_MEMB(_erase_at)(i_type* self, _m_iter it) {
-    _c_MEMB(_erase_entry)(self, it.ref);
-    if (it._sref->hashx == 0)
-        _c_MEMB(_next)(&it);
-    return it;
+    return _c_MEMB(_erase_n)(self, it.ref - self->data, 1);
 }
+STC_INLINE _m_iter
+_c_MEMB(_erase_range)(i_type* self, _m_iter i1, _m_iter i2) {
+    return _c_MEMB(_erase_n)(self, i1.ref - self->data, _it2_ptr(i1, i2) - i1.ref);
+}
+
+STC_INLINE const _m_value*
+_c_MEMB(_at)(const i_type* self, const intptr_t idx) {
+    c_assert(idx < self->_len); return self->data + idx;
+}
+STC_INLINE _m_value*
+_c_MEMB(_at_mut)(i_type* self, const intptr_t idx) {
+    c_assert(idx < self->_len); return self->data + idx;
+}
+
+
+STC_INLINE _m_iter _c_MEMB(_begin)(const i_type* self) {
+    intptr_t n = self->_len;
+    return c_LITERAL(_m_iter){n ? self->data : NULL, self->data + n};
+}
+
+STC_INLINE _m_iter _c_MEMB(_end)(const i_type* self)
+    { return c_LITERAL(_m_iter){NULL, self->data + self->_len}; }
+
+STC_INLINE void _c_MEMB(_next)(_m_iter* it)
+    { if (++it->ref == it->end) it->ref = NULL; }
+
+STC_INLINE _m_iter _c_MEMB(_advance)(_m_iter it, size_t n)
+    { if ((it.ref += n) >= it.end) it.ref = NULL; return it; }
+
+STC_INLINE intptr_t _c_MEMB(_index)(const i_type* self, _m_iter it)
+    { return (it.ref - self->data); }
+
+STC_INLINE void _c_MEMB(_adjust_end_)(i_type* self, intptr_t n)
+    { self->_len += n; }
+
+#if defined _i_has_eq || defined _i_has_cmp
+STC_INLINE _m_iter
+_c_MEMB(_find)(const i_type* self, _m_raw raw) {
+    return _c_MEMB(_find_in)(_c_MEMB(_begin)(self), _c_MEMB(_end)(self), raw);
+}
+
+STC_INLINE const _m_value*
+_c_MEMB(_get)(const i_type* self, _m_raw raw) {
+    return _c_MEMB(_find)(self, raw).ref;
+}
+
+STC_INLINE _m_value*
+_c_MEMB(_get_mut)(const i_type* self, _m_raw raw)
+    { return (_m_value*) _c_MEMB(_get)(self, raw); }
 
 STC_INLINE bool
 _c_MEMB(_eq)(const i_type* self, const i_type* other) {
-    if (_c_MEMB(_size)(self) != _c_MEMB(_size)(other)) return false;
-    for (_m_iter i = _c_MEMB(_begin)(self); i.ref; _c_MEMB(_next)(&i)) {
-        const _m_keyraw _raw = i_keyto(_i_keyref(i.ref));
-        if (!_c_MEMB(_contains)(other, _raw)) return false;
+    if (self->_len != other->_len) return false;
+    for (intptr_t i = 0; i < self->_len; ++i) {
+        const _m_raw _rx = i_keyto(self->data+i), _ry = i_keyto(other->data+i);
+        if (!(i_eq((&_rx), (&_ry)))) return false;
+    }
+    return true;
+}
+#endif
+
+#if defined _i_has_cmp
+STC_API int _c_MEMB(_value_cmp)(const _m_value* x, const _m_value* y);
+
+STC_INLINE void
+_c_MEMB(_sort)(i_type* self) {
+    qsort(self->data, (size_t)self->_len, sizeof(_m_value),
+          (int(*)(const void*, const void*))_c_MEMB(_value_cmp));
+}
+
+STC_INLINE _m_value*
+_c_MEMB(_bsearch)(const i_type* self, _m_value key) {
+    return (_m_value*)bsearch(&key, self->data, (size_t)self->_len, sizeof(_m_value),
+                              (int(*)(const void*, const void*))_c_MEMB(_value_cmp));
+}
+#endif // _i_has_cmp
+
+/* -------------------------- IMPLEMENTATION ------------------------- */
+#if defined(i_implement) || defined(i_static)
+
+STC_DEF i_type
+_c_MEMB(_init)(void) {
+    return c_LITERAL(i_type){NULL};
+}
+
+STC_DEF void
+_c_MEMB(_clear)(i_type* self) {
+    if (self->_cap) {
+        for (_m_value *p = self->data, *q = p + self->_len; p != q; ) {
+            --q; i_keydrop(q);
+        }
+        self->_len = 0;
+    }
+}
+
+STC_DEF void
+_c_MEMB(_drop)(i_type* self) {
+    if (self->_cap == 0)
+        return;
+    _c_MEMB(_clear)(self);
+    i_free(self->data, self->_cap*c_sizeof(*self->data));
+}
+
+STC_DEF bool
+_c_MEMB(_reserve)(i_type* self, const intptr_t cap) {
+    if (cap > self->_cap || (cap && cap == self->_len)) {
+        _m_value* d = (_m_value*)i_realloc(self->data, self->_cap*c_sizeof *d,
+                                                       cap*c_sizeof *d);
+        if (!d)
+            return false;
+        self->data = d;
+        self->_cap = cap;
     }
     return true;
 }
 
-/* -------------------------- IMPLEMENTATION ------------------------- */
-#if defined(i_implement) || defined(i_static)
-#ifndef i_max_load_factor
-  #define i_max_load_factor 0.80f
-#endif
-#define fastrange_2(x, n) (intptr_t)((x) & (size_t)((n) - 1)) // n power of 2.
-
-STC_DEF _m_iter _c_MEMB(_begin)(const i_type* self) {
-    _m_iter it = {self->table, self->table+self->bucket_count, self->slot};
-    if (it._sref)
-        while (it._sref->hashx == 0)
-            ++it.ref, ++it._sref;
-    if (it.ref == it._end) it.ref = NULL;
-    return it;
+STC_DEF bool
+_c_MEMB(_resize)(i_type* self, const intptr_t len, _m_value null) {
+    if (!_c_MEMB(_reserve)(self, len))
+        return false;
+    const intptr_t n = self->_len;
+    for (intptr_t i = len; i < n; ++i)
+        { i_keydrop((self->data + i)); }
+    for (intptr_t i = n; i < len; ++i)
+        self->data[i] = null;
+    self->_len = len;
+    return true;
 }
 
-STC_DEF float _c_MEMB(_max_load_factor)(const i_type* self) {
-    (void)self; return (float)(i_max_load_factor);
+STC_DEF _m_iter
+_c_MEMB(_insert_uninit)(i_type* self, const intptr_t idx, const intptr_t n) {
+    if (self->_len + n > self->_cap)
+        if (!_c_MEMB(_reserve)(self, self->_len*3/2 + n))
+            return _c_MEMB(_end)(self);
+
+    _m_value* pos = self->data + idx;
+    c_memmove(pos + n, pos, (self->_len - idx)*c_sizeof *pos);
+    self->_len += n;
+    return c_LITERAL(_m_iter){pos, self->data + self->_len};
 }
 
-STC_DEF intptr_t _c_MEMB(_capacity)(const i_type* map) {
-    return (intptr_t)((float)map->bucket_count * (i_max_load_factor));
-}
-
-STC_DEF i_type _c_MEMB(_with_capacity)(const intptr_t cap) {
-    i_type map = {0};
-    _c_MEMB(_reserve)(&map, cap);
-    return map;
-}
-
-STC_INLINE void _c_MEMB(_wipe_)(i_type* self) {
-    if (self->size == 0)
-        return;
-    _m_value* d = self->table, *_end = d + self->bucket_count;
-    struct chash_slot* s = self->slot;
-    for (; d != _end; ++d)
-        if ((s++)->hashx)
-            _c_MEMB(_value_drop)(d);
-}
-
-STC_DEF void _c_MEMB(_drop)(i_type* self) {
-    if (self->bucket_count > 0) {
-        _c_MEMB(_wipe_)(self);
-        i_free(self->slot, (self->bucket_count + 1)*c_sizeof *self->slot);
-        i_free(self->table, self->bucket_count*c_sizeof *self->table);
-    }
-}
-
-STC_DEF void _c_MEMB(_clear)(i_type* self) {
-    _c_MEMB(_wipe_)(self);
-    self->size = 0;
-    c_memset(self->slot, 0, c_sizeof(struct chash_slot)*self->bucket_count);
-}
-
-#ifdef _i_ismap
-    STC_DEF _m_result
-    _c_MEMB(_insert_or_assign)(i_type* self, _m_key _key, _m_mapped _mapped) {
-        _m_result _res = _c_MEMB(_insert_entry_)(self, i_keyto((&_key)));
-        _m_mapped* _mp = _res.ref ? &_res.ref->second : &_mapped;
-        if (_res.inserted)
-            _res.ref->first = _key;
-        else
-            { i_keydrop((&_key)); i_valdrop(_mp); }
-        *_mp = _mapped;
-        return _res;
-    }
-
-    #if !defined i_no_emplace
-    STC_DEF _m_result
-    _c_MEMB(_emplace_or_assign)(i_type* self, _m_keyraw rkey, _m_rmapped rmapped) {
-        _m_result _res = _c_MEMB(_insert_entry_)(self, rkey);
-        if (_res.inserted)
-            _res.ref->first = i_keyfrom(rkey);
-        else {
-            if (!_res.ref) return _res;
-            i_valdrop((&_res.ref->second));
-        }
-        _res.ref->second = i_valfrom(rmapped);
-        return _res;
-    }
-    #endif // !i_no_emplace
-#endif // _i_ismap
-
-STC_DEF _m_result
-_c_MEMB(_bucket_)(const i_type* self, const _m_keyraw* rkeyptr) {
-    const uint64_t _hash = i_hash(rkeyptr);
-    intptr_t _cap = self->bucket_count;
-    intptr_t _idx = fastrange_2(_hash, _cap);
-    _m_result b = {NULL, true, (uint8_t)(_hash | 0x80)};
-    const struct chash_slot* s = self->slot;
-    while (s[_idx].hashx) {
-        if (s[_idx].hashx == b.hashx) {
-            const _m_keyraw _raw = i_keyto(_i_keyref(self->table + _idx));
-            if (i_eq((&_raw), rkeyptr)) {
-                b.inserted = false;
-                break;
-            }
-        }
-        if (++_idx == _cap) _idx = 0;
-    }
-    b.ref = self->table + _idx;
-    return b;
-}
-
-STC_DEF _m_result
-_c_MEMB(_insert_entry_)(i_type* self, _m_keyraw rkey) {
-    if (self->size >= (intptr_t)((float)self->bucket_count * (i_max_load_factor)))
-        if (!_c_MEMB(_reserve)(self, (intptr_t)(self->size*3/2 + 2)))
-            return c_LITERAL(_m_result){NULL};
-
-    _m_result b = _c_MEMB(_bucket_)(self, &rkey);
-    if (b.inserted) {
-        self->slot[b.ref - self->table].hashx = b.hashx;
-        ++self->size;
-    }
-    return b;
+STC_DEF _m_iter
+_c_MEMB(_erase_n)(i_type* self, const intptr_t idx, const intptr_t len) {
+    _m_value* d = self->data + idx, *p = d, *end = self->data + self->_len;
+    for (intptr_t i = 0; i < len; ++i, ++p)
+        { i_keydrop(p); }
+    c_memmove(d, p, (end - p)*c_sizeof *d);
+    self->_len -= len;
+    return c_LITERAL(_m_iter){p == end ? NULL : d, end - len};
 }
 
 #if !defined i_no_clone
 STC_DEF i_type
-_c_MEMB(_clone)(i_type m) {
-    if (m.bucket_count) {
-        _m_value *d = (_m_value *)i_malloc(m.bucket_count*c_sizeof *d),
-                 *_dst = d, *_end = m.table + m.bucket_count;
-        const intptr_t _sbytes = (m.bucket_count + 1)*c_sizeof *m.slot;
-        struct chash_slot *s = (struct chash_slot *)c_memcpy(i_malloc(_sbytes), m.slot, _sbytes);
-        if (!(d && s)) {
-            i_free(d, m.bucket_count*c_sizeof *d);
-            if (s) i_free(s, _sbytes);
-            d = 0, s = 0, m.bucket_count = 0;
-        } else
-            for (; m.table != _end; ++m.table, ++m.slot, ++_dst)
-                if (m.slot->hashx)
-                    *_dst = _c_MEMB(_value_clone)(*m.table);
-        m.table = d, m.slot = s;
+_c_MEMB(_clone)(i_type cx) {
+    i_type out = _c_MEMB(_init)();
+    _c_MEMB(_copy_n)(&out, 0, cx.data, cx._len);
+    return out;
+}
+
+STC_DEF _m_iter
+_c_MEMB(_copy_n)(i_type* self, const intptr_t idx,
+                 const _m_value arr[], const intptr_t n) {
+    _m_iter it = _c_MEMB(_insert_uninit)(self, idx, n);
+    if (it.ref)
+        for (_m_value* p = it.ref, *q = p + n; p != q; ++arr)
+            *p++ = i_keyclone((*arr));
+    return it;
+}
+#endif // !i_no_clone
+
+#if !defined i_no_emplace
+STC_DEF _m_iter
+_c_MEMB(_emplace_n)(i_type* self, const intptr_t idx, const _m_raw raw[], intptr_t n) {
+    _m_iter it = _c_MEMB(_insert_uninit)(self, idx, n);
+    if (it.ref)
+        for (_m_value* p = it.ref; n--; ++raw, ++p)
+            *p = i_keyfrom((*raw));
+    return it;
+}
+#endif // !i_no_emplace
+#if defined _i_has_eq || defined _i_has_cmp
+
+STC_DEF _m_iter
+_c_MEMB(_find_in)(_m_iter i1, _m_iter i2, _m_raw raw) {
+    const _m_value* p2 = _it2_ptr(i1, i2);
+    for (; i1.ref != p2; ++i1.ref) {
+        const _m_raw r = i_keyto(i1.ref);
+        if (i_eq((&raw), (&r)))
+            return i1;
     }
-    return m;
+    i2.ref = NULL;
+    return i2;
 }
 #endif
-
-STC_DEF bool
-_c_MEMB(_reserve)(i_type* self, const intptr_t _newcap) {
-    const intptr_t _oldbucks = self->bucket_count;
-    if (_newcap != self->size && _newcap <= _oldbucks)
-        return true;
-    intptr_t _newbucks = (intptr_t)((float)_newcap / (i_max_load_factor)) + 4;
-    _newbucks = stc_nextpow2(_newbucks);
-    i_type m = {
-        (_m_value *)i_malloc(_newbucks*c_sizeof(_m_value)),
-        (struct chash_slot *)i_calloc(_newbucks + 1, c_sizeof(struct chash_slot)),
-        self->size, _newbucks
-    };
-    bool ok = m.table && m.slot;
-    if (ok) {  // Rehash:
-        m.slot[_newbucks].hashx = 0xff;
-        const _m_value* d = self->table;
-        const struct chash_slot* s = self->slot;
-        for (intptr_t i = 0; i < _oldbucks; ++i, ++d) if ((s++)->hashx) {
-            _m_keyraw r = i_keyto(_i_keyref(d));
-            _m_result b = _c_MEMB(_bucket_)(&m, &r);
-            m.slot[b.ref - m.table].hashx = b.hashx;
-            *b.ref = *d; // move
-        }
-        c_swap(i_type, self, &m);
-    }
-    i_free(m.slot, (m.bucket_count + (int)(m.slot != NULL))*c_sizeof *m.slot);
-    i_free(m.table, m.bucket_count*c_sizeof *m.table);
-    return ok;
+#if defined _i_has_cmp
+STC_DEF int _c_MEMB(_value_cmp)(const _m_value* x, const _m_value* y) {
+    const _m_raw rx = i_keyto(x);
+    const _m_raw ry = i_keyto(y);
+    return i_cmp((&rx), (&ry));
 }
-
-STC_DEF void
-_c_MEMB(_erase_entry)(i_type* self, _m_value* _val) {
-    _m_value* d = self->table;
-    struct chash_slot* s = self->slot;
-    intptr_t i = _val - d, j = i, k;
-    const intptr_t _cap = self->bucket_count;
-    _c_MEMB(_value_drop)(_val);
-    for (;;) { // delete without leaving tombstone
-        if (++j == _cap) j = 0;
-        if (! s[j].hashx)
-            break;
-        const _m_keyraw _raw = i_keyto(_i_keyref(d + j));
-        k = fastrange_2(i_hash((&_raw)), _cap);
-        if ((j < i) ^ (k <= i) ^ (k > j)) { // is k outside (i, j]?
-            d[i] = d[j];
-            s[i] = s[j];
-            i = j;
-        }
-    }
-    s[i].hashx = 0;
-    --self->size;
-}
+#endif // _i_has_cmp
 #endif // i_implement
-#undef i_max_load_factor
-#undef _i_isset
-#undef _i_ismap
-#undef _i_ishash
-#undef _i_keyref
-#undef _i_MAP_ONLY
-#undef _i_SET_ONLY
-#define CMAP_H_INCLUDED
 // ### BEGIN_FILE_INCLUDE: template2.h
 #ifdef i_more
 #undef i_more
 #else
+#undef i_TYPE
 #undef i_type
 #undef i_tag
 #undef i_imp
@@ -1291,5 +1190,5 @@ _c_MEMB(_erase_entry)(i_type* self, _m_value* _val) {
   #pragma GCC diagnostic pop
 #endif
 // ### END_FILE_INCLUDE: linkage2.h
-// ### END_FILE_INCLUDE: cmap.h
+// ### END_FILE_INCLUDE: vec.h
 

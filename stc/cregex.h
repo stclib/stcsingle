@@ -1,6 +1,6 @@
 // ### BEGIN_FILE_INCLUDE: cregex.h
-#ifndef CREGEX_H_INCLUDED
-#define CREGEX_H_INCLUDED
+#ifndef STC_CREGEX_H_INCLUDED
+#define STC_CREGEX_H_INCLUDED
 #include <stdbool.h>
 #include <string.h>
 // ### BEGIN_FILE_INCLUDE: forward.h
@@ -10,31 +10,31 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define forward_carc(C, VAL) _c_carc_types(C, VAL)
-#define forward_cbox(C, VAL) _c_cbox_types(C, VAL)
-#define forward_cdeq(C, VAL) _c_cdeq_types(C, VAL)
-#define forward_clist(C, VAL) _c_clist_types(C, VAL)
-#define forward_cmap(C, KEY, VAL) _c_chash_types(C, KEY, VAL, c_true, c_false)
-#define forward_cset(C, KEY) _c_chash_types(C, cset, KEY, KEY, c_false, c_true)
-#define forward_csmap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
-#define forward_csset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
-#define forward_cstack(C, VAL) _c_cstack_types(C, VAL)
-#define forward_cpque(C, VAL) _c_cpque_types(C, VAL)
-#define forward_cqueue(C, VAL) _c_cdeq_types(C, VAL)
-#define forward_cvec(C, VAL) _c_cvec_types(C, VAL)
-// alternative names (include/stx):
-#define forward_arc forward_carc
-#define forward_box forward_cbox
-#define forward_deq forward_cdeq
-#define forward_list forward_clist
-#define forward_hmap forward_cmap
-#define forward_hset forward_cset
-#define forward_smap forward_csmap
-#define forward_sset forward_csset
-#define forward_stack forward_cstack
-#define forward_pque forward_cpque
-#define forward_queue forward_cqueue
-#define forward_vec forward_cvec
+#define forward_arc(C, VAL) _c_arc_types(C, VAL)
+#define forward_box(C, VAL) _c_box_types(C, VAL)
+#define forward_deq(C, VAL) _c_deq_types(C, VAL)
+#define forward_list(C, VAL) _c_list_types(C, VAL)
+#define forward_hmap(C, KEY, VAL) _c_htable_types(C, KEY, VAL, c_true, c_false)
+#define forward_hset(C, KEY) _c_htable_types(C, cset, KEY, KEY, c_false, c_true)
+#define forward_smap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
+#define forward_sset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
+#define forward_stack(C, VAL) _c_stack_types(C, VAL)
+#define forward_pque(C, VAL) _c_pque_types(C, VAL)
+#define forward_queue(C, VAL) _c_deq_types(C, VAL)
+#define forward_vec(C, VAL) _c_vec_types(C, VAL)
+// OLD deprecated names:
+#define forward_carc forward_arc
+#define forward_cbox forward_box
+#define forward_cdeq forward_deq
+#define forward_clist forward_list
+#define forward_cmap forward_hmap
+#define forward_cset forward_hset
+#define forward_csmap forward_smap
+#define forward_csset forward_sset
+#define forward_cstack forward_stack
+#define forward_cpque forward_pque
+#define forward_cqueue forward_queue
+#define forward_cvec forward_vec
 
 // csview : non-null terminated string view
 typedef const char csview_value;
@@ -54,26 +54,20 @@ typedef union {
 #define c_sv_2(str, n) (c_LITERAL(csview){str, n})
 #define c_SV(sv) (int)(sv).size, (sv).buf // printf("%.*s\n", c_SV(sv));
 
-// crawstr : null-terminated string view
-typedef csview_value crawstr_value;
-typedef struct crawstr {
-    crawstr_value* str;
+// czview : null-terminated string view
+typedef csview_value czview_value;
+typedef struct czview {
+    czview_value* str;
     intptr_t size;
-} crawstr;
+} czview;
 
 typedef union {
-    crawstr_value* ref;
+    czview_value* ref;
     csview chr;
-} crawstr_iter;
+} czview_iter;
 
-#define c_rs(literal) c_rs_2(literal, c_litstrlen(literal))
-#define c_rs_2(str, n) (c_LITERAL(crawstr){str, n})
-
-typedef crawstr czview;
-typedef crawstr_iter czview_iter;
-typedef crawstr_value czview_value;
-#define c_zv(lit) c_rs(lit)
-#define c_zv_2(str, n) c_rs_2(str, n)
+#define c_zv(literal) c_zv_2(literal, c_litstrlen(literal))
+#define c_zv_2(str, n) (c_LITERAL(czview){str, n})
 
 // cstr : null-terminated owning string (short string optimized - sso)
 typedef char cstr_value;
@@ -98,20 +92,20 @@ typedef union {
 #define c_true(...) __VA_ARGS__
 #define c_false(...)
 
-#define _c_carc_types(SELF, VAL) \
+#define _c_arc_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct SELF { \
         SELF##_value* get; \
         catomic_long* use_count; \
     } SELF
 
-#define _c_cbox_types(SELF, VAL) \
+#define _c_box_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct SELF { \
         SELF##_value* get; \
     } SELF
 
-#define _c_cdeq_types(SELF, VAL) \
+#define _c_deq_types(SELF, VAL) \
     typedef VAL SELF##_value; \
 \
     typedef struct SELF { \
@@ -125,7 +119,7 @@ typedef union {
         const SELF* _s; \
     } SELF##_iter
 
-#define _c_clist_types(SELF, VAL) \
+#define _c_list_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct SELF##_node SELF##_node; \
 \
@@ -138,7 +132,7 @@ typedef union {
         SELF##_node *last; \
     } SELF
 
-#define _c_chash_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
+#define _c_htable_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
 \
@@ -154,12 +148,12 @@ typedef union {
 \
     typedef struct { \
         SELF##_value *ref, *_end; \
-        struct chash_slot *_sref; \
+        struct hmap_slot *_sref; \
     } SELF##_iter; \
 \
     typedef struct SELF { \
         SELF##_value* table; \
-        struct chash_slot* slot; \
+        struct hmap_slot* slot; \
         intptr_t size, bucket_count; \
     } SELF
 
@@ -189,30 +183,30 @@ typedef union {
         int32_t root, disp, head, size, cap; \
     } SELF
 
-#define _c_cstack_fixed(SELF, VAL, CAP) \
+#define _c_stack_fixed(SELF, VAL, CAP) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value data[CAP]; intptr_t _len; } SELF
 
-#define _c_cstack_types(SELF, VAL) \
+#define _c_stack_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value* data; intptr_t _len, _cap; } SELF
 
-#define _c_cvec_types(SELF, VAL) \
+#define _c_vec_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value *data; intptr_t _len, _cap; } SELF
 
-#define _c_cpque_types(SELF, VAL) \
+#define _c_pque_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct SELF { SELF##_value* data; intptr_t _len, _cap; } SELF
 
 #endif // STC_FORWARD_H_INCLUDED
 // ### END_FILE_INCLUDE: forward.h
-// ### BEGIN_FILE_INCLUDE: ccommon.h
-#ifndef CCOMMON_H_INCLUDED
-#define CCOMMON_H_INCLUDED
+// ### BEGIN_FILE_INCLUDE: common.h
+#ifndef STC_COMMON_H_INCLUDED
+#define STC_COMMON_H_INCLUDED
 
 #ifdef _MSC_VER
     #pragma warning(disable: 4116 4996) // unnamed type definition in parentheses
@@ -245,6 +239,13 @@ typedef long long _llong;
 #define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
 #define _c_ARG_N(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
                  _14, _15, _16, N, ...) N
+
+#define _c_SEL21(a, b) a
+#define _c_SEL22(a, b) b
+#define _c_SEL31(a, b, c) a
+#define _c_SEL32(a, b, c) b
+#define _c_SEL33(a, b, c) c
+#define _c_SEL(S, ...) S(__VA_ARGS__)
 
 #ifndef __cplusplus
     #define _i_alloc(T)         ((T*)i_malloc(c_sizeof(T)))
@@ -449,8 +450,8 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
         asm("mulq %3" : "=a"(*(lo)), "=d"(*(hi)) : "a"(a), "rm"(b))
 #endif
 
-#endif // CCOMMON_H_INCLUDED
-// ### END_FILE_INCLUDE: ccommon.h
+#endif // STC_COMMON_H_INCLUDED
+// ### END_FILE_INCLUDE: common.h
 
 enum {
     CREG_DEFAULT = 0,
@@ -578,17 +579,17 @@ cstr cregex_replace_pattern_6(const char* pattern, const char* input, const char
 
 /* destroy regex */
 void cregex_drop(cregex* re);
-#endif // CREGEX_H_INCLUDED
+#endif // STC_CREGEX_H_INCLUDED
 
-#if (defined i_implement || defined i_import) && !defined CREGEX_C_INCLUDED
+#if (defined i_implement || defined i_import) && !defined STC_CREGEX_C_INCLUDED
 // ### BEGIN_FILE_INCLUDE: cregex.c
-#ifndef CREGEX_C_INCLUDED
-#define CREGEX_C_INCLUDED
+#ifndef STC_CREGEX_C_INCLUDED
+#define STC_CREGEX_C_INCLUDED
 
 #include <setjmp.h>
-#ifndef CREGEX_H_INCLUDED
+#ifndef STC_CREGEX_H_INCLUDED
 #endif
-#undef i_implement 
+#undef i_implement
 // implement cstr and utf8 if i_import was defined:
 // ### BEGIN_FILE_INCLUDE: cstr.h
 
@@ -649,15 +650,15 @@ void cregex_drop(cregex* re);
 #endif
 // ### END_FILE_INCLUDE: linkage.h
 
-#ifndef CSTR_H_INCLUDED
-#define CSTR_H_INCLUDED
+#ifndef STC_CSTR_H_INCLUDED
+#define STC_CSTR_H_INCLUDED
 
 #include <stdlib.h> /* malloc */
 #include <stdarg.h>
 #include <stdio.h> /* vsnprintf */
 // ### BEGIN_FILE_INCLUDE: utf8_hdr.h
-#ifndef UTF8_HDR_H
-#define UTF8_HDR_H
+#ifndef STC_UTF8_HDR_H_INCLUDED
+#define STC_UTF8_HDR_H_INCLUDED
 
 #include <ctype.h>
 
@@ -702,7 +703,7 @@ STC_INLINE intptr_t utf8_pos(const char* s, intptr_t index)
 // ------------------------------------------------------
 // The following utf8 function depends on src/utf8code.c.
 // To call them, either define i_import before including
-// one of cstr, csview crawstr, or link with src/libstc.o.
+// one of cstr, csview czview, or link with src/libstc.o.
 
 enum {
     U8G_Cc, U8G_Lt, U8G_Nd, U8G_Nl,
@@ -714,7 +715,7 @@ enum {
     U8G_SIZE
 };
 
-extern bool     utf8_isgroup(int group, uint32_t c); 
+extern bool     utf8_isgroup(int group, uint32_t c);
 extern bool     utf8_isalpha(uint32_t c);
 extern uint32_t utf8_casefold(uint32_t c);
 extern uint32_t utf8_tolower(uint32_t c);
@@ -726,10 +727,10 @@ extern int      utf8_icmp_sv(csview s1, csview s2);
 extern int      utf8_encode(char *out, uint32_t c);
 extern uint32_t utf8_peek_off(const char *s, int offset);
 
-STC_INLINE bool utf8_isupper(uint32_t c) 
+STC_INLINE bool utf8_isupper(uint32_t c)
     { return utf8_tolower(c) != c; }
 
-STC_INLINE bool utf8_islower(uint32_t c) 
+STC_INLINE bool utf8_islower(uint32_t c)
     { return utf8_toupper(c) != c; }
 
 STC_INLINE bool utf8_isalnum(uint32_t c) {
@@ -773,7 +774,7 @@ STC_INLINE bool utf8_valid(const char* s) {
     return utf8_valid_n(s, INTPTR_MAX);
 }
 
-#endif
+#endif // STC_UTF8_HDR_H_INCLUDED
 // ### END_FILE_INCLUDE: utf8_hdr.h
 
 /**************************** PRIVATE API **********************************/
@@ -839,8 +840,8 @@ STC_INLINE csview cstr_sv(const cstr* s) {
     return cstr_is_long(s) ? c_sv_2(s->lon.data, cstr_l_size(s))
                            : c_sv_2(s->sml.data, cstr_s_size(s));
 }
-STC_INLINE crawstr cstr_rs(const cstr* s)
-    { csview sv = cstr_sv(s); return c_rs_2(sv.buf, sv.size); }
+STC_INLINE czview cstr_rs(const cstr* s)
+    { csview sv = cstr_sv(s); return c_zv_2(sv.buf, sv.size); }
 
 STC_INLINE cstr cstr_init(void)
     { return cstr_null; }
@@ -857,7 +858,7 @@ STC_INLINE cstr cstr_from(const char* str)
 STC_INLINE cstr cstr_from_sv(csview sv)
     { return cstr_from_n(sv.buf, sv.size); }
 
-STC_INLINE cstr cstr_from_rs(crawstr rs)
+STC_INLINE cstr cstr_from_rs(czview rs)
     { return cstr_from_n(rs.str, rs.size); }
 
 STC_INLINE cstr cstr_with_size(const intptr_t size, const char value) {
@@ -1125,11 +1126,11 @@ STC_INLINE void cstr_insert_s(cstr* self, intptr_t pos, cstr s)
 STC_INLINE bool cstr_getline(cstr *self, FILE *fp)
     { return cstr_getdelim(self, '\n', fp); }
 
-#endif // CSTR_H_INCLUDED
+#endif // STC_CSTR_H_INCLUDED
 
-/* -------------------------- UTF8 CASE CONVERSION ------------------------- */
-#if defined(i_import) && !defined(CSTR_X_INCLUDED)
-#define CSTR_X_INCLUDED
+/* ----------------------- UTF8 CASE CONVERSION ---------------------- */
+#if defined i_import && !defined STC_CSTR_UTF8_INCLUDED
+#define STC_CSTR_UTF8_INCLUDED
 
 static struct {
     int      (*conv_asc)(int);
@@ -1140,7 +1141,7 @@ fn_tocase[] = {{tolower, utf8_casefold},
                {toupper, utf8_toupper}};
 
 static cstr cstr_tocase(csview sv, int k) {
-    cstr out = cstr_init();
+    cstr out = {0};
     char *buf = cstr_reserve(&out, sv.size*3/2);
     const char *end = sv.buf + sv.size;
     uint32_t cp; intptr_t sz = 0;
@@ -1183,12 +1184,12 @@ void cstr_uppercase(cstr* self)
 
 bool cstr_valid_utf8(const cstr* self)
     { return utf8_valid(cstr_str(self)); }
-#endif // i_import
+#endif // i_import STC_CSTR_UTF8_INCLUDED
 
 /* -------------------------- IMPLEMENTATION ------------------------- */
 #if defined i_implement || defined i_static
-#ifndef CSTR_C_INCLUDED
-#define CSTR_C_INCLUDED
+#ifndef STC_CSTR_C_INCLUDED
+#define STC_CSTR_C_INCLUDED
 
 STC_DEF uint64_t cstr_hash(const cstr *self) {
     csview sv = cstr_sv(self);
@@ -1389,22 +1390,22 @@ STC_DEF intptr_t cstr_printf(cstr* self, const char* fmt, ...) {
     va_end(args);
     return n;
 }
-#endif // CSTR_C_INCLUDED
+#endif // STC_CSTR_C_INCLUDED
 #endif // i_implement
 
 #if defined i_import
 // ### BEGIN_FILE_INCLUDE: utf8code.c
-#ifndef UTF8_C_INCLUDED
-#define UTF8_C_INCLUDED
+#ifndef STC_UTF8_C_INCLUDED
+#define STC_UTF8_C_INCLUDED
 
-#ifndef UTF8_HDR_H
+#ifndef STC_UTF8_HDR_H_INCLUDED
 // ### BEGIN_FILE_INCLUDE: utf8.h
 
-#ifndef UTF8_H_INCLUDED
-#define UTF8_H_INCLUDED
+#ifndef STC_UTF8_H_INCLUDED
+#define STC_UTF8_H_INCLUDED
 
 
-#endif // UTF8_H_INCLUDED
+#endif // STC_UTF8_H_INCLUDED
 
 #if defined i_implement
 #endif
@@ -1830,7 +1831,7 @@ bool utf8_isalpha(uint32_t c) {
 
 bool utf8_iscased(uint32_t c) {
     if (c < 128) return isalpha((int)c) != 0;
-    return utf8_islower(c) || utf8_isupper(c) || 
+    return utf8_islower(c) || utf8_isupper(c) ||
            utf8_isgroup(U8G_Lt, c);
 }
 
@@ -2165,7 +2166,7 @@ const UGroup _utf8_unicode_groups[U8G_SIZE] = {
     _e_arg(U8G_Latin, UNI_ENTRY(Latin)),
 };
 
-#endif
+#endif // STC_UTF8_C_INCLUDED
 // ### END_FILE_INCLUDE: utf8code.c
 #endif
 // ### END_FILE_INCLUDE: cstr.h
@@ -2664,7 +2665,7 @@ _optimize(_Parser *par, _Reprog *pp)
             cl->end = (_Rune *)((char*)cl->end + diff);
             break;
         }
-        if (inst->l.left) 
+        if (inst->l.left)
             inst->l.left = (_Reinst *)((char*)inst->l.left + diff);
     }
     npp->startinst = (_Reinst *)((char*)npp->startinst + diff);
@@ -2742,8 +2743,8 @@ _lexutfclass(_Parser *par, _Rune *rp)
         {"{Digit}", 7, UTF_nd}, {"{Nd}", 4, UTF_nd},
         {"{Lower}", 7, UTF_ll}, {"{Ll}", 4, UTF_ll},
         {"{Upper}", 7, UTF_lu}, {"{Lu}", 4, UTF_lu},
-        {"{Cntrl}", 7, UTF_cc}, {"{Cc}", 4, UTF_cc}, 
-        {"{Alnum}", 7, UTF_an}, {"{Blank}", 7, UTF_bl}, 
+        {"{Cntrl}", 7, UTF_cc}, {"{Cc}", 4, UTF_cc},
+        {"{Alnum}", 7, UTF_an}, {"{Blank}", 7, UTF_bl},
         {"{Space}", 7, UTF_sp}, {"{Word}", 6, UTF_wr},
         {"{XDigit}", 8, ASC_xd},
         {"{Lt}", 4, UTF_lt}, {"{Nl}", 4, UTF_nl},
@@ -2806,8 +2807,8 @@ _lex(_Parser *par)
             if (par->exprp[-1] != '}')
                 _rcerror(par, CREG_UNMATCHEDRIGHTPARENTHESIS);
             if (par->yyrune == 0) return TOK_END;
-            break; 
-        case 'p': case 'P': 
+            break;
+        case 'p': case 'P':
             _lexutfclass(par, &par->yyrune);
             break;
         }
@@ -2828,7 +2829,7 @@ _lex(_Parser *par)
         if (par->exprp[0] == '?') { /* override global flags */
             for (int k = 1, enable = 1; ; ++k) switch (par->exprp[k]) {
                 case  0 : par->exprp += k; return TOK_END;
-                case ')': par->exprp += k + 1; 
+                case ')': par->exprp += k + 1;
                           return TOK_CASED + (par->rune_type == TOK_IRUNE);
                 case '-': enable = 0; break;
                 case 's': par->dot_type = TOK_ANY + enable; break;
@@ -3030,7 +3031,7 @@ _runematch(_Rune s, _Rune r)
     case UTF_SP: inv = 1; case UTF_sp: return inv ^ (int)utf8_isspace(r);
     case UTF_LL: inv = 1; case UTF_ll: return inv ^ (int)utf8_islower(r);
     case UTF_LU: inv = 1; case UTF_lu: return inv ^ (int)utf8_isupper(r);
-    case UTF_LC: inv = 1; case UTF_lc: return inv ^ (int)utf8_iscased(r); 
+    case UTF_LC: inv = 1; case UTF_lc: return inv ^ (int)utf8_iscased(r);
     case UTF_AL: inv = 1; case UTF_al: return inv ^ (int)utf8_isalpha(r);
     case UTF_WR: inv = 1; case UTF_wr: return inv ^ (int)utf8_isword(r);
     case UTF_cc: case UTF_CC:
@@ -3294,7 +3295,7 @@ _build_subst(const char* replace, int nmatch, const csview match[],
     cstr_buf buf = cstr_buffer(subst);
     intptr_t len = 0, cap = buf.cap;
     char* dst = buf.data;
-    cstr mstr = cstr_init();
+    cstr mstr = {0};
 
     while (*replace != '\0') {
         if (*replace == '$') {
@@ -3328,7 +3329,7 @@ _build_subst(const char* replace, int nmatch, const csview match[],
 
 
 
-int 
+int
 cregex_compile_3(cregex *self, const char* pattern, int cflags) {
     _Parser par;
     self->prog = _regcomp1(self->prog, &par, pattern, cflags);
@@ -3353,7 +3354,7 @@ cregex_find_4(const cregex* re, const char* input, csview match[], int mflags) {
 int
 cregex_find_pattern_4(const char* pattern, const char* input,
                       csview match[], int cmflags) {
-    cregex re = cregex_init();
+    cregex re = {0};
     int res = cregex_compile(&re, pattern, cmflags);
     if (res != CREG_OK) return res;
     res = cregex_find(&re, input, match, cmflags);
@@ -3364,8 +3365,8 @@ cregex_find_pattern_4(const char* pattern, const char* input,
 cstr
 cregex_replace_sv_6(const cregex* re, csview input, const char* replace, int count,
                     bool (*mfun)(int, csview, cstr*), int rflags) {
-    cstr out = cstr_init();
-    cstr subst = cstr_init();
+    cstr out = {0};
+    cstr subst = {0};
     csview match[CREG_MAX_CAPTURES];
     int nmatch = cregex_captures(re) + 1;
     if (!count) count = INT32_MAX;
@@ -3387,7 +3388,7 @@ cregex_replace_sv_6(const cregex* re, csview input, const char* replace, int cou
 cstr
 cregex_replace_pattern_6(const char* pattern, const char* input, const char* replace, int count,
                          bool (*mfun)(int, csview, cstr*), int crflags) {
-    cregex re = cregex_init();
+    cregex re = {0};
     if (cregex_compile(&re, pattern, crflags) != CREG_OK)
         assert(0);
     csview sv = c_sv(input, c_strlen(input));
