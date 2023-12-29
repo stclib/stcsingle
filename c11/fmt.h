@@ -30,20 +30,24 @@ typedef struct {
     _Bool overwrite;
 } fmt_stream;
 
+#if defined FMT_STATIC || defined STC_STATIC || defined i_static
+  #define FMT_API static
+  #define FMT_DEF static
+#elif defined FMT_IMPLEMENT || defined STC_IMPLEMENT || defined i_implement
+  #define FMT_API extern
+  #define FMT_DEF
+#else
+  #define FMT_API
+#endif
+
 struct tm;  /* Max 2 usages. Buffer = 64 chars. */
-const char* fmt_tm(const char *fmt, const struct tm *tp);
-void        fmt_close(fmt_stream* ss);
-int  _fmt_parse(char* p, int nargs, const char *fmt, ...);
-void _fmt_bprint(fmt_stream*, const char* fmt, ...);
+FMT_API const char* fmt_tm(const char *fmt, const struct tm *tp);
+FMT_API void        fmt_close(fmt_stream* ss);
+FMT_API int        _fmt_parse(char* p, int nargs, const char *fmt, ...);
+FMT_API void       _fmt_sprint(fmt_stream*, const char* fmt, ...);
 
 #ifndef FMT_MAX
 #define FMT_MAX 128
-#endif
-
-#ifdef FMT_SHORTS
-#define print(...) fmt_printd(stdout, __VA_ARGS__)
-#define println(...) fmt_printd((fmt_stream*)0, __VA_ARGS__)
-#define printd fmt_printd
 #endif
 
 #define fmt_print(...) fmt_printd(stdout, __VA_ARGS__)
@@ -99,19 +103,24 @@ void _fmt_bprint(fmt_stream*, const char* fmt, ...);
 #define _fmt_fn(x) _Generic ((x), \
     FILE*: fprintf, \
     char*: sprintf, \
-    fmt_stream*: _fmt_bprint)
+    fmt_stream*: _fmt_sprint)
 
 #if defined(_MSC_VER) && !defined(__clang__)
-#  define _signed_char_hhd
+  #define _signed_char_hhd
 #else
-#  define _signed_char_hhd signed char: "hhd",
+  #define _signed_char_hhd signed char: "hhd",
+#endif
+#ifdef __GNUC__
+  #define FMT_UNUSED __attribute__((unused))
+#else
+  #define FMT_UNUSED
 #endif
 
 #define _fc(x) _Generic (x, \
     _Bool: "d", \
     unsigned char: "hhu", \
     _signed_char_hhd \
-    char: "c", \
+    char: "hhd", \
     short: "hd", \
     unsigned short: "hu", \
     int: "d", \
@@ -130,25 +139,25 @@ void _fmt_bprint(fmt_stream*, const char* fmt, ...);
     const wchar_t*: "ls", \
     const void*: "p")
 
-#if defined FMT_IMPLEMENT || defined STC_IMPLEMENT || defined i_implement
+#if defined FMT_DEF
 
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
 #include <time.h>
 
-void fmt_close(fmt_stream* ss) {
+FMT_DEF FMT_UNUSED void fmt_close(fmt_stream* ss) {
     free(ss->data);
 }
 
-const char* fmt_tm(const char *fmt, const struct tm *tp) {
+FMT_DEF FMT_UNUSED const char* fmt_tm(const char *fmt, const struct tm *tp) {
     static char buf[2][64];
-    static  int i;
-    strftime(buf[(i = !i)], sizeof buf[0], fmt, tp);
+    static int i;
+    strftime(buf[(i = !i)], sizeof(buf[0]) - 1, fmt, tp);
     return buf[i];
 }
 
-void _fmt_bprint(fmt_stream* ss, const char* fmt, ...) {
+FMT_DEF void _fmt_sprint(fmt_stream* ss, const char* fmt, ...) {
     va_list args, args2;
     va_start(args, fmt);
     if (ss == NULL) {
@@ -169,7 +178,7 @@ void _fmt_bprint(fmt_stream* ss, const char* fmt, ...) {
     done1: va_end(args);
 }
 
-int _fmt_parse(char* p, int nargs, const char *fmt, ...) {
+FMT_DEF int _fmt_parse(char* p, int nargs, const char *fmt, ...) {
     char *arg, *p0, ch;
     int n = 0, empty;
     va_list args;
@@ -220,5 +229,6 @@ int _fmt_parse(char* p, int nargs, const char *fmt, ...) {
 #endif
 #endif
 #undef i_implement
+#undef i_static
 // ### END_FILE_INCLUDE: fmt.h
 

@@ -60,9 +60,6 @@
 #ifndef STC_CSTR_H_INCLUDED
 #define STC_CSTR_H_INCLUDED
 
-#include <stdlib.h> /* malloc */
-#include <stdarg.h>
-#include <stdio.h> /* vsnprintf */
 // ### BEGIN_FILE_INCLUDE: common.h
 #ifndef STC_COMMON_H_INCLUDED
 #define STC_COMMON_H_INCLUDED
@@ -76,12 +73,11 @@
 #include <string.h>
 #include <assert.h>
 
-typedef long long _llong;
 #define c_NPOS INTPTR_MAX
 #define c_ZI PRIiPTR
 #define c_ZU PRIuPTR
 
-#if defined __GNUC__ // includes __clang__
+#if defined __GNUC__ || defined __clang__
     #define STC_INLINE static inline __attribute((unused))
 #else
     #define STC_INLINE static inline
@@ -149,11 +145,11 @@ typedef long long _llong;
 #define c_uless(a, b)           ((size_t)(a) < (size_t)(b))
 
 // x and y are i_keyraw* type, defaults to i_key*:
+#define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
 #define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
 #define c_default_less(x, y)    (*(x) < *(y))
 #define c_default_eq(x, y)      (*(x) == *(y))
-#define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
-#define c_default_hash          stc_hash_1
+#define c_default_hash          c_hash_pod
 
 #define c_default_clone(v)      (v)
 #define c_default_toraw(vp)     (*(vp))
@@ -167,16 +163,14 @@ typedef long long _llong;
 // Non-owning c-string "class"
 typedef const char* ccharptr;
 #define ccharptr_cmp(xp, yp) strcmp(*(xp), *(yp))
-#define ccharptr_hash(p) stc_strhash(*(p))
+#define ccharptr_eq(xp, yp) (ccharptr_cmp(xp, yp) == 0)
+#define ccharptr_hash(p) c_hash_str(*(p))
 #define ccharptr_clone(s) (s)
 #define ccharptr_drop(p) ((void)p)
 
 #define c_ROTL(x, k) (x << (k) | x >> (8*sizeof(x) - (k)))
 
-#define stc_hash(...) c_MACRO_OVERLOAD(stc_hash, __VA_ARGS__)
-#define stc_hash_1(x) stc_hash_2(x, c_sizeof(*(x)))
-
-STC_INLINE uint64_t stc_hash_2(const void* key, intptr_t len) {
+STC_INLINE uint64_t c_hash_n(const void* key, intptr_t len) {
     uint32_t u4; uint64_t u8;
     switch (len) {
         case 8: memcpy(&u8, key, 8); return u8*0xc6a4a7935bd1e99d;
@@ -194,15 +188,17 @@ STC_INLINE uint64_t stc_hash_2(const void* key, intptr_t len) {
     return h ^ c_ROTL(h, 26);
 }
 
-STC_INLINE uint64_t stc_strhash(const char *str)
-    { return stc_hash_2(str, c_strlen(str)); }
+#define c_hash_pod(pod) c_hash_n(pod, sizeof *(pod))
 
-STC_INLINE uint64_t _stc_hash_mix(uint64_t h[], int n) { // n > 0
+STC_INLINE uint64_t c_hash_str(const char *str)
+    { return c_hash_n(str, c_strlen(str)); }
+
+STC_INLINE uint64_t _c_hash_mix(uint64_t h[], int n) { // n > 0
     for (int i = 1; i < n; ++i) h[0] ^= h[0] + h[i]; // non-commutative!
     return h[0];
 }
 
-STC_INLINE char* stc_strnstrn(const char *str, intptr_t slen,
+STC_INLINE char* c_strnstrn(const char *str, intptr_t slen,
                               const char *needle, intptr_t nlen) {
     if (!nlen) return (char *)str;
     if (nlen > slen) return NULL;
@@ -215,7 +211,7 @@ STC_INLINE char* stc_strnstrn(const char *str, intptr_t slen,
     return NULL;
 }
 
-STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
+STC_INLINE intptr_t c_next_pow2(intptr_t n) {
     n--;
     n |= n >> 1, n |= n >> 2;
     n |= n >> 4, n |= n >> 8;
@@ -239,20 +235,24 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
          ; _.iter.ref && (_.key = &_.iter.ref->first, _.val = &_.iter.ref->second) \
          ; C##_next(&_.iter))
 
-#define c_forindexed(it, C, cnt) \
-    for (struct {C##_iter iter; C##_value* ref; intptr_t index;} it = {.iter=C##_begin(&cnt)} \
-         ; (it.ref = it.iter.ref) ; C##_next(&it.iter), ++it.index)
+#define c_foreach_rev(it, C, cnt) /* reverse: works only for stack and vec */ \
+    for (C##_iter _start = C##_begin(&cnt), it = {.ref=_start.ref ? _start.end - 1 : NULL, .end=_start.ref - 1} \
+         ; it.ref ; --it.ref == it.end ? it.ref = NULL : NULL)
 
-#define c_foriter(existing_iter, C, cnt) \
+#define c_foreach_n(it, C, cnt, N) /* iterate up to N items */ \
+    for (struct {C##_iter iter; C##_value* ref; intptr_t index, n;} it = {.iter=C##_begin(&cnt), .n=N} \
+         ; (it.ref = it.iter.ref) && it.index < it.n; C##_next(&it.iter), ++it.index)
+
+#define c_foreach_it(existing_iter, C, cnt) \
     for (existing_iter = C##_begin(&cnt); (existing_iter).ref; C##_next(&existing_iter))
 
 #define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
 #define c_forrange_1(stop) c_forrange_3(_i, 0, stop)
 #define c_forrange_2(i, stop) c_forrange_3(i, 0, stop)
 #define c_forrange_3(i, start, stop) \
-    for (_llong i=start, _end=stop; i < _end; ++i)
+    for (intptr_t i=start, _end=stop; i < _end; ++i)
 #define c_forrange_4(i, start, stop, step) \
-    for (_llong i=start, _inc=step, _end=(_llong)(stop) - (_inc > 0) \
+    for (intptr_t i=start, _inc=step, _end=(intptr_t)(stop) - (_inc > 0) \
          ; (_inc > 0) ^ (i > _end); i += _inc)
 
 #ifndef __cplusplus
@@ -262,8 +262,8 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
         for (struct {T* ref; int size, index;} \
              it = {.ref=(T[])__VA_ARGS__, .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
              ; it.index < it.size; ++it.ref, ++it.index)
-    #define stc_hash_mix(...) \
-        _stc_hash_mix((uint64_t[]){__VA_ARGS__}, c_NUMARGS(__VA_ARGS__))
+    #define c_hash_mix(...) \
+        _c_hash_mix((uint64_t[]){__VA_ARGS__}, c_NUMARGS(__VA_ARGS__))
 #else
     #include <initializer_list>
     #include <array>
@@ -275,8 +275,8 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
         for (struct {std::initializer_list<T> _il; std::initializer_list<T>::iterator ref; size_t size, index;} \
              it = {._il=__VA_ARGS__, .ref=it._il.begin(), .size=it._il.size()} \
              ; it.index < it.size; ++it.ref, ++it.index)
-    #define stc_hash_mix(...) \
-        _stc_hash_mix(std::array<uint64_t, c_NUMARGS(__VA_ARGS__)>{__VA_ARGS__}.data(), c_NUMARGS(__VA_ARGS__))
+    #define c_hash_mix(...) \
+        _c_hash_mix(std::array<uint64_t, c_NUMARGS(__VA_ARGS__)>{__VA_ARGS__}.data(), c_NUMARGS(__VA_ARGS__))
 #endif
 
 #define c_defer(...) \
@@ -374,8 +374,7 @@ typedef union {
     csview chr;
 } czview_iter;
 
-#define c_zv(literal) c_zv_2(literal, c_litstrlen(literal))
-#define c_zv_2(str, n) (c_LITERAL(czview){str, n})
+#define c_zv(literal) (c_LITERAL(czview){literal, c_litstrlen(literal)})
 
 // cstr : null-terminated owning string (short string optimized - sso)
 typedef char cstr_value;
@@ -512,9 +511,9 @@ typedef union {
 
 #endif // STC_FORWARD_H_INCLUDED
 // ### END_FILE_INCLUDE: forward.h
-// ### BEGIN_FILE_INCLUDE: utf8_hdr.h
-#ifndef STC_UTF8_HDR_H_INCLUDED
-#define STC_UTF8_HDR_H_INCLUDED
+// ### BEGIN_FILE_INCLUDE: utf8_prv.h
+#ifndef STC_UTF8_PRV_H_INCLUDED
+#define STC_UTF8_PRV_H_INCLUDED
 
 #include <ctype.h>
 
@@ -557,7 +556,7 @@ STC_INLINE intptr_t utf8_pos(const char* s, intptr_t index)
     { return (intptr_t)(utf8_at(s, index) - s); }
 
 // ------------------------------------------------------
-// The following utf8 function depends on src/utf8code.c.
+// The following requires linking with utf8 symbols.
 // To call them, either define i_import before including
 // one of cstr, csview czview, or link with src/libstc.o.
 
@@ -630,8 +629,15 @@ STC_INLINE bool utf8_valid(const char* s) {
     return utf8_valid_n(s, INTPTR_MAX);
 }
 
-#endif // STC_UTF8_HDR_H_INCLUDED
-// ### END_FILE_INCLUDE: utf8_hdr.h
+#endif // STC_UTF8_PRV_H_INCLUDED
+// ### END_FILE_INCLUDE: utf8_prv.h
+// ### BEGIN_FILE_INCLUDE: cstr_prv.h
+#ifndef STC_CSTR_PRV_H_INCLUDED
+#define STC_CSTR_PRV_H_INCLUDED
+
+#include <stdlib.h> /* malloc */
+#include <stdarg.h>
+#include <stdio.h> /* vsnprintf */
 
 /**************************** PRIVATE API **********************************/
 
@@ -688,16 +694,17 @@ STC_API cstr        cstr_replace_sv(csview sv, csview search, csview repl, int32
 STC_API uint64_t    cstr_hash(const cstr *self);
 
 STC_INLINE cstr_buf cstr_buffer(cstr* s) {
-    return cstr_is_long(s)
-        ? c_LITERAL(cstr_buf){s->lon.data, cstr_l_size(s), cstr_l_cap(s)}
-        : c_LITERAL(cstr_buf){s->sml.data, cstr_s_size(s), cstr_s_cap};
+    return cstr_is_long(s) ? c_LITERAL(cstr_buf){s->lon.data, cstr_l_size(s), cstr_l_cap(s)}
+                           : c_LITERAL(cstr_buf){s->sml.data, cstr_s_size(s), cstr_s_cap};
+}
+STC_INLINE czview cstr_zv(const cstr* s) {
+    return cstr_is_long(s) ? c_LITERAL(czview){s->lon.data, cstr_l_size(s)}
+                           : c_LITERAL(czview){s->sml.data, cstr_s_size(s)};
 }
 STC_INLINE csview cstr_sv(const cstr* s) {
-    return cstr_is_long(s) ? c_sv_2(s->lon.data, cstr_l_size(s))
-                           : c_sv_2(s->sml.data, cstr_s_size(s));
+    return cstr_is_long(s) ? c_LITERAL(csview){s->lon.data, cstr_l_size(s)}
+                           : c_LITERAL(csview){s->sml.data, cstr_s_size(s)};
 }
-STC_INLINE czview cstr_rs(const cstr* s)
-    { csview sv = cstr_sv(s); return c_zv_2(sv.buf, sv.size); }
 
 STC_INLINE cstr cstr_init(void)
     { return cstr_null; }
@@ -714,8 +721,8 @@ STC_INLINE cstr cstr_from(const char* str)
 STC_INLINE cstr cstr_from_sv(csview sv)
     { return cstr_from_n(sv.buf, sv.size); }
 
-STC_INLINE cstr cstr_from_rs(czview rs)
-    { return cstr_from_n(rs.str, rs.size); }
+STC_INLINE cstr cstr_from_zv(czview zv)
+    { return cstr_from_n(zv.str, zv.size); }
 
 STC_INLINE cstr cstr_with_size(const intptr_t size, const char value) {
     cstr s;
@@ -757,6 +764,9 @@ STC_INLINE void cstr_drop(cstr* self) {
 STC_INLINE void _cstr_set_size(cstr* self, intptr_t len)
     { SSO_CALL(self, set_size(self, len)); }
 
+STC_INLINE void cstr_clear(cstr* self)
+    { _cstr_set_size(self, 0); }
+
 STC_INLINE char* cstr_data(cstr* self)
     { return SSO_CALL(self, data(self)); }
 
@@ -772,7 +782,11 @@ STC_INLINE intptr_t cstr_size(const cstr* self)
 STC_INLINE intptr_t cstr_capacity(const cstr* self)
     { return cstr_is_long(self) ? cstr_l_cap(self) : (intptr_t)cstr_s_cap; }
 
-// utf8 methods defined in/depending on src/utf8code.c:
+STC_INLINE intptr_t cstr_topos(const cstr* self, cstr_iter it)
+    { return it.ref - cstr_str(self); }
+
+
+// requires linking with utf8 symbols, e.g. #define i_import before including cstr.h in one TU.
 
 extern cstr cstr_casefold_sv(csview sv);
 extern cstr cstr_tolower_sv(csview sv);
@@ -783,7 +797,8 @@ extern void cstr_lowercase(cstr* self);
 extern void cstr_uppercase(cstr* self);
 extern bool cstr_valid_utf8(const cstr* self);
 
-// utf8 functions not depending on src/utf8code.c:
+STC_INLINE cstr cstr_from_pos(cstr s, intptr_t pos, intptr_t len)
+    { return cstr_from_n(cstr_str(&s) + pos, len); }
 
 STC_INLINE intptr_t cstr_u8_size(const cstr* self)
     { return utf8_size(cstr_str(self)); }
@@ -791,7 +806,7 @@ STC_INLINE intptr_t cstr_u8_size(const cstr* self)
 STC_INLINE intptr_t cstr_u8_size_n(const cstr* self, intptr_t nbytes)
     { return utf8_size_n(cstr_str(self), nbytes); }
 
-STC_INLINE intptr_t cstr_u8_to_pos(const cstr* self, intptr_t u8idx)
+STC_INLINE intptr_t cstr_u8_topos(const cstr* self, intptr_t u8idx)
     { return utf8_pos(cstr_str(self), u8idx); }
 
 STC_INLINE const char* cstr_u8_at(const cstr* self, intptr_t u8idx)
@@ -820,18 +835,17 @@ STC_INLINE void cstr_next(cstr_iter* it) {
     it->chr.size = utf8_chr_size(it->ref);
     if (!*it->ref) it->ref = NULL;
 }
-STC_INLINE cstr_iter cstr_advance(cstr_iter it, intptr_t pos) {
+STC_INLINE cstr_iter cstr_advance(cstr_iter it, intptr_t u8pos) {
     int inc = -1;
-    if (pos > 0) pos = -pos, inc = 1;
-    while (pos && *it.ref) pos += (*(it.ref += inc) & 0xC0) != 0x80;
+    if (u8pos > 0)
+        u8pos = -u8pos, inc = 1;
+    while (u8pos && *it.ref)
+        u8pos += (*(it.ref += inc) & 0xC0) != 0x80;
     it.chr.size = utf8_chr_size(it.ref);
     if (!*it.ref) it.ref = NULL;
     return it;
 }
 
-
-STC_INLINE void cstr_clear(cstr* self)
-    { _cstr_set_size(self, 0); }
 
 STC_INLINE int cstr_cmp(const cstr* s1, const cstr* s2)
     { return strcmp(cstr_str(s1), cstr_str(s2)); }
@@ -982,79 +996,26 @@ STC_INLINE void cstr_insert_s(cstr* self, intptr_t pos, cstr s)
 STC_INLINE bool cstr_getline(cstr *self, FILE *fp)
     { return cstr_getdelim(self, '\n', fp); }
 
+#endif // STC_CSTR_PRV_H_INCLUDED
+// ### END_FILE_INCLUDE: cstr_prv.h
+
 #endif // STC_CSTR_H_INCLUDED
 
-/* ----------------------- UTF8 CASE CONVERSION ---------------------- */
-#if defined i_import && !defined STC_CSTR_UTF8_INCLUDED
-#define STC_CSTR_UTF8_INCLUDED
-
-static struct {
-    int      (*conv_asc)(int);
-    uint32_t (*conv_utf)(uint32_t);
-}
-fn_tocase[] = {{tolower, utf8_casefold},
-               {tolower, utf8_tolower},
-               {toupper, utf8_toupper}};
-
-static cstr cstr_tocase(csview sv, int k) {
-    cstr out = {0};
-    char *buf = cstr_reserve(&out, sv.size*3/2);
-    const char *end = sv.buf + sv.size;
-    uint32_t cp; intptr_t sz = 0;
-    utf8_decode_t d = {.state=0};
-
-    while (sv.buf < end) {
-        do { utf8_decode(&d, (uint8_t)*sv.buf++); } while (d.state);
-        if (d.codep < 128)
-            buf[sz++] = (char)fn_tocase[k].conv_asc((int)d.codep);
-        else {
-            cp = fn_tocase[k].conv_utf(d.codep);
-            sz += utf8_encode(buf + sz, cp);
-        }
-    }
-    _cstr_set_size(&out, sz);
-    cstr_shrink_to_fit(&out);
-    return out;
-}
-
-cstr cstr_casefold_sv(csview sv)
-    { return cstr_tocase(sv, 0); }
-
-cstr cstr_tolower_sv(csview sv)
-    { return cstr_tocase(sv, 1); }
-
-cstr cstr_toupper_sv(csview sv)
-    { return cstr_tocase(sv, 2); }
-
-cstr cstr_tolower(const char* str)
-    { return cstr_tolower_sv(c_sv(str, c_strlen(str))); }
-
-cstr cstr_toupper(const char* str)
-    { return cstr_toupper_sv(c_sv(str, c_strlen(str))); }
-
-void cstr_lowercase(cstr* self)
-    { cstr_take(self, cstr_tolower_sv(cstr_sv(self))); }
-
-void cstr_uppercase(cstr* self)
-    { cstr_take(self, cstr_toupper_sv(cstr_sv(self))); }
-
-bool cstr_valid_utf8(const cstr* self)
-    { return utf8_valid(cstr_str(self)); }
-#endif // i_import STC_CSTR_UTF8_INCLUDED
-
-/* -------------------------- IMPLEMENTATION ------------------------- */
 #if defined i_implement || defined i_static
-#ifndef STC_CSTR_C_INCLUDED
-#define STC_CSTR_C_INCLUDED
+// ### BEGIN_FILE_INCLUDE: cstr_prv.c
+#ifndef STC_CSTR_PRV_C_INCLUDED
+#define STC_CSTR_PRV_C_INCLUDED
+
+#include <stdio.h>
 
 STC_DEF uint64_t cstr_hash(const cstr *self) {
     csview sv = cstr_sv(self);
-    return stc_hash(sv.buf, sv.size);
+    return c_hash_n(sv.buf, sv.size);
 }
 
 STC_DEF intptr_t cstr_find_sv(const cstr* self, csview search) {
     csview sv = cstr_sv(self);
-    char* res = stc_strnstrn(sv.buf, sv.size, search.buf, search.size);
+    char* res = c_strnstrn(sv.buf, sv.size, search.buf, search.size);
     return res ? (res - sv.buf) : c_NPOS;
 }
 
@@ -1187,7 +1148,7 @@ STC_DEF cstr cstr_replace_sv(csview in, csview search, csview repl, int32_t coun
     intptr_t from = 0; char* res;
     if (!count) count = INT32_MAX;
     if (search.size)
-        while (count-- && (res = stc_strnstrn(in.buf + from, in.size - from, search.buf, search.size))) {
+        while (count-- && (res = c_strnstrn(in.buf + from, in.size - from, search.buf, search.size))) {
             const intptr_t pos = (res - in.buf);
             cstr_append_n(&out, in.buf + from, pos - from);
             cstr_append_n(&out, repl.buf, repl.size);
@@ -1246,47 +1207,75 @@ STC_DEF intptr_t cstr_printf(cstr* self, const char* fmt, ...) {
     va_end(args);
     return n;
 }
-#endif // STC_CSTR_C_INCLUDED
+#endif // STC_CSTR_PRV_C_INCLUDED
+
+/* ----------------------- UTF8 CASE CONVERSION ---------------------- */
+#if defined i_import && !defined STC_CSTR_UTF8_INCLUDED
+#define STC_CSTR_UTF8_INCLUDED
+
+static struct {
+    int      (*conv_asc)(int);
+    uint32_t (*conv_utf)(uint32_t);
+}
+fn_tocase[] = {{tolower, utf8_casefold},
+               {tolower, utf8_tolower},
+               {toupper, utf8_toupper}};
+
+static cstr cstr_tocase(csview sv, int k) {
+    cstr out = {0};
+    char *buf = cstr_reserve(&out, sv.size*3/2);
+    const char *end = sv.buf + sv.size;
+    uint32_t cp; intptr_t sz = 0;
+    utf8_decode_t d = {.state=0};
+
+    while (sv.buf < end) {
+        do { utf8_decode(&d, (uint8_t)*sv.buf++); } while (d.state);
+        if (d.codep < 128)
+            buf[sz++] = (char)fn_tocase[k].conv_asc((int)d.codep);
+        else {
+            cp = fn_tocase[k].conv_utf(d.codep);
+            sz += utf8_encode(buf + sz, cp);
+        }
+    }
+    _cstr_set_size(&out, sz);
+    cstr_shrink_to_fit(&out);
+    return out;
+}
+
+cstr cstr_casefold_sv(csview sv)
+    { return cstr_tocase(sv, 0); }
+
+cstr cstr_tolower_sv(csview sv)
+    { return cstr_tocase(sv, 1); }
+
+cstr cstr_toupper_sv(csview sv)
+    { return cstr_tocase(sv, 2); }
+
+cstr cstr_tolower(const char* str)
+    { return cstr_tolower_sv(c_sv(str, c_strlen(str))); }
+
+cstr cstr_toupper(const char* str)
+    { return cstr_toupper_sv(c_sv(str, c_strlen(str))); }
+
+void cstr_lowercase(cstr* self)
+    { cstr_take(self, cstr_tolower_sv(cstr_sv(self))); }
+
+void cstr_uppercase(cstr* self)
+    { cstr_take(self, cstr_toupper_sv(cstr_sv(self))); }
+
+bool cstr_valid_utf8(const cstr* self)
+    { return utf8_valid(cstr_str(self)); }
+
+#endif // i_import STC_CSTR_UTF8_INCLUDED
+// ### END_FILE_INCLUDE: cstr_prv.c
 #endif // i_implement
 
 #if defined i_import
-// ### BEGIN_FILE_INCLUDE: utf8code.c
-#ifndef STC_UTF8_C_INCLUDED
-#define STC_UTF8_C_INCLUDED
+// ### BEGIN_FILE_INCLUDE: utf8_prv.c
+#ifndef STC_UTF8_PRV_C_INCLUDED
+#define STC_UTF8_PRV_C_INCLUDED
 
-#ifndef STC_UTF8_HDR_H_INCLUDED
-// ### BEGIN_FILE_INCLUDE: utf8.h
-
-#ifndef STC_UTF8_H_INCLUDED
-#define STC_UTF8_H_INCLUDED
-
-
-#endif // STC_UTF8_H_INCLUDED
-
-#if defined i_implement
-#endif
-// ### BEGIN_FILE_INCLUDE: linkage2.h
-
-#undef i_allocator
-#undef i_malloc
-#undef i_calloc
-#undef i_realloc
-#undef i_free
-
-#undef i_static
-#undef i_header
-#undef i_implement
-#undef i_import
-
-#if defined __clang__ && !defined __cplusplus
-  #pragma clang diagnostic pop
-#elif defined __GNUC__ && !defined __cplusplus
-  #pragma GCC diagnostic pop
-#endif
-// ### END_FILE_INCLUDE: linkage2.h
-// ### END_FILE_INCLUDE: utf8.h
-#endif
-// ### BEGIN_FILE_INCLUDE: utf8tabs.inc
+// ### BEGIN_FILE_INCLUDE: utf8_tab.c
 #include <stdint.h>
 
 struct CaseMapping { uint16_t c1, c2, m2; };
@@ -1538,7 +1527,7 @@ static uint8_t lowcase_ind[184] = {
     159, 160, 161, 97, 98, 99, 162, 163, 164, 165, 166, 168, 169, 171, 183, 172, 182, 186, 187, 188,
     189, 181, 195, 191,
 };
-// ### END_FILE_INCLUDE: utf8tabs.inc
+// ### END_FILE_INCLUDE: utf8_tab.c
 
 const uint8_t utf8_dtab[] = {
    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -2022,8 +2011,27 @@ const UGroup _utf8_unicode_groups[U8G_SIZE] = {
     _e_arg(U8G_Latin, UNI_ENTRY(Latin)),
 };
 
-#endif // STC_UTF8_C_INCLUDED
-// ### END_FILE_INCLUDE: utf8code.c
+#endif // STC_UTF8_PRV_C_INCLUDED
+// ### END_FILE_INCLUDE: utf8_prv.c
 #endif
+// ### BEGIN_FILE_INCLUDE: linkage2.h
+
+#undef i_allocator
+#undef i_malloc
+#undef i_calloc
+#undef i_realloc
+#undef i_free
+
+#undef i_static
+#undef i_header
+#undef i_implement
+#undef i_import
+
+#if defined __clang__ && !defined __cplusplus
+  #pragma clang diagnostic pop
+#elif defined __GNUC__ && !defined __cplusplus
+  #pragma GCC diagnostic pop
+#endif
+// ### END_FILE_INCLUDE: linkage2.h
 // ### END_FILE_INCLUDE: cstr.h
 

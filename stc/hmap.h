@@ -72,12 +72,11 @@
 #include <string.h>
 #include <assert.h>
 
-typedef long long _llong;
 #define c_NPOS INTPTR_MAX
 #define c_ZI PRIiPTR
 #define c_ZU PRIuPTR
 
-#if defined __GNUC__ // includes __clang__
+#if defined __GNUC__ || defined __clang__
     #define STC_INLINE static inline __attribute((unused))
 #else
     #define STC_INLINE static inline
@@ -145,11 +144,11 @@ typedef long long _llong;
 #define c_uless(a, b)           ((size_t)(a) < (size_t)(b))
 
 // x and y are i_keyraw* type, defaults to i_key*:
+#define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
 #define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
 #define c_default_less(x, y)    (*(x) < *(y))
 #define c_default_eq(x, y)      (*(x) == *(y))
-#define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
-#define c_default_hash          stc_hash_1
+#define c_default_hash          c_hash_pod
 
 #define c_default_clone(v)      (v)
 #define c_default_toraw(vp)     (*(vp))
@@ -163,16 +162,14 @@ typedef long long _llong;
 // Non-owning c-string "class"
 typedef const char* ccharptr;
 #define ccharptr_cmp(xp, yp) strcmp(*(xp), *(yp))
-#define ccharptr_hash(p) stc_strhash(*(p))
+#define ccharptr_eq(xp, yp) (ccharptr_cmp(xp, yp) == 0)
+#define ccharptr_hash(p) c_hash_str(*(p))
 #define ccharptr_clone(s) (s)
 #define ccharptr_drop(p) ((void)p)
 
 #define c_ROTL(x, k) (x << (k) | x >> (8*sizeof(x) - (k)))
 
-#define stc_hash(...) c_MACRO_OVERLOAD(stc_hash, __VA_ARGS__)
-#define stc_hash_1(x) stc_hash_2(x, c_sizeof(*(x)))
-
-STC_INLINE uint64_t stc_hash_2(const void* key, intptr_t len) {
+STC_INLINE uint64_t c_hash_n(const void* key, intptr_t len) {
     uint32_t u4; uint64_t u8;
     switch (len) {
         case 8: memcpy(&u8, key, 8); return u8*0xc6a4a7935bd1e99d;
@@ -190,15 +187,17 @@ STC_INLINE uint64_t stc_hash_2(const void* key, intptr_t len) {
     return h ^ c_ROTL(h, 26);
 }
 
-STC_INLINE uint64_t stc_strhash(const char *str)
-    { return stc_hash_2(str, c_strlen(str)); }
+#define c_hash_pod(pod) c_hash_n(pod, sizeof *(pod))
 
-STC_INLINE uint64_t _stc_hash_mix(uint64_t h[], int n) { // n > 0
+STC_INLINE uint64_t c_hash_str(const char *str)
+    { return c_hash_n(str, c_strlen(str)); }
+
+STC_INLINE uint64_t _c_hash_mix(uint64_t h[], int n) { // n > 0
     for (int i = 1; i < n; ++i) h[0] ^= h[0] + h[i]; // non-commutative!
     return h[0];
 }
 
-STC_INLINE char* stc_strnstrn(const char *str, intptr_t slen,
+STC_INLINE char* c_strnstrn(const char *str, intptr_t slen,
                               const char *needle, intptr_t nlen) {
     if (!nlen) return (char *)str;
     if (nlen > slen) return NULL;
@@ -211,7 +210,7 @@ STC_INLINE char* stc_strnstrn(const char *str, intptr_t slen,
     return NULL;
 }
 
-STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
+STC_INLINE intptr_t c_next_pow2(intptr_t n) {
     n--;
     n |= n >> 1, n |= n >> 2;
     n |= n >> 4, n |= n >> 8;
@@ -235,20 +234,24 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
          ; _.iter.ref && (_.key = &_.iter.ref->first, _.val = &_.iter.ref->second) \
          ; C##_next(&_.iter))
 
-#define c_forindexed(it, C, cnt) \
-    for (struct {C##_iter iter; C##_value* ref; intptr_t index;} it = {.iter=C##_begin(&cnt)} \
-         ; (it.ref = it.iter.ref) ; C##_next(&it.iter), ++it.index)
+#define c_foreach_rev(it, C, cnt) /* reverse: works only for stack and vec */ \
+    for (C##_iter _start = C##_begin(&cnt), it = {.ref=_start.ref ? _start.end - 1 : NULL, .end=_start.ref - 1} \
+         ; it.ref ; --it.ref == it.end ? it.ref = NULL : NULL)
 
-#define c_foriter(existing_iter, C, cnt) \
+#define c_foreach_n(it, C, cnt, N) /* iterate up to N items */ \
+    for (struct {C##_iter iter; C##_value* ref; intptr_t index, n;} it = {.iter=C##_begin(&cnt), .n=N} \
+         ; (it.ref = it.iter.ref) && it.index < it.n; C##_next(&it.iter), ++it.index)
+
+#define c_foreach_it(existing_iter, C, cnt) \
     for (existing_iter = C##_begin(&cnt); (existing_iter).ref; C##_next(&existing_iter))
 
 #define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
 #define c_forrange_1(stop) c_forrange_3(_i, 0, stop)
 #define c_forrange_2(i, stop) c_forrange_3(i, 0, stop)
 #define c_forrange_3(i, start, stop) \
-    for (_llong i=start, _end=stop; i < _end; ++i)
+    for (intptr_t i=start, _end=stop; i < _end; ++i)
 #define c_forrange_4(i, start, stop, step) \
-    for (_llong i=start, _inc=step, _end=(_llong)(stop) - (_inc > 0) \
+    for (intptr_t i=start, _inc=step, _end=(intptr_t)(stop) - (_inc > 0) \
          ; (_inc > 0) ^ (i > _end); i += _inc)
 
 #ifndef __cplusplus
@@ -258,8 +261,8 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
         for (struct {T* ref; int size, index;} \
              it = {.ref=(T[])__VA_ARGS__, .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
              ; it.index < it.size; ++it.ref, ++it.index)
-    #define stc_hash_mix(...) \
-        _stc_hash_mix((uint64_t[]){__VA_ARGS__}, c_NUMARGS(__VA_ARGS__))
+    #define c_hash_mix(...) \
+        _c_hash_mix((uint64_t[]){__VA_ARGS__}, c_NUMARGS(__VA_ARGS__))
 #else
     #include <initializer_list>
     #include <array>
@@ -271,8 +274,8 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
         for (struct {std::initializer_list<T> _il; std::initializer_list<T>::iterator ref; size_t size, index;} \
              it = {._il=__VA_ARGS__, .ref=it._il.begin(), .size=it._il.size()} \
              ; it.index < it.size; ++it.ref, ++it.index)
-    #define stc_hash_mix(...) \
-        _stc_hash_mix(std::array<uint64_t, c_NUMARGS(__VA_ARGS__)>{__VA_ARGS__}.data(), c_NUMARGS(__VA_ARGS__))
+    #define c_hash_mix(...) \
+        _c_hash_mix(std::array<uint64_t, c_NUMARGS(__VA_ARGS__)>{__VA_ARGS__}.data(), c_NUMARGS(__VA_ARGS__))
 #endif
 
 #define c_defer(...) \
@@ -370,8 +373,7 @@ typedef union {
     csview chr;
 } czview_iter;
 
-#define c_zv(literal) c_zv_2(literal, c_litstrlen(literal))
-#define c_zv_2(str, n) (c_LITERAL(czview){str, n})
+#define c_zv(literal) (c_LITERAL(czview){literal, c_litstrlen(literal)})
 
 // cstr : null-terminated owning string (short string optimized - sso)
 typedef char cstr_value;
@@ -540,7 +542,8 @@ struct hmap_slot { uint8_t hashx; };
   #define c_no_emplace    (1<<3)
   #define c_no_hash       (1<<4)
   #define c_use_cmp       (1<<5)
-  #define c_more          (1<<6)
+  #define c_use_eq        (1<<6)
+  #define c_more          (1<<7)
 
   #define _c_MEMB(name) c_JOIN(i_type, name)
   #define _c_DEFTYPES(macro, SELF, ...) c_EXPAND(macro(SELF, __VA_ARGS__))
@@ -621,9 +624,11 @@ struct hmap_slot { uint8_t hashx; };
 #if c_option(c_no_emplace)
   #define i_no_emplace
 #endif
-#if c_option(c_use_cmp) || defined i_cmp || defined i_less || \
-                           defined _i_ismap || defined _i_isset || defined _i_ispque
+#if c_option(c_use_cmp)
   #define i_use_cmp
+#endif
+#if c_option(c_use_eq)
+  #define i_use_eq
 #endif
 #if c_option(c_no_clone) || defined _i_carc
   #define i_no_clone
@@ -632,15 +637,19 @@ struct hmap_slot { uint8_t hashx; };
   #define i_more
 #endif
 
+// Handle predefined element-types with lookup convertion types:
+// cstr(const char*), cstr(csview), arc_T(T) / box_T(T)
 #if defined i_key_str
   #define i_key_class cstr
   #define i_raw_class ccharptr
+  #define i_use_cmp
   #ifndef i_tag
     #define i_tag str
   #endif
 #elif defined i_key_ssv
   #define i_key_class cstr
   #define i_raw_class csview
+  #define i_use_cmp
   #define i_keyfrom cstr_from_sv
   #define i_keyto cstr_sv
   #ifndef i_tag
@@ -649,17 +658,17 @@ struct hmap_slot { uint8_t hashx; };
 #elif defined i_key_arcbox
   #define i_key_class i_key_arcbox
   #define i_raw_class c_JOIN(i_key_arcbox, _raw)
-  #if defined i_use_cmp
-    #define i_eq c_JOIN(i_key_arcbox, _raw_eq)
-  #endif
 #endif
 
+// Check for i_key_class and i_raw_class, and fill in missing defs:
+// Element "class" type with possible assoc. convertion type and "member" functions.
 #if defined i_raw_class
   #define i_keyraw i_raw_class
 #elif defined i_key_class && !defined i_keyraw
   #define i_raw_class i_key
 #endif
 
+// Bind to i_key "class members": _clone, _drop, _from and _toraw (when conditions are met).
 #if defined i_key_class
   #define i_key i_key_class
   #ifndef i_keyclone
@@ -676,23 +685,25 @@ struct hmap_slot { uint8_t hashx; };
   #endif
 #endif
 
+// Define when container has support for sorting (cmp) and linear search (eq)
+#if defined i_use_cmp || defined i_cmp || defined i_less
+  #define _i_has_cmp
+#endif
+#if defined i_use_cmp || defined i_cmp || defined i_use_eq || defined i_eq
+  #define _i_has_eq
+#endif
+
+// Bind to i_keyraw "class members": _cmp, _eq and _hash (when conditions are met).
 #if defined i_raw_class
-  #if !(defined i_cmp || defined i_less) && defined i_use_cmp
+  #if !(defined i_cmp || defined i_less) && (defined i_use_cmp || defined _i_sorted || defined _i_ispque)
     #define i_cmp c_JOIN(i_keyraw, _cmp)
+  #endif
+  #if !defined i_eq && (defined i_use_eq || defined i_hash || defined _i_ishash)
+    #define i_eq c_JOIN(i_keyraw, _eq)
   #endif
   #if !(defined i_hash || defined i_no_hash)
     #define i_hash c_JOIN(i_keyraw, _hash)
   #endif
-#endif
-
-#if defined i_cmp || defined i_less || defined i_use_cmp
-  #define _i_has_cmp
-#endif
-#if defined i_eq || defined i_use_cmp
-  #define _i_has_eq
-#endif
-#if !(defined i_hash || defined i_no_hash)
-  #define i_hash c_default_hash
 #endif
 
 #if !defined i_key
@@ -704,24 +715,27 @@ struct hmap_slot { uint8_t hashx; };
 #elif defined i_from || defined i_drop
   #error "i_from / i_drop not supported. Define i_keyfrom/i_valfrom and/or i_keydrop/i_valdrop instead"
 #elif defined i_keyraw && defined _i_ishash && !(defined i_hash && (defined _i_has_cmp || defined i_eq))
-  #error "For cmap/cset, both i_hash and i_eq (or i_less or i_cmp) must be defined when i_keyraw is defined."
+  #error "For hmap/hset, both i_hash and i_eq (or i_cmp) must be defined when i_keyraw is defined."
 #elif defined i_keyraw && defined i_use_cmp && !defined _i_has_cmp
-  #error "For csmap/csset/cpque, i_cmp or i_less must be defined when i_keyraw is defined."
+  #error "For smap/sset/pque, i_cmp or i_less must be defined when i_keyraw is defined."
 #endif
 
-// i_eq, i_less, i_cmp
+// Fill in missing i_eq, i_less, i_cmp functions with defaults.
 #if !defined i_eq && defined i_cmp
-  #define i_eq(x, y) !(i_cmp(x, y))
+  #define i_eq(x, y) (i_cmp(x, y)) == 0
 #elif !defined i_eq && !defined i_keyraw
-  #define i_eq(x, y) *x == *y // for integral types, else define i_eq or i_cmp yourself
+  #define i_eq(x, y) *x == *y // works for integral types
 #endif
 #if !defined i_less && defined i_cmp
   #define i_less(x, y) (i_cmp(x, y)) < 0
 #elif !defined i_less && !defined i_keyraw
-  #define i_less(x, y) *x < *y // for integral types, else define i_less or i_cmp yourself
+  #define i_less(x, y) *x < *y // works for integral types
 #endif
 #if !defined i_cmp && defined i_less
   #define i_cmp(x, y) (i_less(y, x)) - (i_less(x, y))
+#endif
+#if !(defined i_hash || defined i_no_hash)
+  #define i_hash c_default_hash
 #endif
 
 #ifndef i_tag
@@ -745,7 +759,7 @@ struct hmap_slot { uint8_t hashx; };
   #define i_keydrop c_default_drop
 #endif
 
-#if defined _i_ismap // ---- process cmap/csmap value i_val, ... ----
+#if defined _i_ismap // ---- process hmap/smap value i_val, ... ----
 
 #ifdef i_val_str
   #define i_val_class cstr
@@ -835,7 +849,7 @@ STC_API i_type          _c_MEMB(_with_capacity)(intptr_t cap);
 #if !defined i_no_clone
 STC_API i_type          _c_MEMB(_clone)(i_type map);
 #endif
-STC_API void            _c_MEMB(_drop)(i_type* self);
+STC_API void            _c_MEMB(_drop)(const i_type* cself);
 STC_API void            _c_MEMB(_clear)(i_type* self);
 STC_API bool            _c_MEMB(_reserve)(i_type* self, intptr_t capacity);
 STC_API _m_result       _c_MEMB(_bucket_)(const i_type* self, const _m_keyraw* rkeyptr);
@@ -1056,7 +1070,8 @@ STC_INLINE void _c_MEMB(_wipe_)(i_type* self) {
             _c_MEMB(_value_drop)(d);
 }
 
-STC_DEF void _c_MEMB(_drop)(i_type* self) {
+STC_DEF void _c_MEMB(_drop)(const i_type* cself) {
+    i_type* self = (i_type*)cself;
     if (self->bucket_count > 0) {
         _c_MEMB(_wipe_)(self);
         i_free(self->slot, (self->bucket_count + 1)*c_sizeof *self->slot);
@@ -1162,7 +1177,7 @@ _c_MEMB(_reserve)(i_type* self, const intptr_t _newcap) {
     if (_newcap != self->size && _newcap <= _oldbucks)
         return true;
     intptr_t _newbucks = (intptr_t)((float)_newcap / (i_max_load_factor)) + 4;
-    _newbucks = stc_nextpow2(_newbucks);
+    _newbucks = c_next_pow2(_newbucks);
     i_type m = {
         (_m_value *)i_malloc(_newbucks*c_sizeof(_m_value)),
         (struct hmap_slot *)i_calloc(_newbucks + 1, c_sizeof(struct hmap_slot)),
@@ -1255,6 +1270,7 @@ _c_MEMB(_erase_entry)(i_type* self, _m_value* _val) {
 #undef i_keydrop
 
 #undef i_use_cmp
+#undef i_use_eq
 #undef i_no_hash
 #undef i_no_clone
 #undef i_no_emplace

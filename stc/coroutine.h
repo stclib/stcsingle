@@ -14,12 +14,11 @@
 #include <string.h>
 #include <assert.h>
 
-typedef long long _llong;
 #define c_NPOS INTPTR_MAX
 #define c_ZI PRIiPTR
 #define c_ZU PRIuPTR
 
-#if defined __GNUC__ // includes __clang__
+#if defined __GNUC__ || defined __clang__
     #define STC_INLINE static inline __attribute((unused))
 #else
     #define STC_INLINE static inline
@@ -87,11 +86,11 @@ typedef long long _llong;
 #define c_uless(a, b)           ((size_t)(a) < (size_t)(b))
 
 // x and y are i_keyraw* type, defaults to i_key*:
+#define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
 #define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
 #define c_default_less(x, y)    (*(x) < *(y))
 #define c_default_eq(x, y)      (*(x) == *(y))
-#define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
-#define c_default_hash          stc_hash_1
+#define c_default_hash          c_hash_pod
 
 #define c_default_clone(v)      (v)
 #define c_default_toraw(vp)     (*(vp))
@@ -105,16 +104,14 @@ typedef long long _llong;
 // Non-owning c-string "class"
 typedef const char* ccharptr;
 #define ccharptr_cmp(xp, yp) strcmp(*(xp), *(yp))
-#define ccharptr_hash(p) stc_strhash(*(p))
+#define ccharptr_eq(xp, yp) (ccharptr_cmp(xp, yp) == 0)
+#define ccharptr_hash(p) c_hash_str(*(p))
 #define ccharptr_clone(s) (s)
 #define ccharptr_drop(p) ((void)p)
 
 #define c_ROTL(x, k) (x << (k) | x >> (8*sizeof(x) - (k)))
 
-#define stc_hash(...) c_MACRO_OVERLOAD(stc_hash, __VA_ARGS__)
-#define stc_hash_1(x) stc_hash_2(x, c_sizeof(*(x)))
-
-STC_INLINE uint64_t stc_hash_2(const void* key, intptr_t len) {
+STC_INLINE uint64_t c_hash_n(const void* key, intptr_t len) {
     uint32_t u4; uint64_t u8;
     switch (len) {
         case 8: memcpy(&u8, key, 8); return u8*0xc6a4a7935bd1e99d;
@@ -132,15 +129,17 @@ STC_INLINE uint64_t stc_hash_2(const void* key, intptr_t len) {
     return h ^ c_ROTL(h, 26);
 }
 
-STC_INLINE uint64_t stc_strhash(const char *str)
-    { return stc_hash_2(str, c_strlen(str)); }
+#define c_hash_pod(pod) c_hash_n(pod, sizeof *(pod))
 
-STC_INLINE uint64_t _stc_hash_mix(uint64_t h[], int n) { // n > 0
+STC_INLINE uint64_t c_hash_str(const char *str)
+    { return c_hash_n(str, c_strlen(str)); }
+
+STC_INLINE uint64_t _c_hash_mix(uint64_t h[], int n) { // n > 0
     for (int i = 1; i < n; ++i) h[0] ^= h[0] + h[i]; // non-commutative!
     return h[0];
 }
 
-STC_INLINE char* stc_strnstrn(const char *str, intptr_t slen,
+STC_INLINE char* c_strnstrn(const char *str, intptr_t slen,
                               const char *needle, intptr_t nlen) {
     if (!nlen) return (char *)str;
     if (nlen > slen) return NULL;
@@ -153,7 +152,7 @@ STC_INLINE char* stc_strnstrn(const char *str, intptr_t slen,
     return NULL;
 }
 
-STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
+STC_INLINE intptr_t c_next_pow2(intptr_t n) {
     n--;
     n |= n >> 1, n |= n >> 2;
     n |= n >> 4, n |= n >> 8;
@@ -177,20 +176,24 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
          ; _.iter.ref && (_.key = &_.iter.ref->first, _.val = &_.iter.ref->second) \
          ; C##_next(&_.iter))
 
-#define c_forindexed(it, C, cnt) \
-    for (struct {C##_iter iter; C##_value* ref; intptr_t index;} it = {.iter=C##_begin(&cnt)} \
-         ; (it.ref = it.iter.ref) ; C##_next(&it.iter), ++it.index)
+#define c_foreach_rev(it, C, cnt) /* reverse: works only for stack and vec */ \
+    for (C##_iter _start = C##_begin(&cnt), it = {.ref=_start.ref ? _start.end - 1 : NULL, .end=_start.ref - 1} \
+         ; it.ref ; --it.ref == it.end ? it.ref = NULL : NULL)
 
-#define c_foriter(existing_iter, C, cnt) \
+#define c_foreach_n(it, C, cnt, N) /* iterate up to N items */ \
+    for (struct {C##_iter iter; C##_value* ref; intptr_t index, n;} it = {.iter=C##_begin(&cnt), .n=N} \
+         ; (it.ref = it.iter.ref) && it.index < it.n; C##_next(&it.iter), ++it.index)
+
+#define c_foreach_it(existing_iter, C, cnt) \
     for (existing_iter = C##_begin(&cnt); (existing_iter).ref; C##_next(&existing_iter))
 
 #define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
 #define c_forrange_1(stop) c_forrange_3(_i, 0, stop)
 #define c_forrange_2(i, stop) c_forrange_3(i, 0, stop)
 #define c_forrange_3(i, start, stop) \
-    for (_llong i=start, _end=stop; i < _end; ++i)
+    for (intptr_t i=start, _end=stop; i < _end; ++i)
 #define c_forrange_4(i, start, stop, step) \
-    for (_llong i=start, _inc=step, _end=(_llong)(stop) - (_inc > 0) \
+    for (intptr_t i=start, _inc=step, _end=(intptr_t)(stop) - (_inc > 0) \
          ; (_inc > 0) ^ (i > _end); i += _inc)
 
 #ifndef __cplusplus
@@ -200,8 +203,8 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
         for (struct {T* ref; int size, index;} \
              it = {.ref=(T[])__VA_ARGS__, .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
              ; it.index < it.size; ++it.ref, ++it.index)
-    #define stc_hash_mix(...) \
-        _stc_hash_mix((uint64_t[]){__VA_ARGS__}, c_NUMARGS(__VA_ARGS__))
+    #define c_hash_mix(...) \
+        _c_hash_mix((uint64_t[]){__VA_ARGS__}, c_NUMARGS(__VA_ARGS__))
 #else
     #include <initializer_list>
     #include <array>
@@ -213,8 +216,8 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
         for (struct {std::initializer_list<T> _il; std::initializer_list<T>::iterator ref; size_t size, index;} \
              it = {._il=__VA_ARGS__, .ref=it._il.begin(), .size=it._il.size()} \
              ; it.index < it.size; ++it.ref, ++it.index)
-    #define stc_hash_mix(...) \
-        _stc_hash_mix(std::array<uint64_t, c_NUMARGS(__VA_ARGS__)>{__VA_ARGS__}.data(), c_NUMARGS(__VA_ARGS__))
+    #define c_hash_mix(...) \
+        _c_hash_mix(std::array<uint64_t, c_NUMARGS(__VA_ARGS__)>{__VA_ARGS__}.data(), c_NUMARGS(__VA_ARGS__))
 #endif
 
 #define c_defer(...) \
@@ -264,6 +267,10 @@ typedef enum {
 #define cco_suspended(co) ((co)->cco_state > 0)
 #define cco_done(co) ((co)->cco_state == CCO_STATE_DONE)
 
+// Use with c_filter:
+#define cco_take(n) (c_flt_take(n), _fl.done ? _it.cco_state = CCO_STATE_FINAL : 1)
+#define cco_takewhile(pred) (c_flt_takewhile(pred), _fl.done ? _it.cco_state = CCO_STATE_FINAL : 1)
+
 #define cco_routine(co) \
     for (int* _state = &(co)->cco_state; *_state != CCO_STATE_DONE; *_state = CCO_STATE_DONE) \
         _resume: switch (*_state) case 0: // thanks, @liigo!
@@ -312,22 +319,18 @@ typedef enum {
 #define cco_cancel \
     do { *_state = CCO_STATE_DONE; goto _resume; } while (0)
 
+#define cco_stop(co) \
+    ((co)->cco_state = (co)->cco_state >= 0 ? CCO_STATE_FINAL : CCO_STATE_DONE)
+
+#define cco_reset(co) \
+    (void)((co)->cco_state = 0)
+
 #define cco_yield_final() cco_yield_final_v(CCO_YIELD)
 #define cco_yield_final_v(value) \
     do { \
         *_state = *_state >= 0 ? CCO_STATE_FINAL : CCO_STATE_DONE; \
         return value; \
     } while (0)
-
-#define cco_stop(co) \
-    do { \
-        int* _s = &(co)->cco_state; \
-        if (*_s > 0) *_s = CCO_STATE_FINAL; \
-        else if (*_s == 0) *_s = CCO_STATE_DONE; \
-    } while (0)
-
-#define cco_reset(co) \
-    (void)((co)->cco_state = 0)
 
 
 #define cco_iter_struct(Gen, ...) \

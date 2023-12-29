@@ -74,12 +74,11 @@
 #include <string.h>
 #include <assert.h>
 
-typedef long long _llong;
 #define c_NPOS INTPTR_MAX
 #define c_ZI PRIiPTR
 #define c_ZU PRIuPTR
 
-#if defined __GNUC__ // includes __clang__
+#if defined __GNUC__ || defined __clang__
     #define STC_INLINE static inline __attribute((unused))
 #else
     #define STC_INLINE static inline
@@ -147,11 +146,11 @@ typedef long long _llong;
 #define c_uless(a, b)           ((size_t)(a) < (size_t)(b))
 
 // x and y are i_keyraw* type, defaults to i_key*:
+#define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
 #define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
 #define c_default_less(x, y)    (*(x) < *(y))
 #define c_default_eq(x, y)      (*(x) == *(y))
-#define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
-#define c_default_hash          stc_hash_1
+#define c_default_hash          c_hash_pod
 
 #define c_default_clone(v)      (v)
 #define c_default_toraw(vp)     (*(vp))
@@ -165,16 +164,14 @@ typedef long long _llong;
 // Non-owning c-string "class"
 typedef const char* ccharptr;
 #define ccharptr_cmp(xp, yp) strcmp(*(xp), *(yp))
-#define ccharptr_hash(p) stc_strhash(*(p))
+#define ccharptr_eq(xp, yp) (ccharptr_cmp(xp, yp) == 0)
+#define ccharptr_hash(p) c_hash_str(*(p))
 #define ccharptr_clone(s) (s)
 #define ccharptr_drop(p) ((void)p)
 
 #define c_ROTL(x, k) (x << (k) | x >> (8*sizeof(x) - (k)))
 
-#define stc_hash(...) c_MACRO_OVERLOAD(stc_hash, __VA_ARGS__)
-#define stc_hash_1(x) stc_hash_2(x, c_sizeof(*(x)))
-
-STC_INLINE uint64_t stc_hash_2(const void* key, intptr_t len) {
+STC_INLINE uint64_t c_hash_n(const void* key, intptr_t len) {
     uint32_t u4; uint64_t u8;
     switch (len) {
         case 8: memcpy(&u8, key, 8); return u8*0xc6a4a7935bd1e99d;
@@ -192,15 +189,17 @@ STC_INLINE uint64_t stc_hash_2(const void* key, intptr_t len) {
     return h ^ c_ROTL(h, 26);
 }
 
-STC_INLINE uint64_t stc_strhash(const char *str)
-    { return stc_hash_2(str, c_strlen(str)); }
+#define c_hash_pod(pod) c_hash_n(pod, sizeof *(pod))
 
-STC_INLINE uint64_t _stc_hash_mix(uint64_t h[], int n) { // n > 0
+STC_INLINE uint64_t c_hash_str(const char *str)
+    { return c_hash_n(str, c_strlen(str)); }
+
+STC_INLINE uint64_t _c_hash_mix(uint64_t h[], int n) { // n > 0
     for (int i = 1; i < n; ++i) h[0] ^= h[0] + h[i]; // non-commutative!
     return h[0];
 }
 
-STC_INLINE char* stc_strnstrn(const char *str, intptr_t slen,
+STC_INLINE char* c_strnstrn(const char *str, intptr_t slen,
                               const char *needle, intptr_t nlen) {
     if (!nlen) return (char *)str;
     if (nlen > slen) return NULL;
@@ -213,7 +212,7 @@ STC_INLINE char* stc_strnstrn(const char *str, intptr_t slen,
     return NULL;
 }
 
-STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
+STC_INLINE intptr_t c_next_pow2(intptr_t n) {
     n--;
     n |= n >> 1, n |= n >> 2;
     n |= n >> 4, n |= n >> 8;
@@ -237,20 +236,24 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
          ; _.iter.ref && (_.key = &_.iter.ref->first, _.val = &_.iter.ref->second) \
          ; C##_next(&_.iter))
 
-#define c_forindexed(it, C, cnt) \
-    for (struct {C##_iter iter; C##_value* ref; intptr_t index;} it = {.iter=C##_begin(&cnt)} \
-         ; (it.ref = it.iter.ref) ; C##_next(&it.iter), ++it.index)
+#define c_foreach_rev(it, C, cnt) /* reverse: works only for stack and vec */ \
+    for (C##_iter _start = C##_begin(&cnt), it = {.ref=_start.ref ? _start.end - 1 : NULL, .end=_start.ref - 1} \
+         ; it.ref ; --it.ref == it.end ? it.ref = NULL : NULL)
 
-#define c_foriter(existing_iter, C, cnt) \
+#define c_foreach_n(it, C, cnt, N) /* iterate up to N items */ \
+    for (struct {C##_iter iter; C##_value* ref; intptr_t index, n;} it = {.iter=C##_begin(&cnt), .n=N} \
+         ; (it.ref = it.iter.ref) && it.index < it.n; C##_next(&it.iter), ++it.index)
+
+#define c_foreach_it(existing_iter, C, cnt) \
     for (existing_iter = C##_begin(&cnt); (existing_iter).ref; C##_next(&existing_iter))
 
 #define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
 #define c_forrange_1(stop) c_forrange_3(_i, 0, stop)
 #define c_forrange_2(i, stop) c_forrange_3(i, 0, stop)
 #define c_forrange_3(i, start, stop) \
-    for (_llong i=start, _end=stop; i < _end; ++i)
+    for (intptr_t i=start, _end=stop; i < _end; ++i)
 #define c_forrange_4(i, start, stop, step) \
-    for (_llong i=start, _inc=step, _end=(_llong)(stop) - (_inc > 0) \
+    for (intptr_t i=start, _inc=step, _end=(intptr_t)(stop) - (_inc > 0) \
          ; (_inc > 0) ^ (i > _end); i += _inc)
 
 #ifndef __cplusplus
@@ -260,8 +263,8 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
         for (struct {T* ref; int size, index;} \
              it = {.ref=(T[])__VA_ARGS__, .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
              ; it.index < it.size; ++it.ref, ++it.index)
-    #define stc_hash_mix(...) \
-        _stc_hash_mix((uint64_t[]){__VA_ARGS__}, c_NUMARGS(__VA_ARGS__))
+    #define c_hash_mix(...) \
+        _c_hash_mix((uint64_t[]){__VA_ARGS__}, c_NUMARGS(__VA_ARGS__))
 #else
     #include <initializer_list>
     #include <array>
@@ -273,8 +276,8 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
         for (struct {std::initializer_list<T> _il; std::initializer_list<T>::iterator ref; size_t size, index;} \
              it = {._il=__VA_ARGS__, .ref=it._il.begin(), .size=it._il.size()} \
              ; it.index < it.size; ++it.ref, ++it.index)
-    #define stc_hash_mix(...) \
-        _stc_hash_mix(std::array<uint64_t, c_NUMARGS(__VA_ARGS__)>{__VA_ARGS__}.data(), c_NUMARGS(__VA_ARGS__))
+    #define c_hash_mix(...) \
+        _c_hash_mix(std::array<uint64_t, c_NUMARGS(__VA_ARGS__)>{__VA_ARGS__}.data(), c_NUMARGS(__VA_ARGS__))
 #endif
 
 #define c_defer(...) \
@@ -310,16 +313,16 @@ STC_INLINE intptr_t stc_nextpow2(intptr_t n) {
 #endif // STC_COMMON_H_INCLUDED
 // ### END_FILE_INCLUDE: common.h
 
-typedef long long crange_value;
+typedef intptr_t crange_value;
 typedef struct { crange_value start, end, step, value; } crange;
 typedef struct { crange_value *ref, end, step; } crange_iter;
 
-#define crange_make crange_init // [deprecated]
-#define crange_init(...) c_MACRO_OVERLOAD(crange_init, __VA_ARGS__)
-#define crange_init_1(stop) crange_init_3(0, stop, 1)
-#define crange_init_2(start, stop) crange_init_3(start, stop, 1)
+#define crange_init crange_make // [deprecated]
+#define crange_make(...) c_MACRO_OVERLOAD(crange_make, __VA_ARGS__)
+#define crange_make_1(stop) crange_make_3(0, stop, 1)
+#define crange_make_2(start, stop) crange_make_3(start, stop, 1)
 
-STC_INLINE crange crange_init_3(crange_value start, crange_value stop, crange_value step)
+STC_INLINE crange crange_make_3(crange_value start, crange_value stop, crange_value step)
     { crange r = {start, stop - (step > 0), step}; return r; }
 
 STC_INLINE crange_iter crange_begin(crange* self)
@@ -353,27 +356,32 @@ STC_INLINE void crange_next(crange_iter* it)
 #endif // STC_CRANGE_H_INCLUDE
 // ### END_FILE_INCLUDE: crange.h
 // ### BEGIN_FILE_INCLUDE: filter.h
-#ifndef STC_FILTER_H_INCLUDED
-#define STC_FILTER_H_INCLUDED
+#ifndef STC_TRANSFORM_H_INCLUDED
+#define STC_TRANSFORM_H_INCLUDED
 
 
-// c_forfilter:
+// c_filter:
 
-#define c_flt_skip(i, n) (c_flt_counter(i) > (n))
-#define c_flt_skipwhile(i, pred) ((i).b.s2[(i).b.s2top++] |= !(pred))
-#define c_flt_take(i, n) _flt_take(&(i).b, n)
-#define c_flt_takewhile(i, pred) _flt_takewhile(&(i).b, pred)
-#define c_flt_counter(i) ++(i).b.s1[(i).b.s1top++]
-#define c_flt_getcount(i) (i).b.s1[(i).b.s1top - 1]
+#define c_flt_skip(n) (c_flt_counter() > (n))
+#define c_flt_take(n) _flt_take(&_fl, n)
+#define c_flt_skipwhile(pred) (_fl.sb[_fl.sb_top++] |= !(pred))
+#define c_flt_takewhile(pred) _flt_takewhile(&_fl, pred)
+#define c_flt_counter() (++_fl.sn[++_fl.sn_top])
+#define c_flt_getcount() (_fl.sn[_fl.sn_top])
+#define c_flt_map(expr) (_mapped = (expr), value = &_mapped)
+#define c_flt_src _it.ref
 
-#define c_forfilter(i, C, cnt, filter) \
-    c_forfilter_it(i, C, C##_begin(&cnt), filter)
+#define c_filter(C, cnt, ...) \
+    c_filter_from(C, C##_begin(&cnt), __VA_ARGS__)
 
-#define c_forfilter_it(i, C, start, filter) \
-    for (struct {struct _flt_base b; C##_iter it; C##_value *ref;} \
-         i = {.it=start, .ref=i.it.ref} ; !i.b.done & (i.it.ref != NULL) ; \
-         C##_next(&i.it), i.ref = i.it.ref, i.b.s1top=0, i.b.s2top=0) \
-      if (!(filter)) ; else
+#define c_filter_from(C, start, ...) do { \
+    struct _flt_base _fl = {0}; \
+    C##_iter _it = start; \
+    C##_value *value = _it.ref, _mapped; \
+    for ((void)_mapped ; !_fl.done & (_it.ref != NULL) ; \
+         C##_next(&_it), value = _it.ref, _fl.sn_top=0, _fl.sb_top=0) \
+      (void)(__VA_ARGS__); \
+} while (0)
 
 // ------------------------ private -------------------------
 #ifndef c_NFILTERS
@@ -381,28 +389,28 @@ STC_INLINE void crange_next(crange_iter* it)
 #endif
 
 struct _flt_base {
-    uint32_t s1[c_NFILTERS];
-    bool s2[c_NFILTERS], done;
-    uint8_t s1top, s2top;
+    uint8_t sn_top, sb_top;
+    bool done, sb[c_NFILTERS];
+    uint32_t sn[c_NFILTERS];
 };
 
-static inline bool _flt_take(struct _flt_base* b, uint32_t n) {
-    uint32_t k = ++b->s1[b->s1top++];
-    b->done |= (k >= n);
-    return k <= n;
+static inline bool _flt_take(struct _flt_base* fl, uint32_t n) {
+    uint32_t k = ++fl->sn[++fl->sn_top];
+    fl->done |= (k >= n);
+    return n > 0;
 }
 
-static inline bool _flt_takewhile(struct _flt_base* b, bool pred) {
-    bool skip = (b->s2[b->s2top++] |= !pred);
-    b->done |= skip;
+static inline bool _flt_takewhile(struct _flt_base* fl, bool pred) {
+    bool skip = (fl->sb[fl->sb_top++] |= !pred);
+    fl->done |= skip;
     return !skip;
 }
 
 #endif
 // ### END_FILE_INCLUDE: filter.h
-// ### BEGIN_FILE_INCLUDE: misc.h
-#ifndef STC_MISC_H_INCLUDED
-#define STC_MISC_H_INCLUDED
+// ### BEGIN_FILE_INCLUDE: utility.h
+#ifndef STC_UTILITY_H_INCLUDED
+#define STC_UTILITY_H_INCLUDED
 
 // ----------------------------------
 // c_auto init+drop containers (RAII)
@@ -419,28 +427,27 @@ static inline bool _flt_takewhile(struct _flt_base* b, bool pred) {
             (C##_drop(&c), C##_drop(&b), C##_drop(&a)))
 
 // --------------------------------
-// stc_find_if
+// c_find_if
 // --------------------------------
 
-#define stc_find_if(...) c_MACRO_OVERLOAD(stc_find_if, __VA_ARGS__)
-#define stc_find_if_4(it_p, C, cnt, pred) \
-    stc_find_if_5(it_p, C, C##_begin(&cnt), C##_end(&cnt), pred)
+#define c_find_if(C, cnt, outit_ptr, pred) \
+    c_find_from(C, C##_begin(&cnt), outit_ptr, pred)
 
-#define stc_find_if_5(it_p, C, start, end, pred) do { \
-    intptr_t index = 0; \
-    const C##_value *_endref = (end).ref, *value; \
-    for (*(it_p) = start; (value = (it_p)->ref) != _endref; C##_next(it_p), ++index) \
+#define c_find_from(C, start, outit_ptr, pred) do { \
+    C##_iter* _out = outit_ptr; \
+    const C##_value *value; \
+    for (*_out = start; (value = _out->ref); C##_next(_out)) \
         if (pred) goto c_JOIN(findif_, __LINE__); \
-    (it_p)->ref = NULL; c_JOIN(findif_, __LINE__):; \
+    _out->ref = NULL; c_JOIN(findif_, __LINE__):; \
 } while (0)
 
 // --------------------------------
-// stc_erase_if
+// c_erase_if
 // --------------------------------
 
-// Use with: clist, cmap, cset, csmap, csset:
-#define stc_erase_if(C, cnt_p, pred) do { \
-    C* _cnt = cnt_p; \
+// Use with: list, hmap, hset, smap, sset:
+#define c_erase_if(C, cnt_ptr, pred) do { \
+    C* _cnt = cnt_ptr; \
     const C##_value* value; \
     for (C##_iter _it = C##_begin(_cnt); (value = _it.ref); ) { \
         if (pred) _it = C##_erase_at(_cnt, _it); \
@@ -449,12 +456,12 @@ static inline bool _flt_takewhile(struct _flt_base* b, bool pred) {
 } while (0)
 
 // --------------------------------
-// stc_eraseremove_if
+// c_eraseremove_if
 // --------------------------------
 
 // Use with: stack, vec, deq, queue:
-#define stc_eraseremove_if(C, cnt_p, pred) do { \
-    C* _cnt = cnt_p; \
+#define c_eraseremove_if(C, cnt_ptr, pred) do { \
+    C* _cnt = cnt_ptr; \
     intptr_t _n = 0; \
     const C##_value* value; \
     C##_iter _i, _it = C##_begin(_cnt); \
@@ -467,31 +474,41 @@ static inline bool _flt_takewhile(struct _flt_base* b, bool pred) {
     C##_adjust_end_(_cnt, -_n); \
 } while (0)
 
+// --------------------------------
+// c_copy_if
+// --------------------------------
+
+#define c_copy_if(C, cnt, outcnt_ptr, pred) do { \
+    C _cnt = cnt, *_out = outcnt_ptr; \
+    const C##_value* value; \
+    for (C##_iter _it = C##_begin(&_cnt); (value = _it.ref); C##_next(&_it)) \
+        if (pred) C##_push(_out, C##_value_clone(*_it.ref)); \
+} while (0)
 
 // --------------------------------
-// stc_all_of, stc_any_of, stc_none_of:
+// c_all_of, c_any_of, c_none_of:
 // --------------------------------
 
-#define stc_all_of(boolptr, C, cnt, pred) do { \
-    C##_iter it; \
-    stc_find_if_4(&it, C, cnt, !(pred)); \
-    *(boolptr) = it.ref == NULL; \
+#define c_all_of(C, cnt, boolptr, pred) do { \
+    C##_iter _it; \
+    c_find_if(C, cnt, &_it, !(pred)); \
+    *(boolptr) = _it.ref == NULL; \
 } while (0)
 
-#define stc_any_of(boolptr, C, cnt, pred) do { \
-    C##_iter it; \
-    stc_find_if_4(&it, C, cnt, pred); \
-    *(boolptr) = it.ref != NULL; \
+#define c_any_of(C, cnt, boolptr, pred) do { \
+    C##_iter _it; \
+    c_find_if(C, cnt, &_it, pred); \
+    *(boolptr) = _it.ref != NULL; \
 } while (0)
 
-#define stc_none_of(boolptr, C, cnt, pred) do { \
-    C##_iter it; \
-    stc_find_if_4(&it, C, cnt, pred); \
-    *(boolptr) = it.ref == NULL; \
+#define c_none_of(C, cnt, boolptr, pred) do { \
+    C##_iter _it; \
+    c_find_if(C, cnt, &_it, pred); \
+    *(boolptr) = _it.ref == NULL; \
 } while (0)
 
-#endif // STC_MISC_H_INCLUDED
-// ### END_FILE_INCLUDE: misc.h
+#endif // STC_UTILITY_H_INCLUDED
+// ### END_FILE_INCLUDE: utility.h
 
 #endif // STC_ALGORITHM_H_INCLUDED
 // ### END_FILE_INCLUDE: algorithm.h
