@@ -310,9 +310,9 @@ STC_INLINE intptr_t c_next_pow2(intptr_t n) {
 
 #endif // STC_COMMON_H_INCLUDED
 // ### END_FILE_INCLUDE: common.h
-// ### BEGIN_FILE_INCLUDE: forward.h
-#ifndef STC_FORWARD_H_INCLUDED
-#define STC_FORWARD_H_INCLUDED
+// ### BEGIN_FILE_INCLUDE: types.h
+#ifndef STC_TYPES_H_INCLUDED
+#define STC_TYPES_H_INCLUDED
 
 #include <stdint.h>
 #include <stddef.h>
@@ -508,8 +508,8 @@ typedef union {
     typedef VAL SELF##_value; \
     typedef struct SELF { SELF##_value* data; intptr_t _len, _cap; } SELF
 
-#endif // STC_FORWARD_H_INCLUDED
-// ### END_FILE_INCLUDE: forward.h
+#endif // STC_TYPES_H_INCLUDED
+// ### END_FILE_INCLUDE: types.h
 #include <stdlib.h>
 #include <string.h>
 
