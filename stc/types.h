@@ -17,19 +17,6 @@
 #define forward_pque(C, VAL) _c_pque_types(C, VAL)
 #define forward_queue(C, VAL) _c_deq_types(C, VAL)
 #define forward_vec(C, VAL) _c_vec_types(C, VAL)
-// OLD deprecated names:
-#define forward_carc forward_arc
-#define forward_cbox forward_box
-#define forward_cdeq forward_deq
-#define forward_clist forward_list
-#define forward_cmap forward_hmap
-#define forward_cset forward_hset
-#define forward_csmap forward_smap
-#define forward_csset forward_sset
-#define forward_cstack forward_stack
-#define forward_cpque forward_pque
-#define forward_cqueue forward_queue
-#define forward_cvec forward_vec
 
 // csview : non-null terminated string view
 typedef const char csview_value;
@@ -49,21 +36,21 @@ typedef union {
 #define c_sv_2(str, n) (c_LITERAL(csview){str, n})
 #define c_SV(sv) (int)(sv).size, (sv).buf // printf("%.*s\n", c_SV(sv));
 
-// czview : null-terminated string view
-typedef csview_value czview_value;
-typedef struct czview {
-    czview_value* str;
+// zsview : zero-terminated string view
+typedef csview_value zsview_value;
+typedef struct zsview {
+    zsview_value* str;
     intptr_t size;
-} czview;
+} zsview;
 
 typedef union {
-    czview_value* ref;
+    zsview_value* ref;
     csview chr;
-} czview_iter;
+} zsview_iter;
 
-#define c_zv(literal) (c_LITERAL(czview){literal, c_litstrlen(literal)})
+#define c_zv(literal) (c_LITERAL(zsview){literal, c_litstrlen(literal)})
 
-// cstr : null-terminated owning string (short string optimized - sso)
+// cstr : zero-terminated owning string (short string optimized - sso)
 typedef char cstr_value;
 typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {

@@ -1,4 +1,4 @@
-// ### BEGIN_FILE_INCLUDE: czview.h
+// ### BEGIN_FILE_INCLUDE: zsview.h
 #define i_header // external linkage by default. override with i_static.
 // ### BEGIN_FILE_INCLUDE: linkage.h
 #undef STC_API
@@ -13,7 +13,7 @@
   #if defined __GNUC__ || defined __clang__
     #define STC_API static __attribute__((unused))
   #else
-    #define STC_API static
+    #define STC_API static inline
   #endif
   #define STC_DEF static
 #endif
@@ -56,7 +56,7 @@
 #endif
 // ### END_FILE_INCLUDE: linkage.h
 
-// czview is a "zero-terminated string view". It replaces czview.
+// zsview is a "zero-terminated string view". It replaces zsview.
 
 #ifndef STC_CZVIEW_H_INCLUDED
 #define STC_CZVIEW_H_INCLUDED
@@ -147,10 +147,11 @@
 
 // x and y are i_keyraw* type, defaults to i_key*:
 #define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
-#define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
-#define c_default_less(x, y)    (*(x) < *(y))
 #define c_default_eq(x, y)      (*(x) == *(y))
-#define c_default_hash          c_hash_pod
+#define c_default_less(x, y)    (*(x) < *(y))
+#define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
+#define c_default_hash(d)       c_hash(d)
+#define c_hash(d)               c_hash_n(d, sizeof *(d))
 
 #define c_default_clone(v)      (v)
 #define c_default_toraw(vp)     (*(vp))
@@ -189,8 +190,6 @@ STC_INLINE uint64_t c_hash_n(const void* key, intptr_t len) {
     return h ^ c_ROTL(h, 26);
 }
 
-#define c_hash_pod(pod) c_hash_n(pod, sizeof *(pod))
-
 STC_INLINE uint64_t c_hash_str(const char *str)
     { return c_hash_n(str, c_strlen(str)); }
 
@@ -228,25 +227,28 @@ STC_INLINE intptr_t c_next_pow2(intptr_t n) {
 #define c_foreach_3(it, C, cnt) \
     for (C##_iter it = C##_begin(&cnt); it.ref; C##_next(&it))
 #define c_foreach_4(it, C, start, finish) \
-    for (C##_iter it = (start), *_endref = c_safe_cast(C##_iter*, C##_value*, (finish).ref) \
-         ; it.ref != (C##_value*)_endref; C##_next(&it))
+    _c_foreach(it, C, start, (finish).ref, _)
+
+#define c_foreach_reverse(...) c_MACRO_OVERLOAD(c_foreach_reverse, __VA_ARGS__)
+#define c_foreach_reverse_3(it, C, cnt) /* works for stack, vec, queue, deq */ \
+    for (C##_iter it = C##_rbegin(&cnt); it.ref; C##_rnext(&it))
+#define c_foreach_reverse_4(it, C, start, finish) \
+    _c_foreach(it, C, start, (finish).ref, _r)
+
+#define _c_foreach(it, C, start, endref, rev) /* private */ \
+    for (C##_iter it = (start), *_endref = c_safe_cast(C##_iter*, C##_value*, endref) \
+         ; it.ref != (C##_value*)_endref; C##rev##next(&it))
+
+#define c_foreach_n(it, C, cnt, N) /* iterate up to N items */ \
+    for (struct {C##_iter iter; C##_value* ref; intptr_t index, n;} it = {.iter=C##_begin(&cnt), .n=N} \
+         ; (it.ref = it.iter.ref) && it.index < it.n; C##_next(&it.iter), ++it.index)
 
 #define c_forpair(key, val, C, cnt) /* structured binding */ \
     for (struct {C##_iter iter; const C##_key* key; C##_mapped* val;} _ = {.iter=C##_begin(&cnt)} \
          ; _.iter.ref && (_.key = &_.iter.ref->first, _.val = &_.iter.ref->second) \
          ; C##_next(&_.iter))
 
-#define c_foreach_rev(it, C, cnt) /* reverse: works only for stack and vec */ \
-    for (C##_iter _start = C##_begin(&cnt), it = {.ref=_start.ref ? _start.end - 1 : NULL, .end=_start.ref - 1} \
-         ; it.ref ; --it.ref == it.end ? it.ref = NULL : NULL)
-
-#define c_foreach_n(it, C, cnt, N) /* iterate up to N items */ \
-    for (struct {C##_iter iter; C##_value* ref; intptr_t index, n;} it = {.iter=C##_begin(&cnt), .n=N} \
-         ; (it.ref = it.iter.ref) && it.index < it.n; C##_next(&it.iter), ++it.index)
-
-#define c_foreach_it(existing_iter, C, cnt) \
-    for (existing_iter = C##_begin(&cnt); (existing_iter).ref; C##_next(&existing_iter))
-
+// c_forrange: python-like indexed iteration
 #define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
 #define c_forrange_1(stop) c_forrange_3(_i, 0, stop)
 #define c_forrange_2(i, stop) c_forrange_3(i, 0, stop)
@@ -283,11 +285,12 @@ STC_INLINE intptr_t c_next_pow2(intptr_t n) {
 #define c_defer(...) \
     for (int _i = 1; _i; _i = 0, __VA_ARGS__)
 
-#define c_with(...) c_MACRO_OVERLOAD(c_with, __VA_ARGS__)
-#define c_with_2(declvar, drop) \
+#define c_scoped(...) c_MACRO_OVERLOAD(c_scoped, __VA_ARGS__)
+#define c_scoped_2(declvar, drop) \
     for (declvar, *_i, **_ip = &_i; _ip; _ip = 0, drop)
-#define c_with_3(declvar, pred, drop) \
+#define c_scoped_3(declvar, pred, drop) \
     for (declvar, *_i, **_ip = &_i; _ip && (pred); _ip = 0, drop)
+#define c_with c_scoped // [deprecated]
 
 #define c_scope(...) c_MACRO_OVERLOAD(c_scope, __VA_ARGS__)
 #define c_scope_2(init, drop) \
@@ -331,19 +334,6 @@ STC_INLINE intptr_t c_next_pow2(intptr_t n) {
 #define forward_pque(C, VAL) _c_pque_types(C, VAL)
 #define forward_queue(C, VAL) _c_deq_types(C, VAL)
 #define forward_vec(C, VAL) _c_vec_types(C, VAL)
-// OLD deprecated names:
-#define forward_carc forward_arc
-#define forward_cbox forward_box
-#define forward_cdeq forward_deq
-#define forward_clist forward_list
-#define forward_cmap forward_hmap
-#define forward_cset forward_hset
-#define forward_csmap forward_smap
-#define forward_csset forward_sset
-#define forward_cstack forward_stack
-#define forward_cpque forward_pque
-#define forward_cqueue forward_queue
-#define forward_cvec forward_vec
 
 // csview : non-null terminated string view
 typedef const char csview_value;
@@ -363,21 +353,21 @@ typedef union {
 #define c_sv_2(str, n) (c_LITERAL(csview){str, n})
 #define c_SV(sv) (int)(sv).size, (sv).buf // printf("%.*s\n", c_SV(sv));
 
-// czview : null-terminated string view
-typedef csview_value czview_value;
-typedef struct czview {
-    czview_value* str;
+// zsview : zero-terminated string view
+typedef csview_value zsview_value;
+typedef struct zsview {
+    zsview_value* str;
     intptr_t size;
-} czview;
+} zsview;
 
 typedef union {
-    czview_value* ref;
+    zsview_value* ref;
     csview chr;
-} czview_iter;
+} zsview_iter;
 
-#define c_zv(literal) (c_LITERAL(czview){literal, c_litstrlen(literal)})
+#define c_zv(literal) (c_LITERAL(zsview){literal, c_litstrlen(literal)})
 
-// cstr : null-terminated owning string (short string optimized - sso)
+// cstr : zero-terminated owning string (short string optimized - sso)
 typedef char cstr_value;
 typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {
@@ -559,7 +549,7 @@ STC_INLINE intptr_t utf8_pos(const char* s, intptr_t index)
 // ------------------------------------------------------
 // The following requires linking with utf8 symbols.
 // To call them, either define i_import before including
-// one of cstr, csview czview, or link with src/libstc.o.
+// one of cstr, csview, zsview, or link with src/libstc.o.
 
 enum {
     U8G_Cc, U8G_Lt, U8G_Nd, U8G_Nl,
@@ -633,85 +623,85 @@ STC_INLINE bool utf8_valid(const char* s) {
 #endif // STC_UTF8_PRV_H_INCLUDED
 // ### END_FILE_INCLUDE: utf8_prv.h
 
-#define             czview_init() c_zv("")
-#define             czview_clone(rs) c_default_clone(rs)
-#define             czview_drop(self) c_default_drop(self)
-#define             czview_toraw(self) (self)->str
+#define             zsview_init() c_zv("")
+#define             zsview_clone(rs) c_default_clone(rs)
+#define             zsview_drop(self) c_default_drop(self)
+#define             zsview_toraw(self) (self)->str
 
-STC_INLINE czview   czview_from(const char* str)
-                        { return c_LITERAL(czview){str, c_strlen(str)}; }
-STC_INLINE void     czview_clear(czview* self) { *self = c_zv(""); }
-STC_INLINE csview   czview_sv(czview rs) { return c_sv_2(rs.str, rs.size); }
+STC_INLINE zsview   zsview_from(const char* str)
+                        { return c_LITERAL(zsview){str, c_strlen(str)}; }
+STC_INLINE void     zsview_clear(zsview* self) { *self = c_zv(""); }
+STC_INLINE csview   zsview_sv(zsview rs) { return c_sv_2(rs.str, rs.size); }
 
-STC_INLINE intptr_t czview_size(czview rs) { return rs.size; }
-STC_INLINE bool     czview_empty(czview rs) { return rs.size == 0; }
+STC_INLINE intptr_t zsview_size(zsview rs) { return rs.size; }
+STC_INLINE bool     zsview_is_empty(zsview rs) { return rs.size == 0; }
 
-STC_INLINE bool czview_equals(czview rs, const char* str) {
+STC_INLINE bool zsview_equals(zsview rs, const char* str) {
     intptr_t n = c_strlen(str);
     return rs.size == n && !c_memcmp(rs.str, str, n);
 }
 
-STC_INLINE intptr_t czview_find(czview rs, const char* search) {
+STC_INLINE intptr_t zsview_find(zsview rs, const char* search) {
     char* res = strstr(rs.str, search);
     return res ? (res - rs.str) : c_NPOS;
 }
 
-STC_INLINE bool czview_contains(czview rs, const char* str)
-    { return czview_find(rs, str) != c_NPOS; }
+STC_INLINE bool zsview_contains(zsview rs, const char* str)
+    { return zsview_find(rs, str) != c_NPOS; }
 
-STC_INLINE bool czview_starts_with(czview rs, const char* str) {
+STC_INLINE bool zsview_starts_with(zsview rs, const char* str) {
     intptr_t n = c_strlen(str);
     return n > rs.size ? false : !c_memcmp(rs.str, str, n);
 }
 
-STC_INLINE bool czview_ends_with(czview rs, const char* str) {
+STC_INLINE bool zsview_ends_with(zsview rs, const char* str) {
     intptr_t n = c_strlen(str);
     return n > rs.size ? false : !c_memcmp(rs.str + rs.size - n, str, n);
 }
 
-STC_INLINE czview czview_from_pos(czview rs, intptr_t pos) {
+STC_INLINE zsview zsview_from_pos(zsview rs, intptr_t pos) {
     if (pos < rs.size) { rs.str += pos; rs.size -= pos; }
     return rs;
 }
 
-STC_INLINE czview czview_last(czview rs, intptr_t count)
-    { return czview_from_pos(rs, rs.size - count); }
+STC_INLINE zsview zsview_last(zsview rs, intptr_t count)
+    { return zsview_from_pos(rs, rs.size - count); }
 
 /* utf8 */
-STC_INLINE intptr_t czview_u8_size(czview rs)
+STC_INLINE intptr_t zsview_u8_size(zsview rs)
     { return utf8_size(rs.str); }
 
-STC_INLINE const char* czview_u8_at(czview rs, intptr_t u8idx)
+STC_INLINE const char* zsview_u8_at(zsview rs, intptr_t u8idx)
     { return utf8_at(rs.str, u8idx); }
 
-STC_INLINE czview czview_u8_from_pos(czview rs, intptr_t u8idx)
-    { return czview_from_pos(rs, utf8_pos(rs.str, u8idx)); }
+STC_INLINE zsview zsview_u8_from_pos(zsview rs, intptr_t u8idx)
+    { return zsview_from_pos(rs, utf8_pos(rs.str, u8idx)); }
 
-STC_INLINE czview czview_u8_last(czview rs, intptr_t u8len) {
+STC_INLINE zsview zsview_u8_last(zsview rs, intptr_t u8len) {
     const char* p = rs.str + rs.size;
     while (u8len && p != rs.str) u8len -= (*--p & 0xC0) != 0x80;
-    return czview_from_pos(rs, p - rs.str);
+    return zsview_from_pos(rs, p - rs.str);
 }
 
-STC_INLINE bool czview_u8_valid(czview rs) // requires linking with utf8 symbols
+STC_INLINE bool zsview_u8_valid(zsview rs) // requires linking with utf8 symbols
     { return utf8_valid_n(rs.str, rs.size); }
 
 /* utf8 iterator */
-STC_INLINE czview_iter czview_begin(const czview* self) {
-    return c_LITERAL(czview_iter){.chr = {self->str, utf8_chr_size(self->str)}};
+STC_INLINE zsview_iter zsview_begin(const zsview* self) {
+    return c_LITERAL(zsview_iter){.chr = {self->str, utf8_chr_size(self->str)}};
 }
 
-STC_INLINE czview_iter czview_end(const czview* self) {
-    (void)self; return c_LITERAL(czview_iter){.ref = NULL};
+STC_INLINE zsview_iter zsview_end(const zsview* self) {
+    (void)self; return c_LITERAL(zsview_iter){.ref = NULL};
 }
 
-STC_INLINE void czview_next(czview_iter* it) {
+STC_INLINE void zsview_next(zsview_iter* it) {
     it->ref += it->chr.size;
     it->chr.size = utf8_chr_size(it->ref);
     if (!*it->ref) it->ref = NULL;
 }
 
-STC_INLINE czview_iter czview_advance(czview_iter it, intptr_t u8pos) {
+STC_INLINE zsview_iter zsview_advance(zsview_iter it, intptr_t u8pos) {
     int inc = -1;
     if (u8pos > 0)
         u8pos = -u8pos, inc = 1;
@@ -723,19 +713,19 @@ STC_INLINE czview_iter czview_advance(czview_iter it, intptr_t u8pos) {
 }
 
 /* utf8 ignore case cmp: requires linking with utf8 symbols */
-STC_INLINE int czview_icmp(const czview* x, const czview* y)
+STC_INLINE int zsview_icmp(const zsview* x, const zsview* y)
     { return utf8_icmp_sv(c_sv_2(x->str, x->size), c_sv_2(y->str, y->size)); }
 
-STC_INLINE int czview_cmp(const czview* x, const czview* y) {
+STC_INLINE int zsview_cmp(const zsview* x, const zsview* y) {
     intptr_t n = x->size < y->size ? x->size : y->size;
     int c = c_memcmp(x->str, y->str, n);
     return c ? c : (int)(x->size - y->size);
 }
 
-STC_INLINE bool czview_eq(const czview* x, const czview* y)
+STC_INLINE bool zsview_eq(const zsview* x, const zsview* y)
     { return x->size == y->size && !c_memcmp(x->str, y->str, x->size); }
 
-STC_INLINE uint64_t czview_hash(const czview *self)
+STC_INLINE uint64_t zsview_hash(const zsview *self)
     { return c_hash_n(self->str, self->size); }
 
 #endif // STC_CZVIEW_H_INCLUDED
@@ -1503,5 +1493,5 @@ const UGroup _utf8_unicode_groups[U8G_SIZE] = {
   #pragma GCC diagnostic pop
 #endif
 // ### END_FILE_INCLUDE: linkage2.h
-// ### END_FILE_INCLUDE: czview.h
+// ### END_FILE_INCLUDE: zsview.h
 

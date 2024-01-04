@@ -6,61 +6,6 @@
 #ifndef STC_CRANGE_H_INCLUDED
 #define STC_CRANGE_H_INCLUDED
 
-// ### BEGIN_FILE_INCLUDE: linkage.h
-#undef STC_API
-#undef STC_DEF
-
-#if !defined i_static  && !defined STC_STATIC  && (defined i_header || defined STC_HEADER  || \
-                                                   defined i_implement || defined STC_IMPLEMENT)
-  #define STC_API extern
-  #define STC_DEF
-#else
-  #define i_static
-  #if defined __GNUC__ || defined __clang__
-    #define STC_API static __attribute__((unused))
-  #else
-    #define STC_API static
-  #endif
-  #define STC_DEF static
-#endif
-#if defined STC_IMPLEMENT || defined i_import
-  #define i_implement
-#endif
-
-#if defined STC_ALLOCATOR && !defined i_allocator
-  #define i_allocator STC_ALLOCATOR
-#elif !defined i_allocator
-  #define i_allocator c
-#endif
-#ifndef i_malloc
-  #define i_malloc c_JOIN(i_allocator, _malloc)
-  #define i_calloc c_JOIN(i_allocator, _calloc)
-  #define i_realloc c_JOIN(i_allocator, _realloc)
-  #define i_free c_JOIN(i_allocator, _free)
-#endif
-
-#if defined __clang__ && !defined __cplusplus
-  #pragma clang diagnostic push
-  #pragma clang diagnostic warning "-Wall"
-  #pragma clang diagnostic warning "-Wextra"
-  #pragma clang diagnostic warning "-Wpedantic"
-  #pragma clang diagnostic warning "-Wconversion"
-  #pragma clang diagnostic warning "-Wdouble-promotion"
-  #pragma clang diagnostic warning "-Wwrite-strings"
-  // ignored
-  #pragma clang diagnostic ignored "-Wmissing-field-initializers"
-#elif defined __GNUC__ && !defined __cplusplus
-  #pragma GCC diagnostic push
-  #pragma GCC diagnostic warning "-Wall"
-  #pragma GCC diagnostic warning "-Wextra"
-  #pragma GCC diagnostic warning "-Wpedantic"
-  #pragma GCC diagnostic warning "-Wconversion"
-  #pragma GCC diagnostic warning "-Wdouble-promotion"
-  #pragma GCC diagnostic warning "-Wwrite-strings"
-  // ignored
-  #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
-#endif
-// ### END_FILE_INCLUDE: linkage.h
 // ### BEGIN_FILE_INCLUDE: common.h
 #ifndef STC_COMMON_H_INCLUDED
 #define STC_COMMON_H_INCLUDED
@@ -147,10 +92,11 @@
 
 // x and y are i_keyraw* type, defaults to i_key*:
 #define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
-#define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
-#define c_default_less(x, y)    (*(x) < *(y))
 #define c_default_eq(x, y)      (*(x) == *(y))
-#define c_default_hash          c_hash_pod
+#define c_default_less(x, y)    (*(x) < *(y))
+#define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
+#define c_default_hash(d)       c_hash(d)
+#define c_hash(d)               c_hash_n(d, sizeof *(d))
 
 #define c_default_clone(v)      (v)
 #define c_default_toraw(vp)     (*(vp))
@@ -189,8 +135,6 @@ STC_INLINE uint64_t c_hash_n(const void* key, intptr_t len) {
     return h ^ c_ROTL(h, 26);
 }
 
-#define c_hash_pod(pod) c_hash_n(pod, sizeof *(pod))
-
 STC_INLINE uint64_t c_hash_str(const char *str)
     { return c_hash_n(str, c_strlen(str)); }
 
@@ -228,25 +172,28 @@ STC_INLINE intptr_t c_next_pow2(intptr_t n) {
 #define c_foreach_3(it, C, cnt) \
     for (C##_iter it = C##_begin(&cnt); it.ref; C##_next(&it))
 #define c_foreach_4(it, C, start, finish) \
-    for (C##_iter it = (start), *_endref = c_safe_cast(C##_iter*, C##_value*, (finish).ref) \
-         ; it.ref != (C##_value*)_endref; C##_next(&it))
+    _c_foreach(it, C, start, (finish).ref, _)
+
+#define c_foreach_reverse(...) c_MACRO_OVERLOAD(c_foreach_reverse, __VA_ARGS__)
+#define c_foreach_reverse_3(it, C, cnt) /* works for stack, vec, queue, deq */ \
+    for (C##_iter it = C##_rbegin(&cnt); it.ref; C##_rnext(&it))
+#define c_foreach_reverse_4(it, C, start, finish) \
+    _c_foreach(it, C, start, (finish).ref, _r)
+
+#define _c_foreach(it, C, start, endref, rev) /* private */ \
+    for (C##_iter it = (start), *_endref = c_safe_cast(C##_iter*, C##_value*, endref) \
+         ; it.ref != (C##_value*)_endref; C##rev##next(&it))
+
+#define c_foreach_n(it, C, cnt, N) /* iterate up to N items */ \
+    for (struct {C##_iter iter; C##_value* ref; intptr_t index, n;} it = {.iter=C##_begin(&cnt), .n=N} \
+         ; (it.ref = it.iter.ref) && it.index < it.n; C##_next(&it.iter), ++it.index)
 
 #define c_forpair(key, val, C, cnt) /* structured binding */ \
     for (struct {C##_iter iter; const C##_key* key; C##_mapped* val;} _ = {.iter=C##_begin(&cnt)} \
          ; _.iter.ref && (_.key = &_.iter.ref->first, _.val = &_.iter.ref->second) \
          ; C##_next(&_.iter))
 
-#define c_foreach_rev(it, C, cnt) /* reverse: works only for stack and vec */ \
-    for (C##_iter _start = C##_begin(&cnt), it = {.ref=_start.ref ? _start.end - 1 : NULL, .end=_start.ref - 1} \
-         ; it.ref ; --it.ref == it.end ? it.ref = NULL : NULL)
-
-#define c_foreach_n(it, C, cnt, N) /* iterate up to N items */ \
-    for (struct {C##_iter iter; C##_value* ref; intptr_t index, n;} it = {.iter=C##_begin(&cnt), .n=N} \
-         ; (it.ref = it.iter.ref) && it.index < it.n; C##_next(&it.iter), ++it.index)
-
-#define c_foreach_it(existing_iter, C, cnt) \
-    for (existing_iter = C##_begin(&cnt); (existing_iter).ref; C##_next(&existing_iter))
-
+// c_forrange: python-like indexed iteration
 #define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
 #define c_forrange_1(stop) c_forrange_3(_i, 0, stop)
 #define c_forrange_2(i, stop) c_forrange_3(i, 0, stop)
@@ -283,11 +230,12 @@ STC_INLINE intptr_t c_next_pow2(intptr_t n) {
 #define c_defer(...) \
     for (int _i = 1; _i; _i = 0, __VA_ARGS__)
 
-#define c_with(...) c_MACRO_OVERLOAD(c_with, __VA_ARGS__)
-#define c_with_2(declvar, drop) \
+#define c_scoped(...) c_MACRO_OVERLOAD(c_scoped, __VA_ARGS__)
+#define c_scoped_2(declvar, drop) \
     for (declvar, *_i, **_ip = &_i; _ip; _ip = 0, drop)
-#define c_with_3(declvar, pred, drop) \
+#define c_scoped_3(declvar, pred, drop) \
     for (declvar, *_i, **_ip = &_i; _ip && (pred); _ip = 0, drop)
+#define c_with c_scoped // [deprecated]
 
 #define c_scope(...) c_MACRO_OVERLOAD(c_scope, __VA_ARGS__)
 #define c_scope_2(init, drop) \
@@ -317,51 +265,40 @@ typedef intptr_t crange_value;
 typedef struct { crange_value start, end, step, value; } crange;
 typedef struct { crange_value *ref, end, step; } crange_iter;
 
-#define crange_init crange_make // [deprecated]
 #define crange_make(...) c_MACRO_OVERLOAD(crange_make, __VA_ARGS__)
 #define crange_make_1(stop) crange_make_3(0, stop, 1)
 #define crange_make_2(start, stop) crange_make_3(start, stop, 1)
 
+#define c_iota(...) c_MACRO_OVERLOAD(c_iota, __VA_ARGS__)
+#define c_iota_1(start) c_iota_3(start, INTPTR_MAX, 1)
+#define c_iota_2(start, stop) c_iota_3(start, stop, 1)
+#define c_iota_3(start, stop, step) ((crange[]){crange_make_3(start, stop, step)})[0]
+
 STC_INLINE crange crange_make_3(crange_value start, crange_value stop, crange_value step)
     { crange r = {start, stop - (step > 0), step}; return r; }
 
-STC_INLINE crange_iter crange_begin(crange* self)
-    { self->value = self->start; crange_iter it = {&self->value, self->end, self->step}; return it; }
+STC_INLINE crange_iter crange_begin(crange* self) {
+    self->value = self->start;
+    crange_iter it = {&self->value, self->end, self->step};
+    return it;
+}
 
 STC_INLINE crange_iter crange_end(crange* self)
     { (void)self; crange_iter it = {0}; return it; }
 
-STC_INLINE void crange_next(crange_iter* it)
-    { *it->ref += it->step; if ((it->step > 0) == (*it->ref > it->end)) it->ref = NULL; }
+STC_INLINE void crange_next(crange_iter* it) {
+    if ((it->step > 0) == ((*it->ref += it->step) > it->end))
+        it->ref = NULL;
+}
 
-// ### BEGIN_FILE_INCLUDE: linkage2.h
-
-#undef i_allocator
-#undef i_malloc
-#undef i_calloc
-#undef i_realloc
-#undef i_free
-
-#undef i_static
-#undef i_header
-#undef i_implement
-#undef i_import
-
-#if defined __clang__ && !defined __cplusplus
-  #pragma clang diagnostic pop
-#elif defined __GNUC__ && !defined __cplusplus
-  #pragma GCC diagnostic pop
-#endif
-// ### END_FILE_INCLUDE: linkage2.h
 #endif // STC_CRANGE_H_INCLUDE
 // ### END_FILE_INCLUDE: crange.h
 // ### BEGIN_FILE_INCLUDE: filter.h
-#ifndef STC_TRANSFORM_H_INCLUDED
-#define STC_TRANSFORM_H_INCLUDED
+#ifndef STC_FILTER_H_INCLUDED
+#define STC_FILTER_H_INCLUDED
 
 
-// c_filter:
-
+// ------- c_filter --------
 #define c_flt_skip(n) (c_flt_counter() > (n))
 #define c_flt_take(n) _flt_take(&_fl, n)
 #define c_flt_skipwhile(pred) (_fl.sb[_fl.sb_top++] |= !(pred))
@@ -369,23 +306,63 @@ STC_INLINE void crange_next(crange_iter* it)
 #define c_flt_counter() (++_fl.sn[++_fl.sn_top])
 #define c_flt_getcount() (_fl.sn[_fl.sn_top])
 #define c_flt_map(expr) (_mapped = (expr), value = &_mapped)
-#define c_flt_src _it.ref
+#define c_flt_source _it.ref
 
 #define c_filter(C, cnt, ...) \
-    c_filter_from(C, C##_begin(&cnt), __VA_ARGS__)
+    _c_filter(C, C##_begin(&cnt), _, __VA_ARGS__)
 
-#define c_filter_from(C, start, ...) do { \
+#define c_filter_from(C, start, ...) \
+    _c_filter(C, start, _, __VA_ARGS__)
+
+#define c_filter_reverse(C, cnt, ...) \
+    _c_filter(C, C##_rbegin(&cnt), _r, __VA_ARGS__)
+
+#define c_filter_reverse_from(C, start, ...) \
+    _c_filter(C, start, _r, __VA_ARGS__)
+
+#define _c_filter(C, start, rev, ...) do { \
     struct _flt_base _fl = {0}; \
     C##_iter _it = start; \
     C##_value *value = _it.ref, _mapped; \
     for ((void)_mapped ; !_fl.done & (_it.ref != NULL) ; \
-         C##_next(&_it), value = _it.ref, _fl.sn_top=0, _fl.sb_top=0) \
+         C##rev##next(&_it), value = _it.ref, _fl.sn_top=0, _fl.sb_top=0) \
       (void)(__VA_ARGS__); \
 } while (0)
 
+// ------- c_forfilter --------
+// c_forfilter allows to execute imperative statements for each element
+// as it is a for-loop, e.g., calling nested generic algorithms instead
+// of defining a wrapper-function for it:
+#define c_fflt_skip(i, n) (c_fflt_counter(i) > (n))
+#define c_fflt_take(i, n) _flt_take(&i._fl, n)
+#define c_fflt_skipwhile(i, pred) (i._fl.sb[i._fl.sb_top++] |= !(pred))
+#define c_fflt_takewhile(i, pred) _flt_takewhile(&i._fl, pred)
+#define c_fflt_counter(i) (++i._fl.sn[++i._fl.sn_top])
+#define c_fflt_getcount(i) (i._fl.sn[i._fl.sn_top])
+#define c_fflt_map(i, expr) (i._mapped = (expr), i.ref = &i._mapped)
+#define c_fflt_src(i) i._it.ref
+
+#define c_forfilter(i, C, cnt, ...) \
+    _c_forfilter(i, C, C##_begin(&cnt), _, __VA_ARGS__)
+
+#define c_forfilter_reverse(i, C, cnt,...) \
+    _c_forfilter(i, C, C##_rbegin(&cnt), _r, __VA_ARGS__)
+
+#define c_forfilter_from(i, C, start, ...) \
+    _c_forfilter(i, C, start, _, __VA_ARGS__)
+
+#define c_forfilter_reverse_from(i, C, start, ...) \
+    _c_forfilter(i, C, start, _r, __VA_ARGS__)
+
+#define _c_forfilter(i, C, start, rev, ...) \
+    for (struct {C##_iter _it; C##_value *ref, _mapped; struct _flt_base _fl;} \
+         i = {._it=start, .ref=i._it.ref} ; !i._fl.done & (i._it.ref != NULL) ; \
+         C##rev##next(&i._it), i.ref = i._it.ref, i._fl.sn_top=0, i._fl.sb_top=0) \
+      if (!(__VA_ARGS__)) ; else
+
 // ------------------------ private -------------------------
 #ifndef c_NFILTERS
-#define c_NFILTERS 32
+#define c_NFILTERS 20
 #endif
 
 struct _flt_base {
@@ -406,37 +383,35 @@ static inline bool _flt_takewhile(struct _flt_base* fl, bool pred) {
     return !skip;
 }
 
-#endif
+#endif // STC_FILTER_H_INCLUDED
 // ### END_FILE_INCLUDE: filter.h
 // ### BEGIN_FILE_INCLUDE: utility.h
 #ifndef STC_UTILITY_H_INCLUDED
 #define STC_UTILITY_H_INCLUDED
 
-// ----------------------------------
-// c_auto init+drop containers (RAII)
-// ----------------------------------
-
-#define c_auto(...) c_MACRO_OVERLOAD(c_auto, __VA_ARGS__)
-#define c_auto_2(C, a) \
-    c_with_2(C a = C##_init(), C##_drop(&a))
-#define c_auto_3(C, a, b) \
-    c_with_2(c_EXPAND(C a = C##_init(), b = C##_init()), \
-            (C##_drop(&b), C##_drop(&a)))
-#define c_auto_4(C, a, b, c) \
-    c_with_2(c_EXPAND(C a = C##_init(), b = C##_init(), c = C##_init()), \
-            (C##_drop(&c), C##_drop(&b), C##_drop(&a)))
-
 // --------------------------------
-// c_find_if
+// c_find_if, c_find_reverse_if
 // --------------------------------
 
-#define c_find_if(C, cnt, outit_ptr, pred) \
-    c_find_from(C, C##_begin(&cnt), outit_ptr, pred)
+#define c_find_if(...) c_MACRO_OVERLOAD(c_find_if, __VA_ARGS__)
+#define c_find_if_4(C, cnt, outit_ptr, pred) \
+    _c_find(C, C##_begin(&cnt), NULL, _, outit_ptr, pred)
 
-#define c_find_from(C, start, outit_ptr, pred) do { \
+#define c_find_if_5(C, start, finish, outit_ptr, pred) \
+    _c_find(C, start, (finish).ref, _, outit_ptr, pred)
+
+#define c_find_reverse_if(...) c_MACRO_OVERLOAD(c_find_reverse_if, __VA_ARGS__)
+#define c_find_reverse_if_4(C, cnt, outit_ptr, pred) \
+    _c_find(C, C##_rbegin(&cnt), NULL, _r, outit_ptr, pred)
+
+#define c_find_reverse_if_5(C, rstart, rfinish, outit_ptr, pred) \
+    _c_find(C, rstart, (rfinish).ref, _r, outit_ptr, pred)
+
+// private
+#define _c_find(C, start, endref, rev, outit_ptr, pred) do { \
     C##_iter* _out = outit_ptr; \
-    const C##_value *value; \
-    for (*_out = start; (value = _out->ref); C##_next(_out)) \
+    const C##_value *value, *_endref = endref; \
+    for (*_out = start; (value = _out->ref) != _endref; C##rev##next(_out)) \
         if (pred) goto c_JOIN(findif_, __LINE__); \
     _out->ref = NULL; c_JOIN(findif_, __LINE__):; \
 } while (0)
@@ -474,37 +449,68 @@ static inline bool _flt_takewhile(struct _flt_base* fl, bool pred) {
     C##_adjust_end_(_cnt, -_n); \
 } while (0)
 
-// --------------------------------
-// c_copy_if
-// --------------------------------
+// ------------------------------------
+// c_copy, c_copy_if, c_copy_reverse_if
+// ------------------------------------
 
-#define c_copy_if(C, cnt, outcnt_ptr, pred) do { \
-    C _cnt = cnt, *_out = outcnt_ptr; \
+#define c_copy(...) c_MACRO_OVERLOAD(c_copy, __VA_ARGS__)
+#define c_copy_3(C, cnt, outcnt_ptr) \
+    _c_copy_if(C, cnt, _, C, outcnt_ptr, true)
+
+#define c_copy_4(C, cnt, C_out, outcnt_ptr) \
+    _c_copy_if(C, cnt, _, C_out, outcnt_ptr, true)
+
+#define c_copy_reverse(...) c_MACRO_OVERLOAD(c_copy_reverse, __VA_ARGS__)
+#define c_copy_reverse_3(C, cnt, outcnt_ptr) \
+    _c_copy_if(C, cnt, _r, C, outcnt_ptr, true)
+
+#define c_copy_reverse_4(C, cnt, C_out, outcnt_ptr) \
+    _c_copy_if(C, cnt, _r, C_out, outcnt_ptr, true)
+
+
+#define c_copy_if(...) c_MACRO_OVERLOAD(c_copy_if, __VA_ARGS__)
+#define c_copy_if_4(C, cnt, outcnt_ptr, pred) \
+    _c_copy_if(C, cnt, _, C, outcnt_ptr, pred)
+
+#define c_copy_if_5(C, cnt, C_out, outcnt_ptr, pred) \
+    _c_copy_if(C, cnt, _, C_out, outcnt_ptr, pred)
+
+#define c_copy_reverse_if(...) c_MACRO_OVERLOAD(c_copy_reverse_if, __VA_ARGS__)
+#define c_copy_reverse_if_4(C, cnt, outcnt_ptr, pred) \
+    _c_copy_if(C, cnt, _r, C, outcnt_ptr, pred)
+
+#define c_copy_reverse_if_5(C, cnt, C_out, outcnt_ptr, pred) \
+    _c_copy_if(C, cnt, _r, C_out, outcnt_ptr, pred)
+
+// private
+#define _c_copy_if(C, cnt, rev, C_out, outcnt_ptr, pred) do { \
+    C _cnt = cnt; \
+    C_out *_out = outcnt_ptr; \
     const C##_value* value; \
-    for (C##_iter _it = C##_begin(&_cnt); (value = _it.ref); C##_next(&_it)) \
-        if (pred) C##_push(_out, C##_value_clone(*_it.ref)); \
+    for (C##_iter _it = C##rev##begin(&_cnt); (value = _it.ref); C##rev##next(&_it)) \
+        if (pred) C_out##_push(_out, C##_value_clone(*_it.ref)); \
 } while (0)
 
 // --------------------------------
-// c_all_of, c_any_of, c_none_of:
+// c_all_of, c_any_of, c_none_of
 // --------------------------------
 
-#define c_all_of(C, cnt, boolptr, pred) do { \
+#define c_all_of(C, cnt, outbool_ptr, pred) do { \
     C##_iter _it; \
-    c_find_if(C, cnt, &_it, !(pred)); \
-    *(boolptr) = _it.ref == NULL; \
+    c_find_if_4(C, cnt, &_it, !(pred)); \
+    *(outbool_ptr) = _it.ref == NULL; \
 } while (0)
 
-#define c_any_of(C, cnt, boolptr, pred) do { \
+#define c_any_of(C, cnt, outbool_ptr, pred) do { \
     C##_iter _it; \
-    c_find_if(C, cnt, &_it, pred); \
-    *(boolptr) = _it.ref != NULL; \
+    c_find_if_4(C, cnt, &_it, pred); \
+    *(outbool_ptr) = _it.ref != NULL; \
 } while (0)
 
-#define c_none_of(C, cnt, boolptr, pred) do { \
+#define c_none_of(C, cnt, outbool_ptr, pred) do { \
     C##_iter _it; \
-    c_find_if(C, cnt, &_it, pred); \
-    *(boolptr) = _it.ref == NULL; \
+    c_find_if_4(C, cnt, &_it, pred); \
+    *(outbool_ptr) = _it.ref == NULL; \
 } while (0)
 
 #endif // STC_UTILITY_H_INCLUDED

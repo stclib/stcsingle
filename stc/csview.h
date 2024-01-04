@@ -13,7 +13,7 @@
   #if defined __GNUC__ || defined __clang__
     #define STC_API static __attribute__((unused))
   #else
-    #define STC_API static
+    #define STC_API static inline
   #endif
   #define STC_DEF static
 #endif
@@ -145,10 +145,11 @@
 
 // x and y are i_keyraw* type, defaults to i_key*:
 #define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
-#define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
-#define c_default_less(x, y)    (*(x) < *(y))
 #define c_default_eq(x, y)      (*(x) == *(y))
-#define c_default_hash          c_hash_pod
+#define c_default_less(x, y)    (*(x) < *(y))
+#define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
+#define c_default_hash(d)       c_hash(d)
+#define c_hash(d)               c_hash_n(d, sizeof *(d))
 
 #define c_default_clone(v)      (v)
 #define c_default_toraw(vp)     (*(vp))
@@ -187,8 +188,6 @@ STC_INLINE uint64_t c_hash_n(const void* key, intptr_t len) {
     return h ^ c_ROTL(h, 26);
 }
 
-#define c_hash_pod(pod) c_hash_n(pod, sizeof *(pod))
-
 STC_INLINE uint64_t c_hash_str(const char *str)
     { return c_hash_n(str, c_strlen(str)); }
 
@@ -226,25 +225,28 @@ STC_INLINE intptr_t c_next_pow2(intptr_t n) {
 #define c_foreach_3(it, C, cnt) \
     for (C##_iter it = C##_begin(&cnt); it.ref; C##_next(&it))
 #define c_foreach_4(it, C, start, finish) \
-    for (C##_iter it = (start), *_endref = c_safe_cast(C##_iter*, C##_value*, (finish).ref) \
-         ; it.ref != (C##_value*)_endref; C##_next(&it))
+    _c_foreach(it, C, start, (finish).ref, _)
+
+#define c_foreach_reverse(...) c_MACRO_OVERLOAD(c_foreach_reverse, __VA_ARGS__)
+#define c_foreach_reverse_3(it, C, cnt) /* works for stack, vec, queue, deq */ \
+    for (C##_iter it = C##_rbegin(&cnt); it.ref; C##_rnext(&it))
+#define c_foreach_reverse_4(it, C, start, finish) \
+    _c_foreach(it, C, start, (finish).ref, _r)
+
+#define _c_foreach(it, C, start, endref, rev) /* private */ \
+    for (C##_iter it = (start), *_endref = c_safe_cast(C##_iter*, C##_value*, endref) \
+         ; it.ref != (C##_value*)_endref; C##rev##next(&it))
+
+#define c_foreach_n(it, C, cnt, N) /* iterate up to N items */ \
+    for (struct {C##_iter iter; C##_value* ref; intptr_t index, n;} it = {.iter=C##_begin(&cnt), .n=N} \
+         ; (it.ref = it.iter.ref) && it.index < it.n; C##_next(&it.iter), ++it.index)
 
 #define c_forpair(key, val, C, cnt) /* structured binding */ \
     for (struct {C##_iter iter; const C##_key* key; C##_mapped* val;} _ = {.iter=C##_begin(&cnt)} \
          ; _.iter.ref && (_.key = &_.iter.ref->first, _.val = &_.iter.ref->second) \
          ; C##_next(&_.iter))
 
-#define c_foreach_rev(it, C, cnt) /* reverse: works only for stack and vec */ \
-    for (C##_iter _start = C##_begin(&cnt), it = {.ref=_start.ref ? _start.end - 1 : NULL, .end=_start.ref - 1} \
-         ; it.ref ; --it.ref == it.end ? it.ref = NULL : NULL)
-
-#define c_foreach_n(it, C, cnt, N) /* iterate up to N items */ \
-    for (struct {C##_iter iter; C##_value* ref; intptr_t index, n;} it = {.iter=C##_begin(&cnt), .n=N} \
-         ; (it.ref = it.iter.ref) && it.index < it.n; C##_next(&it.iter), ++it.index)
-
-#define c_foreach_it(existing_iter, C, cnt) \
-    for (existing_iter = C##_begin(&cnt); (existing_iter).ref; C##_next(&existing_iter))
-
+// c_forrange: python-like indexed iteration
 #define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
 #define c_forrange_1(stop) c_forrange_3(_i, 0, stop)
 #define c_forrange_2(i, stop) c_forrange_3(i, 0, stop)
@@ -281,11 +283,12 @@ STC_INLINE intptr_t c_next_pow2(intptr_t n) {
 #define c_defer(...) \
     for (int _i = 1; _i; _i = 0, __VA_ARGS__)
 
-#define c_with(...) c_MACRO_OVERLOAD(c_with, __VA_ARGS__)
-#define c_with_2(declvar, drop) \
+#define c_scoped(...) c_MACRO_OVERLOAD(c_scoped, __VA_ARGS__)
+#define c_scoped_2(declvar, drop) \
     for (declvar, *_i, **_ip = &_i; _ip; _ip = 0, drop)
-#define c_with_3(declvar, pred, drop) \
+#define c_scoped_3(declvar, pred, drop) \
     for (declvar, *_i, **_ip = &_i; _ip && (pred); _ip = 0, drop)
+#define c_with c_scoped // [deprecated]
 
 #define c_scope(...) c_MACRO_OVERLOAD(c_scope, __VA_ARGS__)
 #define c_scope_2(init, drop) \
@@ -329,19 +332,6 @@ STC_INLINE intptr_t c_next_pow2(intptr_t n) {
 #define forward_pque(C, VAL) _c_pque_types(C, VAL)
 #define forward_queue(C, VAL) _c_deq_types(C, VAL)
 #define forward_vec(C, VAL) _c_vec_types(C, VAL)
-// OLD deprecated names:
-#define forward_carc forward_arc
-#define forward_cbox forward_box
-#define forward_cdeq forward_deq
-#define forward_clist forward_list
-#define forward_cmap forward_hmap
-#define forward_cset forward_hset
-#define forward_csmap forward_smap
-#define forward_csset forward_sset
-#define forward_cstack forward_stack
-#define forward_cpque forward_pque
-#define forward_cqueue forward_queue
-#define forward_cvec forward_vec
 
 // csview : non-null terminated string view
 typedef const char csview_value;
@@ -361,21 +351,21 @@ typedef union {
 #define c_sv_2(str, n) (c_LITERAL(csview){str, n})
 #define c_SV(sv) (int)(sv).size, (sv).buf // printf("%.*s\n", c_SV(sv));
 
-// czview : null-terminated string view
-typedef csview_value czview_value;
-typedef struct czview {
-    czview_value* str;
+// zsview : zero-terminated string view
+typedef csview_value zsview_value;
+typedef struct zsview {
+    zsview_value* str;
     intptr_t size;
-} czview;
+} zsview;
 
 typedef union {
-    czview_value* ref;
+    zsview_value* ref;
     csview chr;
-} czview_iter;
+} zsview_iter;
 
-#define c_zv(literal) (c_LITERAL(czview){literal, c_litstrlen(literal)})
+#define c_zv(literal) (c_LITERAL(zsview){literal, c_litstrlen(literal)})
 
-// cstr : null-terminated owning string (short string optimized - sso)
+// cstr : zero-terminated owning string (short string optimized - sso)
 typedef char cstr_value;
 typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {
@@ -557,7 +547,7 @@ STC_INLINE intptr_t utf8_pos(const char* s, intptr_t index)
 // ------------------------------------------------------
 // The following requires linking with utf8 symbols.
 // To call them, either define i_import before including
-// one of cstr, csview czview, or link with src/libstc.o.
+// one of cstr, csview, zsview, or link with src/libstc.o.
 
 enum {
     U8G_Cc, U8G_Lt, U8G_Nd, U8G_Nl,
@@ -649,7 +639,7 @@ STC_INLINE csview   csview_from_n(const char* str, intptr_t n)
 
 STC_INLINE void     csview_clear(csview* self) { *self = csview_init(); }
 STC_INLINE intptr_t csview_size(csview sv) { return sv.size; }
-STC_INLINE bool     csview_empty(csview sv) { return sv.size == 0; }
+STC_INLINE bool     csview_is_empty(csview sv) { return sv.size == 0; }
 
 STC_INLINE bool csview_equals_sv(csview sv1, csview sv2)
     { return sv1.size == sv2.size && !c_memcmp(sv1.buf, sv2.buf, sv1.size); }
