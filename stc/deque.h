@@ -1,4 +1,6 @@
-// ### BEGIN_FILE_INCLUDE: stack.h
+// ### BEGIN_FILE_INCLUDE: deque.h
+// Deque - double ended queue. Implemented as a ring buffer, extension of queue.
+
 // ### BEGIN_FILE_INCLUDE: linkage.h
 #undef STC_API
 #undef STC_DEF
@@ -61,10 +63,8 @@
 #endif
 // ### END_FILE_INCLUDE: linkage.h
 
-// Stack - a simplified vec type without linear search and insert/erase inside the stack.
-
-#ifndef STC_STACK_H_INCLUDED
-#define STC_STACK_H_INCLUDED
+#ifndef STC_DEQUE_H_INCLUDED
+#define STC_DEQUE_H_INCLUDED
 // ### BEGIN_FILE_INCLUDE: common.h
 #ifndef STC_COMMON_H_INCLUDED
 #define STC_COMMON_H_INCLUDED
@@ -532,11 +532,14 @@ typedef union {
 #endif // STC_TYPES_H_INCLUDED
 // ### END_FILE_INCLUDE: types.h
 #include <stdlib.h>
-#endif // STC_STACK_H_INCLUDED
+#include <string.h>
+#endif // STC_DEQUE_H_INCLUDED
 
 #ifndef _i_prefix
-  #define _i_prefix stack_
+  #define _i_prefix deque_
 #endif
+#define _pop _pop_front
+#define _pull _pull_front
 // ### BEGIN_FILE_INCLUDE: template.h
 #ifndef _i_template
 #define _i_template
@@ -809,162 +812,94 @@ typedef union {
 #endif
 #endif // STC_TEMPLATE_H_INCLUDED
 // ### END_FILE_INCLUDE: template.h
+// ### BEGIN_FILE_INCLUDE: queue_prv.h
 
 #ifndef i_is_forward
-#ifdef i_capacity
-  #define i_no_clone
-  _c_DEFTYPES(_c_stack_fixed, Self, i_key, i_capacity);
-#else
-  _c_DEFTYPES(_c_stack_types, Self, i_key);
-#endif
+_c_DEFTYPES(_c_deque_types, Self, i_key);
 #endif
 typedef i_keyraw _m_raw;
 
-#ifdef i_capacity
-STC_INLINE void _c_MEMB(_init)(Self* self)
-    { self->size = 0; }
-#else
-STC_INLINE Self _c_MEMB(_init)(void) {
-    Self out = {0};
-    return out;
-}
+STC_API Self            _c_MEMB(_with_capacity)(const isize n);
+STC_API bool            _c_MEMB(_reserve)(Self* self, const isize n);
+STC_API void            _c_MEMB(_clear)(Self* self);
+STC_API void            _c_MEMB(_drop)(const Self* cself);
+STC_API _m_value*       _c_MEMB(_push)(Self* self, _m_value value); // push_back
+STC_API void            _c_MEMB(_shrink_to_fit)(Self *self);
+STC_API _m_iter         _c_MEMB(_advance)(_m_iter it, isize n);
 
-STC_INLINE Self _c_MEMB(_with_capacity)(isize cap) {
-    Self out = {_i_malloc(_m_value, cap), 0, cap};
-    return out;
-}
+#define _cbuf_toidx(self, pos) (((pos) - (self)->start) & (self)->capmask)
+#define _cbuf_topos(self, idx) (((self)->start + (idx)) & (self)->capmask)
 
-STC_INLINE Self _c_MEMB(_with_size)(isize size, _m_value null) {
-    Self out = {_i_malloc(_m_value, size), size, size};
-    while (size) out.data[--size] = null;
-    return out;
-}
-#endif // i_capacity
+STC_INLINE Self         _c_MEMB(_init)(void)
+                            { Self cx = {0}; return cx; }
 
-STC_INLINE void _c_MEMB(_clear)(Self* self) {
-    _m_value *p = self->data + self->size;
-    while (p-- != self->data) { i_keydrop(p); }
-    self->size = 0;
-}
+STC_INLINE void         _c_MEMB(_put_n)(Self* self, const _m_raw* raw, isize n)
+                            { while (n--) _c_MEMB(_push)(self, i_keyfrom((*raw))), ++raw; }
 
-STC_INLINE void _c_MEMB(_drop)(const Self* cself) {
-    Self* self = (Self*)cself;
-    _c_MEMB(_clear)(self);
-#ifndef i_capacity
-    i_free(self->data, self->capacity*c_sizeof(*self->data));
-#endif
-}
+STC_INLINE Self         _c_MEMB(_from_n)(const _m_raw* raw, isize n)
+                            { Self cx = {0}; _c_MEMB(_put_n)(&cx, raw, n); return cx; }
 
-STC_INLINE isize _c_MEMB(_size)(const Self* self)
-    { return self->size; }
-
-STC_INLINE bool _c_MEMB(_is_empty)(const Self* self)
-    { return !self->size; }
-
-STC_INLINE isize _c_MEMB(_capacity)(const Self* self) {
-#ifndef i_capacity
-    return self->capacity;
-#else
-    (void)self; return i_capacity;
-#endif
-}
-
-STC_INLINE void _c_MEMB(_value_drop)(_m_value* val)
-    { i_keydrop(val); }
-
-STC_INLINE bool _c_MEMB(_reserve)(Self* self, isize n) {
-    if (n < self->size) return true;
-#ifndef i_capacity
-    _m_value *d = (_m_value *)i_realloc(self->data, self->capacity*c_sizeof *d, n*c_sizeof *d);
-    if (d) { self->capacity = n, self->data = d; return true; }
-#endif
-    return false;
-}
-
-STC_INLINE _m_value* _c_MEMB(_append_uninit)(Self *self, isize n) {
-    isize len = self->size;
-    if (len + n > _c_MEMB(_capacity)(self))
-        if (!_c_MEMB(_reserve)(self, len*3/2 + n))
-            return NULL;
-    self->size += n;
-    return self->data + len;
-}
-
-STC_INLINE void _c_MEMB(_shrink_to_fit)(Self* self)
-    { _c_MEMB(_reserve)(self, self->size); }
-
-STC_INLINE const _m_value* _c_MEMB(_top)(const Self* self)
-    { return &self->data[self->size - 1]; }
-
-STC_INLINE _m_value* _c_MEMB(_back)(const Self* self)
-    { return (_m_value*) &self->data[self->size - 1]; }
-
-STC_INLINE _m_value* _c_MEMB(_front)(const Self* self)
-    { return (_m_value*) &self->data[0]; }
-
-STC_INLINE _m_value* _c_MEMB(_push)(Self* self, _m_value val) {
-    if (self->size == _c_MEMB(_capacity)(self))
-        if (!_c_MEMB(_reserve)(self, self->size*3/2 + 4))
-            return NULL;
-    _m_value* vp = self->data + self->size++;
-    *vp = val; return vp;
-}
-
-STC_INLINE void _c_MEMB(_pop)(Self* self)
-    { c_assert(self->size); _m_value* p = &self->data[--self->size]; i_keydrop(p); }
-
-STC_INLINE _m_value _c_MEMB(_pull)(Self* self)
-    { c_assert(self->size); return self->data[--self->size]; }
-
-STC_INLINE void _c_MEMB(_put_n)(Self* self, const _m_raw* raw, isize n)
-    { while (n--) _c_MEMB(_push)(self, i_keyfrom((*raw))), ++raw; }
-
-STC_INLINE Self _c_MEMB(_from_n)(const _m_raw* raw, isize n)
-    { Self cx = {0}; _c_MEMB(_put_n)(&cx, raw, n); return cx; }
-
-STC_INLINE const _m_value* _c_MEMB(_at)(const Self* self, isize idx)
-    { c_assert(idx < self->size); return self->data + idx; }
-
-STC_INLINE _m_value* _c_MEMB(_at_mut)(Self* self, isize idx)
-    { c_assert(idx < self->size); return self->data + idx; }
+STC_INLINE void         _c_MEMB(_value_drop)(_m_value* val) { i_keydrop(val); }
 
 #if !defined i_no_emplace
-STC_INLINE _m_value* _c_MEMB(_emplace)(Self* self, _m_raw raw)
-    { return _c_MEMB(_push)(self, i_keyfrom(raw)); }
-#endif // !i_no_emplace
+STC_INLINE _m_value*    _c_MEMB(_emplace)(Self* self, _m_raw raw)
+                            { return _c_MEMB(_push)(self, i_keyfrom(raw)); }
+#endif
+
+#if defined _i_has_eq
+STC_API bool            _c_MEMB(_eq)(const Self* self, const Self* other);
+#endif
 
 #if !defined i_no_clone
-STC_INLINE Self _c_MEMB(_clone)(Self s) {
-    Self tmp = {_i_malloc(_m_value, s.size), s.size, s.size};
-    if (!tmp.data) tmp.capacity = 0;
-    else for (isize i = 0; i < s.size; ++s.data)
-        tmp.data[i++] = i_keyclone((*s.data));
-    s.data = tmp.data;
-    s.capacity = tmp.capacity;
-    return s;
-}
+STC_API Self            _c_MEMB(_clone)(Self cx);
+STC_INLINE _m_value     _c_MEMB(_value_clone)(_m_value val)
+                            { return i_keyclone(val); }
 
-STC_INLINE void _c_MEMB(_copy)(Self *self, const Self* other) {
-    if (self->data == other->data) return;
-    _c_MEMB(_drop)(self);
-    *self = _c_MEMB(_clone)(*other);
-}
-
-STC_INLINE _m_value _c_MEMB(_value_clone)(_m_value val)
-    { return i_keyclone(val); }
-
-STC_INLINE i_keyraw _c_MEMB(_value_toraw)(const _m_value* val)
-    { return i_keytoraw(val); }
+STC_INLINE void         _c_MEMB(_copy)(Self* self, const Self* other) {
+                            if (self->cbuf == other->cbuf) return;
+                            _c_MEMB(_drop)(self);
+                            *self = _c_MEMB(_clone)(*other);
+                        }
 #endif // !i_no_clone
+STC_INLINE isize        _c_MEMB(_size)(const Self* self)
+                            { return _cbuf_toidx(self, self->end); }
+STC_INLINE isize        _c_MEMB(_capacity)(const Self* self)
+                            { return self->capmask; }
+STC_INLINE bool         _c_MEMB(_is_empty)(const Self* self)
+                            { return self->start == self->end; }
+STC_INLINE _m_raw       _c_MEMB(_value_toraw)(const _m_value* pval)
+                            { return i_keytoraw(pval); }
+
+STC_INLINE _m_value*    _c_MEMB(_front)(const Self* self)
+                            { return self->cbuf + self->start; }
+
+STC_INLINE _m_value*    _c_MEMB(_back)(const Self* self)
+                            { return self->cbuf + ((self->end - 1) & self->capmask); }
+
+STC_INLINE void _c_MEMB(_pop)(Self* self) { // pop_front
+    c_assert(!_c_MEMB(_is_empty)(self));
+    i_keydrop((self->cbuf + self->start));
+    self->start = (self->start + 1) & self->capmask;
+}
+
+STC_INLINE _m_value _c_MEMB(_pull)(Self* self) { // move front out of queue
+    c_assert(!_c_MEMB(_is_empty)(self));
+    isize s = self->start;
+    self->start = (s + 1) & self->capmask;
+    return self->cbuf[s];
+}
 
 STC_INLINE _m_iter _c_MEMB(_begin)(const Self* self) {
-    isize n = self->size; _m_value* d = (_m_value*)self->data;
-    return c_literal(_m_iter){n ? d : NULL, d + n};
+    return c_literal(_m_iter){
+        .ref=_c_MEMB(_is_empty)(self) ? NULL : self->cbuf + self->start,
+        .pos=self->start, ._s=self};
 }
 
 STC_INLINE _m_iter _c_MEMB(_rbegin)(const Self* self) {
-    isize n = self->size; _m_value* d = (_m_value*)self->data;
-    return c_literal(_m_iter){n ? d + n - 1 : NULL, d - 1};
+    isize pos = (self->end - 1) & self->capmask;
+    return c_literal(_m_iter){
+        .ref=_c_MEMB(_is_empty)(self) ? NULL : self->cbuf + pos,
+        .pos=pos, ._s=self};
 }
 
 STC_INLINE _m_iter _c_MEMB(_end)(const Self* self)
@@ -973,20 +908,228 @@ STC_INLINE _m_iter _c_MEMB(_end)(const Self* self)
 STC_INLINE _m_iter _c_MEMB(_rend)(const Self* self)
     { (void)self; return c_literal(_m_iter){0}; }
 
-STC_INLINE void _c_MEMB(_next)(_m_iter* it)
-    { if (++it->ref == it->end) it->ref = NULL; }
+STC_INLINE void _c_MEMB(_next)(_m_iter* it) {
+    if (it->pos != it->_s->capmask) { ++it->ref; ++it->pos; }
+    else { it->ref -= it->pos; it->pos = 0; }
+    if (it->pos == it->_s->end) it->ref = NULL;
+}
 
-STC_INLINE void _c_MEMB(_rnext)(_m_iter* it)
-    { if (--it->ref == it->end) it->ref = NULL; }
-
-STC_INLINE _m_iter _c_MEMB(_advance)(_m_iter it, size_t n)
-    { if ((it.ref += n) >= it.end) it.ref = NULL ; return it; }
+STC_INLINE void _c_MEMB(_rnext)(_m_iter* it) {
+    if (it->pos == it->_s->start) it->ref = NULL;
+    else if (it->pos != 0) { --it->ref; --it->pos; }
+    else it->ref += (it->pos = it->_s->capmask);
+}
 
 STC_INLINE isize _c_MEMB(_index)(const Self* self, _m_iter it)
-    { return (it.ref - self->data); }
+    { return _cbuf_toidx(self, it.pos); }
 
 STC_INLINE void _c_MEMB(_adjust_end_)(Self* self, isize n)
-    { self->size += n; }
+    { self->end = (self->end + n) & self->capmask; }
+
+/* -------------------------- IMPLEMENTATION ------------------------- */
+#if defined i_implement || defined i_static
+
+STC_DEF _m_iter _c_MEMB(_advance)(_m_iter it, isize n) {
+    isize len = _c_MEMB(_size)(it._s);
+    isize pos = it.pos, idx = _cbuf_toidx(it._s, pos);
+    it.pos = (pos + n) & it._s->capmask;
+    it.ref += it.pos - pos;
+    if (!c_uless(idx + n, len)) it.ref = NULL;
+    return it;
+}
+
+STC_DEF void
+_c_MEMB(_clear)(Self* self) {
+    c_foreach (i, Self, *self)
+        { i_keydrop(i.ref); }
+    self->start = 0, self->end = 0;
+}
+
+STC_DEF void
+_c_MEMB(_drop)(const Self* cself) {
+    Self* self = (Self*)cself;
+    _c_MEMB(_clear)(self);
+    i_free(self->cbuf, (self->capmask + 1)*c_sizeof(*self->cbuf));
+}
+
+STC_DEF Self
+_c_MEMB(_with_capacity)(const isize n) {
+    Self cx = {0};
+    _c_MEMB(_reserve)(&cx, n);
+    return cx;
+}
+
+STC_DEF bool
+_c_MEMB(_reserve)(Self* self, const isize n) {
+    if (n <= self->capmask)
+        return true;
+    isize oldpow2 = self->capmask + 1, newpow2 = cnextpow2(n + 1);
+    _m_value* d = (_m_value *)i_realloc(self->cbuf, oldpow2*c_sizeof *d, newpow2*c_sizeof *d);
+    if (!d)
+        return false;
+    isize head = oldpow2 - self->start;
+    if (self->start <= self->end)
+        ;
+    else if (head < self->end) {
+        self->start = newpow2 - head;
+        c_memmove(d + self->start, d + oldpow2 - head, head*c_sizeof *d);
+    } else {
+        c_memmove(d + oldpow2, d, self->end*c_sizeof *d);
+        self->end += oldpow2;
+    }
+    self->capmask = newpow2 - 1;
+    self->cbuf = d;
+    return true;
+}
+
+STC_DEF _m_value*
+_c_MEMB(_push)(Self* self, _m_value value) { // push_back
+    isize end = (self->end + 1) & self->capmask;
+    if (end == self->start) { // full
+        _c_MEMB(_reserve)(self, self->capmask + 3); // => 2x expand
+        end = (self->end + 1) & self->capmask;
+    }
+    _m_value *v = self->cbuf + self->end;
+    self->end = end;
+    *v = value;
+    return v;
+}
+
+STC_DEF void
+_c_MEMB(_shrink_to_fit)(Self *self) {
+    isize sz = _c_MEMB(_size)(self), j = 0;
+    if (sz > self->capmask/2)
+        return;
+    Self out = _c_MEMB(_with_capacity)(sz);
+    if (!out.cbuf)
+        return;
+    c_foreach (i, Self, *self)
+        out.cbuf[j++] = *i.ref;
+    out.end = sz;
+    i_free(self->cbuf, (self->capmask + 1)*c_sizeof(*self->cbuf));
+    *self = out;
+}
+
+#if !defined i_no_clone
+STC_DEF Self
+_c_MEMB(_clone)(Self q) {
+    isize sz = _c_MEMB(_size)(&q), j = 0;
+    Self tmp = _c_MEMB(_with_capacity)(sz);
+    if (tmp.cbuf)
+        c_foreach (i, Self, q)
+            tmp.cbuf[j++] = i_keyclone((*i.ref));
+    q.cbuf = tmp.cbuf;
+    q.capmask = tmp.capmask;
+    q.start = 0;
+    q.end = sz;
+    return q;
+}
+#endif // i_no_clone
+
+#if defined _i_has_eq
+STC_DEF bool
+_c_MEMB(_eq)(const Self* self, const Self* other) {
+    if (_c_MEMB(_size)(self) != _c_MEMB(_size)(other)) return false;
+    for (_m_iter i = _c_MEMB(_begin)(self), j = _c_MEMB(_begin)(other);
+         i.ref; _c_MEMB(_next)(&i), _c_MEMB(_next)(&j))
+    {
+        const _m_raw _rx = i_keytoraw(i.ref), _ry = i_keytoraw(j.ref);
+        if (!(i_eq((&_rx), (&_ry)))) return false;
+    }
+    return true;
+}
+#endif // _i_has_eq
+#endif // IMPLEMENTATION
+// ### END_FILE_INCLUDE: queue_prv.h
+#undef _pop
+#undef _pull
+
+STC_API _m_value*   _c_MEMB(_push_front)(Self* self, _m_value value);
+STC_API _m_iter     _c_MEMB(_insert_n)(Self* self, isize idx, const _m_value* arr, isize n);
+STC_API _m_iter     _c_MEMB(_insert_uninit)(Self* self, isize idx, isize n);
+STC_API void        _c_MEMB(_erase_n)(Self* self, isize idx, isize n);
+
+STC_INLINE const _m_value*
+_c_MEMB(_at)(const Self* self, isize idx)
+    { return self->cbuf + _cbuf_topos(self, idx); }
+
+STC_INLINE _m_value*
+_c_MEMB(_at_mut)(Self* self, isize idx)
+    { return self->cbuf + _cbuf_topos(self, idx); }
+
+STC_INLINE _m_value*
+_c_MEMB(_push_back)(Self* self, _m_value val)
+    { return  _c_MEMB(_push)(self, val); }
+
+STC_INLINE void
+_c_MEMB(_pop_back)(Self* self) {
+    c_assert(!_c_MEMB(_is_empty)(self));
+    self->end = (self->end - 1) & self->capmask;
+    i_keydrop((self->cbuf + self->end));
+}
+
+STC_INLINE _m_value _c_MEMB(_pull_back)(Self* self) { // move back out of deque
+    c_assert(!_c_MEMB(_is_empty)(self));
+    self->end = (self->end - 1) & self->capmask;
+    return self->cbuf[self->end];
+}
+
+STC_INLINE _m_iter
+_c_MEMB(_insert_at)(Self* self, _m_iter it, const _m_value val) {
+    isize idx = _cbuf_toidx(self, it.pos);
+    return _c_MEMB(_insert_n)(self, idx, &val, 1);
+}
+
+STC_INLINE _m_iter
+_c_MEMB(_erase_at)(Self* self, _m_iter it) {
+    _c_MEMB(_erase_n)(self, _cbuf_toidx(self, it.pos), 1);
+    if (it.pos == self->end) it.ref = NULL;
+    return it;
+}
+
+STC_INLINE _m_iter
+_c_MEMB(_erase_range)(Self* self, _m_iter it1, _m_iter it2) {
+    isize idx1 = _cbuf_toidx(self, it1.pos);
+    isize idx2 = _cbuf_toidx(self, it2.pos);
+    _c_MEMB(_erase_n)(self, idx1, idx2 - idx1);
+    if (it1.pos == self->end) it1.ref = NULL;
+    return it1;
+}
+
+#if !defined i_no_emplace
+STC_API _m_iter
+_c_MEMB(_emplace_n)(Self* self, isize idx, const _m_raw* raw, isize n);
+
+STC_INLINE _m_value*
+_c_MEMB(_emplace_front)(Self* self, const _m_raw raw)
+    { return _c_MEMB(_push_front)(self, i_keyfrom(raw)); }
+
+STC_INLINE _m_value*
+_c_MEMB(_emplace_back)(Self* self, const _m_raw raw)
+    { return _c_MEMB(_push)(self, i_keyfrom(raw)); }
+
+STC_INLINE _m_iter
+_c_MEMB(_emplace_at)(Self* self, _m_iter it, const _m_raw raw)
+    { return _c_MEMB(_insert_at)(self, it, i_keyfrom(raw)); }
+#endif
+
+#if defined _i_has_eq
+STC_API _m_iter _c_MEMB(_find_in)(_m_iter p1, _m_iter p2, _m_raw raw);
+
+STC_INLINE _m_iter
+_c_MEMB(_find)(const Self* self, _m_raw raw) {
+    return _c_MEMB(_find_in)(_c_MEMB(_begin)(self), _c_MEMB(_end)(self), raw);
+}
+
+STC_INLINE const _m_value*
+_c_MEMB(_get)(const Self* self, _m_raw raw) {
+    return _c_MEMB(_find_in)(_c_MEMB(_begin)(self), _c_MEMB(_end)(self), raw).ref;
+}
+
+STC_INLINE _m_value*
+_c_MEMB(_get_mut)(Self* self, _m_raw raw)
+    { return (_m_value *) _c_MEMB(_get)(self, raw); }
+#endif // _i_has_eq
 
 #if defined _i_has_cmp
 // ### BEGIN_FILE_INCLUDE: sort_prv.h
@@ -1110,17 +1253,80 @@ _c_MEMB(_binary_search_range)(const Self* self, const _m_raw raw, isize start, i
 // ### END_FILE_INCLUDE: sort_prv.h
 #endif // _i_has_cmp
 
-#if defined _i_has_eq
-STC_INLINE bool
-_c_MEMB(_eq)(const Self* self, const Self* other) {
-    if (self->size != other->size) return false;
-    for (isize i = 0; i < self->size; ++i) {
-        const _m_raw _rx = i_keytoraw((self->data+i)), _ry = i_keytoraw((other->data+i));
-        if (!(i_eq((&_rx), (&_ry)))) return false;
+/* -------------------------- IMPLEMENTATION ------------------------- */
+#if defined(i_implement) || defined(i_static)
+
+STC_DEF _m_value*
+_c_MEMB(_push_front)(Self* self, _m_value value) {
+    isize start = (self->start - 1) & self->capmask;
+    if (start == self->end) { // full
+        _c_MEMB(_reserve)(self, self->capmask + 3); // => 2x expand
+        start = (self->start - 1) & self->capmask;
     }
-    return true;
+    _m_value *v = self->cbuf + start;
+    self->start = start;
+    *v = value;
+    return v;
+}
+
+STC_DEF void
+_c_MEMB(_erase_n)(Self* self, const isize idx, const isize n) {
+    const isize len = _c_MEMB(_size)(self);
+    for (isize i = idx + n - 1; i >= idx; --i)
+        i_keydrop(_c_MEMB(_at_mut)(self, i));
+    for (isize i = idx, j = i + n; j < len; ++i, ++j)
+        *_c_MEMB(_at_mut)(self, i) = *_c_MEMB(_at)(self, j);
+    self->end = (self->end - n) & self->capmask;
+}
+
+STC_DEF _m_iter
+_c_MEMB(_insert_uninit)(Self* self, const isize idx, const isize n) {
+    const isize len = _c_MEMB(_size)(self);
+    _m_iter it = {._s=self};
+    if (len + n > self->capmask)
+        if (!_c_MEMB(_reserve)(self, len + n + 3)) // minimum 2x expand
+            return it;
+    it.pos = _cbuf_topos(self, idx);
+    it.ref = self->cbuf + it.pos;
+    self->end = (self->end + n) & self->capmask;
+
+    if (it.pos < self->end) // common case because of reserve policy
+        c_memmove(it.ref + n, it.ref, (len - idx)*c_sizeof *it.ref);
+    else for (isize i = len - 1, j = i + n; i >= idx; --i, --j)
+        *_c_MEMB(_at_mut)(self, j) = *_c_MEMB(_at)(self, i);
+    return it;
+}
+
+STC_DEF _m_iter
+_c_MEMB(_insert_n)(Self* self, const isize idx, const _m_value* arr, const isize n) {
+    _m_iter it = _c_MEMB(_insert_uninit)(self, idx, n);
+    for (isize i = idx, j = 0; j < n; ++i, ++j)
+        *_c_MEMB(_at_mut)(self, i) = arr[j];
+    return it;
+}
+
+#if !defined i_no_emplace
+STC_DEF _m_iter
+_c_MEMB(_emplace_n)(Self* self, const isize idx, const _m_raw* raw, const isize n) {
+    _m_iter it = _c_MEMB(_insert_uninit)(self, idx, n);
+    for (isize i = idx, j = 0; j < n; ++i, ++j)
+        *_c_MEMB(_at_mut)(self, i) = i_keyfrom(raw[j]);
+    return it;
 }
 #endif
+
+#if defined _i_has_eq
+STC_DEF _m_iter
+_c_MEMB(_find_in)(_m_iter i1, _m_iter i2, _m_raw raw) {
+    for (; i1.pos != i2.pos; _c_MEMB(_next)(&i1)) {
+        const _m_raw r = i_keytoraw(i1.ref);
+        if (i_eq((&raw), (&r)))
+            break;
+    }
+    return i1;
+}
+#endif
+#endif // IMPLEMENTATION
 // ### BEGIN_FILE_INCLUDE: linkage2.h
 
 #undef i_allocator
@@ -1194,5 +1400,5 @@ _c_MEMB(_eq)(const Self* self, const Self* other) {
 #undef _i_template
 #undef Self
 // ### END_FILE_INCLUDE: template2.h
-// ### END_FILE_INCLUDE: stack.h
+// ### END_FILE_INCLUDE: deque.h
 

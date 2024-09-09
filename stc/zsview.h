@@ -33,13 +33,18 @@
   #define i_free c_JOIN(i_allocator, _free)
 #endif
 
+#ifdef i_aux
+  #define _i_aux_struct struct { i_aux } aux;
+#else
+  #define _i_aux_struct
+#endif
+
 #if defined __clang__ && !defined __cplusplus
   #pragma clang diagnostic push
   #pragma clang diagnostic warning "-Wall"
   #pragma clang diagnostic warning "-Wextra"
   #pragma clang diagnostic warning "-Wpedantic"
   #pragma clang diagnostic warning "-Wconversion"
-  #pragma clang diagnostic warning "-Wdouble-promotion"
   #pragma clang diagnostic warning "-Wwrite-strings"
   // ignored
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
@@ -49,17 +54,18 @@
   #pragma GCC diagnostic warning "-Wextra"
   #pragma GCC diagnostic warning "-Wpedantic"
   #pragma GCC diagnostic warning "-Wconversion"
-  #pragma GCC diagnostic warning "-Wdouble-promotion"
   #pragma GCC diagnostic warning "-Wwrite-strings"
   // ignored
+  #pragma GCC diagnostic ignored "-Wuninitialized"
+  #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
   #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 // ### END_FILE_INCLUDE: linkage.h
 
-// zsview is a "zero-terminated string view". It replaces zsview.
+// zsview is a zero-terminated string view.
 
-#ifndef STC_CZVIEW_H_INCLUDED
-#define STC_CZVIEW_H_INCLUDED
+#ifndef STC_ZSVIEW_H_INCLUDED
+#define STC_ZSVIEW_H_INCLUDED
 
 // ### BEGIN_FILE_INCLUDE: common.h
 #ifndef STC_COMMON_H_INCLUDED
@@ -101,19 +107,19 @@
 #define _c_SEL31(a, b, c) a
 #define _c_SEL32(a, b, c) b
 #define _c_SEL33(a, b, c) c
-#define _c_SEL(S, ...) S(__VA_ARGS__)
+#define c_SELECT(S, ...) c_EXPAND(S(__VA_ARGS__)) // c_EXPAND for MSVC
 
 #ifndef __cplusplus
-    #define _i_alloc(T)         ((T*)i_malloc(c_sizeof(T)))
-    #define _i_new(T, ...)      ((T*)memcpy(_i_alloc(T), ((T[]){__VA_ARGS__}), sizeof(T)))
+    #define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
+    #define _i_calloc(T, n)     ((T*)i_calloc(n, c_sizeof(T)))
     #define c_new(T, ...)       ((T*)memcpy(malloc(sizeof(T)), ((T[]){__VA_ARGS__}), sizeof(T)))
-    #define c_LITERAL(T)        (T)
+    #define c_literal(T)        (T)
 #else
     #include <new>
-    #define _i_alloc(T)         static_cast<T*>(i_malloc(c_sizeof(T)))
-    #define _i_new(T, ...)      new (_i_alloc(T)) T(__VA_ARGS__)
+    #define _i_malloc(T, n)     static_cast<T*>(i_malloc((n)*c_sizeof(T)))
+    #define _i_calloc(T, n)     static_cast<T*>(i_calloc(n, c_sizeof(T)))
     #define c_new(T, ...)       new (malloc(sizeof(T))) T(__VA_ARGS__)
-    #define c_LITERAL(T)        T
+    #define c_literal(T)        T
 #endif
 #define c_new_n(T, n)           ((T*)malloc(sizeof(T)*c_i2u_size(n)))
 #define c_malloc(sz)            malloc(c_i2u_size(sz))
@@ -130,28 +136,37 @@
 #endif
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
 #define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
-#define c_safe_cast(T, F, x)    ((T)(1 ? (x) : (F){0}))
-#define c_swap(T, xp, yp)       do { T *_xp = xp, *_yp = yp, \
-                                    _tv = *_xp; *_xp = *_yp; *_yp = _tv; } while (0)
+
+#define c_swap(xp, yp) do { \
+    (void)sizeof((xp) == (yp)); \
+    char _tv[sizeof *(xp)]; \
+    void *_xp = xp, *_yp = yp; \
+    memcpy(_tv, _xp, sizeof _tv); \
+    memcpy(_xp, _yp, sizeof _tv); \
+    memcpy(_yp, _tv, sizeof _tv); \
+} while (0)
+
 // use with gcc -Wconversion
-#define c_sizeof                (intptr_t)sizeof
-#define c_strlen(s)             (intptr_t)strlen(s)
+typedef ptrdiff_t               isize;
+#define c_sizeof                (isize)sizeof
+#define c_strlen(s)             (isize)strlen(s)
 #define c_strncmp(a, b, ilen)   strncmp(a, b, c_i2u_size(ilen))
 #define c_memcpy(d, s, ilen)    memcpy(d, s, c_i2u_size(ilen))
 #define c_memmove(d, s, ilen)   memmove(d, s, c_i2u_size(ilen))
 #define c_memset(d, val, ilen)  memset(d, val, c_i2u_size(ilen))
 #define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u_size(ilen))
-#define c_u2i_size(u)           (intptr_t)(1 ? (u) : (size_t)1)
-#define c_i2u_size(i)           (size_t)(1 ? (i) : -1)
+// Mostly library internal, but may be useful in user code:
+#define c_u2i_size(u)           (isize)(1 ? (u) : (size_t)1) // warns if u is signed
+#define c_i2u_size(i)           (size_t)(1 ? (i) : -1)       // warns if i is unsigned
 #define c_uless(a, b)           ((size_t)(a) < (size_t)(b))
+#define c_safe_cast(T, From, x) ((T)(1 ? (x) : (From){0}))
 
 // x and y are i_keyraw* type, defaults to i_key*:
 #define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
 #define c_default_eq(x, y)      (*(x) == *(y))
 #define c_default_less(x, y)    (*(x) < *(y))
 #define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
-#define c_default_hash(d)       c_hash(d)
-#define c_hash(d)               c_hash_n(d, sizeof *(d))
+#define c_default_hash(p)       chash_n(p, sizeof *(p))
 
 #define c_default_clone(v)      (v)
 #define c_default_toraw(vp)     (*(vp))
@@ -160,19 +175,19 @@
 /* Function macros and others */
 
 #define c_litstrlen(literal) (c_sizeof("" literal) - 1)
-#define c_arraylen(a) (intptr_t)(sizeof(a)/sizeof 0[a])
+#define c_arraylen(a) (isize)(sizeof(a)/sizeof 0[a])
 
 // Non-owning c-string "class"
-typedef const char* ccharptr;
-#define ccharptr_cmp(xp, yp) strcmp(*(xp), *(yp))
-#define ccharptr_eq(xp, yp) (ccharptr_cmp(xp, yp) == 0)
-#define ccharptr_hash(p) c_hash_str(*(p))
-#define ccharptr_clone(s) (s)
-#define ccharptr_drop(p) ((void)p)
+typedef const char* cstr_raw;
+#define cstr_raw_cmp(xp, yp) strcmp(*(xp), *(yp))
+#define cstr_raw_eq(xp, yp) (cstr_raw_cmp(xp, yp) == 0)
+#define cstr_raw_hash(p) chash_str(*(p))
+#define cstr_raw_clone(s) (s)
+#define cstr_raw_drop(p) ((void)p)
 
 #define c_ROTL(x, k) (x << (k) | x >> (8*sizeof(x) - (k)))
 
-STC_INLINE uint64_t c_hash_n(const void* key, intptr_t len) {
+STC_INLINE uint64_t chash_n(const void* key, isize len) {
     uint32_t u4; uint64_t u8;
     switch (len) {
         case 8: memcpy(&u8, key, 8); return u8*0xc6a4a7935bd1e99d;
@@ -190,16 +205,16 @@ STC_INLINE uint64_t c_hash_n(const void* key, intptr_t len) {
     return h ^ c_ROTL(h, 26);
 }
 
-STC_INLINE uint64_t c_hash_str(const char *str)
-    { return c_hash_n(str, c_strlen(str)); }
+STC_INLINE uint64_t chash_str(const char *str)
+    { return chash_n(str, c_strlen(str)); }
 
-STC_INLINE uint64_t _c_hash_mix(uint64_t h[], int n) { // n > 0
-    for (int i = 1; i < n; ++i) h[0] ^= h[0] + h[i]; // non-commutative!
+STC_INLINE uint64_t _chash_mix(uint64_t h[], int n) { // n > 0
+    for (int i = 1; i < n; ++i) h[0] += h[0] ^ h[i]; // non-commutative!
     return h[0];
 }
 
-STC_INLINE char* c_strnstrn(const char *str, intptr_t slen,
-                              const char *needle, intptr_t nlen) {
+STC_INLINE char* cstrnstrn(const char *str, isize slen,
+                            const char *needle, isize nlen) {
     if (!nlen) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
@@ -211,7 +226,7 @@ STC_INLINE char* c_strnstrn(const char *str, intptr_t slen,
     return NULL;
 }
 
-STC_INLINE intptr_t c_next_pow2(intptr_t n) {
+STC_INLINE isize cnextpow2(isize n) {
     n--;
     n |= n >> 1, n |= n >> 2;
     n |= n >> 4, n |= n >> 8;
@@ -226,80 +241,80 @@ STC_INLINE intptr_t c_next_pow2(intptr_t n) {
 #define c_foreach(...) c_MACRO_OVERLOAD(c_foreach, __VA_ARGS__)
 #define c_foreach_3(it, C, cnt) \
     for (C##_iter it = C##_begin(&cnt); it.ref; C##_next(&it))
-#define c_foreach_4(it, C, start, finish) \
-    _c_foreach(it, C, start, (finish).ref, _)
+#define c_foreach_4(it, C, start, end) \
+    _c_foreach(it, C, start, (end).ref, _)
 
 #define c_foreach_reverse(...) c_MACRO_OVERLOAD(c_foreach_reverse, __VA_ARGS__)
-#define c_foreach_reverse_3(it, C, cnt) /* works for stack, vec, queue, deq */ \
+#define c_foreach_reverse_3(it, C, cnt) /* works for stack, vec, queue, deque */ \
     for (C##_iter it = C##_rbegin(&cnt); it.ref; C##_rnext(&it))
-#define c_foreach_reverse_4(it, C, start, finish) \
-    _c_foreach(it, C, start, (finish).ref, _r)
+#define c_foreach_reverse_4(it, C, start, end) \
+    _c_foreach(it, C, start, (end).ref, _r)
 
 #define _c_foreach(it, C, start, endref, rev) /* private */ \
     for (C##_iter it = (start), *_endref = c_safe_cast(C##_iter*, C##_value*, endref) \
          ; it.ref != (C##_value*)_endref; C##rev##next(&it))
 
-#define c_foreach_n(it, C, cnt, N) /* iterate up to N items */ \
-    for (struct {C##_iter iter; C##_value* ref; intptr_t index, n;} it = {.iter=C##_begin(&cnt), .n=N} \
-         ; (it.ref = it.iter.ref) && it.index < it.n; C##_next(&it.iter), ++it.index)
+#define c_foreach_kv(...) c_MACRO_OVERLOAD(c_foreach_kv, __VA_ARGS__)
+#define _c_foreach_kv(key, val, C, start, endref) /* structured binding for maps */ \
+    for (const C##_key *key, **_k = &key; _k; ) \
+    for (C##_mapped *val; _k; _k = NULL) \
+    for (C##_iter _it = start, *_endref = c_safe_cast(C##_iter*, C##_value*, endref) ; \
+         _it.ref != (C##_value*)_endref && (key = &_it.ref->first, val = &_it.ref->second); \
+         C##_next(&_it))
 
-#define c_forpair(key, val, C, cnt) /* structured binding */ \
-    for (struct {C##_iter iter; const C##_key* key; C##_mapped* val;} _ = {.iter=C##_begin(&cnt)} \
-         ; _.iter.ref && (_.key = &_.iter.ref->first, _.val = &_.iter.ref->second) \
-         ; C##_next(&_.iter))
+#define c_foreach_kv_4(key, val, C, cnt) \
+        _c_foreach_kv(key, val, C, C##_begin(&cnt), NULL)
+#define c_foreach_kv_5(key, val, C, start, end) \
+        _c_foreach_kv(key, val, C, start, (end).ref)
+
+#define c_forlist(...) 'c_forlist not_supported. Use c_foritems'   // [removed]
+#define c_forpair(...) 'c_forpair not_supported. Use c_foreach_kv' // [removed]
 
 // c_forrange: python-like indexed iteration
 #define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
 #define c_forrange_1(stop) c_forrange_3(_i, 0, stop)
 #define c_forrange_2(i, stop) c_forrange_3(i, 0, stop)
 #define c_forrange_3(i, start, stop) \
-    for (intptr_t i=start, _end=stop; i < _end; ++i)
+    for (isize i=start, _end=stop; i < _end; ++i)
 #define c_forrange_4(i, start, stop, step) \
-    for (intptr_t i=start, _inc=step, _end=(intptr_t)(stop) - (_inc > 0) \
+    for (isize i=start, _inc=step, _end=(isize)(stop) - (_inc > 0) \
          ; (_inc > 0) ^ (i > _end); i += _inc)
 
 #ifndef __cplusplus
     #define c_init(C, ...) \
         C##_from_n((C##_raw[])__VA_ARGS__, c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
-    #define c_forlist(it, T, ...) \
+    #define c_foritems(it, T, ...) \
         for (struct {T* ref; int size, index;} \
              it = {.ref=(T[])__VA_ARGS__, .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
              ; it.index < it.size; ++it.ref, ++it.index)
-    #define c_hash_mix(...) \
-        _c_hash_mix((uint64_t[]){__VA_ARGS__}, c_NUMARGS(__VA_ARGS__))
+    #define chash_mix(...) \
+        _chash_mix((uint64_t[]){__VA_ARGS__}, c_NUMARGS(__VA_ARGS__))
 #else
     #include <initializer_list>
     #include <array>
     template <class C, class T>
-    inline C _from_n(C (*func)(const T[], intptr_t), std::initializer_list<T> il)
+    inline C _from_n(C (*func)(const T[], isize), std::initializer_list<T> il)
         { return func(&*il.begin(), il.size()); }
     #define c_init(C, ...) _from_n<C,C##_raw>(C##_from_n, __VA_ARGS__)
-    #define c_forlist(it, T, ...) \
+    #define c_foritems(it, T, ...) \
         for (struct {std::initializer_list<T> _il; std::initializer_list<T>::iterator ref; size_t size, index;} \
              it = {._il=__VA_ARGS__, .ref=it._il.begin(), .size=it._il.size()} \
              ; it.index < it.size; ++it.ref, ++it.index)
-    #define c_hash_mix(...) \
-        _c_hash_mix(std::array<uint64_t, c_NUMARGS(__VA_ARGS__)>{__VA_ARGS__}.data(), c_NUMARGS(__VA_ARGS__))
+    #define chash_mix(...) \
+        _chash_mix(std::array<uint64_t, c_NUMARGS(__VA_ARGS__)>{__VA_ARGS__}.data(), c_NUMARGS(__VA_ARGS__))
 #endif
 
-#define c_defer(...) \
+#define c_with(...) c_MACRO_OVERLOAD(c_with, __VA_ARGS__)
+#define c_with_2(init, deinit) \
+    for (int _i = 1; _i; ) for (init; _i; _i = 0, deinit) // thanks, tstanisl
+#define c_with_3(init, condition, deinit) \
+    for (int _i = 1; _i; ) for (init; _i && (condition); _i = 0, deinit)
+
+#define c_deferred(...) \
     for (int _i = 1; _i; _i = 0, __VA_ARGS__)
 
-#define c_scoped(...) c_MACRO_OVERLOAD(c_scoped, __VA_ARGS__)
-#define c_scoped_2(declvar, drop) \
-    for (declvar, *_i, **_ip = &_i; _ip; _ip = 0, drop)
-#define c_scoped_3(declvar, pred, drop) \
-    for (declvar, *_i, **_ip = &_i; _ip && (pred); _ip = 0, drop)
-#define c_with c_scoped // [deprecated]
-
-#define c_scope(...) c_MACRO_OVERLOAD(c_scope, __VA_ARGS__)
-#define c_scope_2(init, drop) \
-    for (int _i = (init, 1); _i; _i = 0, drop)
-#define c_scope_3(init, pred, drop) \
-    for (int _i = (init, 1); _i && (pred); _i = 0, drop)
-
 #define c_drop(C, ...) \
-    do { c_forlist (_i, C*, {__VA_ARGS__}) C##_drop(*_i.ref); } while(0)
+    do { c_foritems (_i, C*, {__VA_ARGS__}) C##_drop(*_i.ref); } while(0)
 
 #if defined(__SIZEOF_INT128__)
     #define c_umul128(a, b, lo, hi) \
@@ -316,6 +331,13 @@ STC_INLINE intptr_t c_next_pow2(intptr_t n) {
 #endif // STC_COMMON_H_INCLUDED
 // ### END_FILE_INCLUDE: common.h
 // ### BEGIN_FILE_INCLUDE: types.h
+
+#ifdef i_aux
+  #define _i_aux_struct struct { i_aux } aux;
+#else
+  #define _i_aux_struct
+#endif
+
 #ifndef STC_TYPES_H_INCLUDED
 #define STC_TYPES_H_INCLUDED
 
@@ -324,22 +346,22 @@ STC_INLINE intptr_t c_next_pow2(intptr_t n) {
 
 #define forward_arc(C, VAL) _c_arc_types(C, VAL)
 #define forward_box(C, VAL) _c_box_types(C, VAL)
-#define forward_deq(C, VAL) _c_deq_types(C, VAL)
+#define forward_deq(C, VAL) _c_deque_types(C, VAL)
 #define forward_list(C, VAL) _c_list_types(C, VAL)
 #define forward_hmap(C, KEY, VAL) _c_htable_types(C, KEY, VAL, c_true, c_false)
 #define forward_hset(C, KEY) _c_htable_types(C, cset, KEY, KEY, c_false, c_true)
 #define forward_smap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
 #define forward_sset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
 #define forward_stack(C, VAL) _c_stack_types(C, VAL)
-#define forward_pque(C, VAL) _c_pque_types(C, VAL)
-#define forward_queue(C, VAL) _c_deq_types(C, VAL)
+#define forward_pqueue(C, VAL) _c_pqueue_types(C, VAL)
+#define forward_queue(C, VAL) _c_deque_types(C, VAL)
 #define forward_vec(C, VAL) _c_vec_types(C, VAL)
 
 // csview : non-null terminated string view
 typedef const char csview_value;
 typedef struct csview {
     csview_value* buf;
-    intptr_t size;
+    ptrdiff_t size;
 } csview;
 
 typedef union {
@@ -350,14 +372,17 @@ typedef union {
 
 #define c_sv(...) c_MACRO_OVERLOAD(c_sv, __VA_ARGS__)
 #define c_sv_1(literal) c_sv_2(literal, c_litstrlen(literal))
-#define c_sv_2(str, n) (c_LITERAL(csview){str, n})
-#define c_SV(sv) (int)(sv).size, (sv).buf // printf("%.*s\n", c_SV(sv));
+#define c_sv_2(str, n) (c_literal(csview){str, n})
+#define c_svfmt "%.*s"
+#define c_svarg(sv) (int)(sv).size, (sv).buf // printf(c_svfmt "\n", c_svarg(sv));
+#define c_SVARG(sv) c_svarg(sv) // [deprecated]
+#define c_SV(sv) c_svarg(sv) // [deprecated]
 
 // zsview : zero-terminated string view
 typedef csview_value zsview_value;
 typedef struct zsview {
     zsview_value* str;
-    intptr_t size;
+    ptrdiff_t size;
 } zsview;
 
 typedef union {
@@ -365,11 +390,11 @@ typedef union {
     csview chr;
 } zsview_iter;
 
-#define c_zv(literal) (c_LITERAL(zsview){literal, c_litstrlen(literal)})
+#define c_zv(literal) (c_literal(zsview){literal, c_litstrlen(literal)})
 
 // cstr : zero-terminated owning string (short string optimized - sso)
 typedef char cstr_value;
-typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
+typedef struct { cstr_value* data; ptrdiff_t size, cap; } cstr_buf;
 typedef union cstr {
     struct { cstr_value data[ sizeof(cstr_buf) ]; } sml;
     struct { cstr_value* data; size_t size, ncap; } lon;
@@ -403,17 +428,18 @@ typedef union {
         SELF##_value* get; \
     } SELF
 
-#define _c_deq_types(SELF, VAL) \
+#define _c_deque_types(SELF, VAL) \
     typedef VAL SELF##_value; \
 \
     typedef struct SELF { \
         SELF##_value *cbuf; \
-        intptr_t start, end, capmask; \
+        ptrdiff_t start, end, capmask; \
+        _i_aux_struct \
     } SELF; \
 \
     typedef struct { \
         SELF##_value *ref; \
-        intptr_t pos; \
+        ptrdiff_t pos; \
         const SELF* _s; \
     } SELF##_iter
 
@@ -428,6 +454,7 @@ typedef union {
 \
     typedef struct SELF { \
         SELF##_node *last; \
+        _i_aux_struct \
     } SELF
 
 #define _c_htable_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
@@ -440,19 +467,22 @@ typedef union {
 \
     typedef struct { \
         SELF##_value *ref; \
+        size_t idx; \
         bool inserted; \
         uint8_t hashx; \
+        uint16_t dist; \
     } SELF##_result; \
 \
     typedef struct { \
         SELF##_value *ref, *_end; \
-        struct hmap_slot *_sref; \
+        struct hmap_meta *_mref; \
     } SELF##_iter; \
 \
     typedef struct SELF { \
         SELF##_value* table; \
-        struct hmap_slot* slot; \
-        intptr_t size, bucket_count; \
+        struct hmap_meta* meta; \
+        ptrdiff_t size, bucket_count; \
+        _i_aux_struct \
     } SELF
 
 #define _c_aatree_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
@@ -478,35 +508,34 @@ typedef union {
 \
     typedef struct SELF { \
         SELF##_node *nodes; \
-        int32_t root, disp, head, size, cap; \
+        int32_t root, disp, head, size, capacity; \
+        _i_aux_struct \
     } SELF
 
 #define _c_stack_fixed(SELF, VAL, CAP) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
-    typedef struct SELF { SELF##_value data[CAP]; intptr_t _len; } SELF
+    typedef struct SELF { SELF##_value data[CAP]; ptrdiff_t size; } SELF
 
 #define _c_stack_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
-    typedef struct SELF { SELF##_value* data; intptr_t _len, _cap; } SELF
+    typedef struct SELF { SELF##_value* data; ptrdiff_t size, capacity; _i_aux_struct } SELF
 
 #define _c_vec_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
-    typedef struct SELF { SELF##_value *data; intptr_t _len, _cap; } SELF
+    typedef struct SELF { SELF##_value *data; ptrdiff_t size, capacity; _i_aux_struct } SELF
 
-#define _c_pque_types(SELF, VAL) \
+#define _c_pqueue_types(SELF, VAL) \
     typedef VAL SELF##_value; \
-    typedef struct SELF { SELF##_value* data; intptr_t _len, _cap; } SELF
+    typedef struct SELF { SELF##_value* data; ptrdiff_t size, capacity; _i_aux_struct } SELF
 
 #endif // STC_TYPES_H_INCLUDED
 // ### END_FILE_INCLUDE: types.h
 // ### BEGIN_FILE_INCLUDE: utf8_prv.h
 #ifndef STC_UTF8_PRV_H_INCLUDED
 #define STC_UTF8_PRV_H_INCLUDED
-
-#include <ctype.h>
 
 // The following functions assume valid utf8 strings:
 
@@ -522,56 +551,42 @@ STC_INLINE int utf8_chr_size(const char *s) {
 }
 
 /* number of codepoints in the utf8 string s */
-STC_INLINE intptr_t utf8_size(const char *s) {
-    intptr_t size = 0;
+STC_INLINE isize utf8_size(const char *s) {
+    isize size = 0;
     while (*s)
         size += (*++s & 0xC0) != 0x80;
     return size;
 }
 
-STC_INLINE intptr_t utf8_size_n(const char *s, intptr_t nbytes) {
-    intptr_t size = 0;
+STC_INLINE isize utf8_size_n(const char *s, isize nbytes) {
+    isize size = 0;
     while ((nbytes-- != 0) & (*s != 0)) {
         size += (*++s & 0xC0) != 0x80;
     }
     return size;
 }
 
-STC_INLINE const char* utf8_at(const char *s, intptr_t index) {
+STC_INLINE const char* utf8_at(const char *s, isize index) {
     while ((index > 0) & (*s != 0))
         index -= (*++s & 0xC0) != 0x80;
     return s;
 }
 
-STC_INLINE intptr_t utf8_pos(const char* s, intptr_t index)
-    { return (intptr_t)(utf8_at(s, index) - s); }
+STC_INLINE isize utf8_pos(const char* s, isize index)
+    { return (isize)(utf8_at(s, index) - s); }
 
 // ------------------------------------------------------
 // The following requires linking with utf8 symbols.
 // To call them, either define i_import before including
 // one of cstr, csview, zsview, or link with src/libstc.o.
 
-enum {
-    U8G_Cc, U8G_Lt, U8G_Nd, U8G_Nl,
-    U8G_Pc, U8G_Pd, U8G_Pf, U8G_Pi,
-    U8G_Sc, U8G_Zl, U8G_Zp, U8G_Zs,
-    U8G_Arabic, U8G_Cyrillic,
-    U8G_Devanagari, U8G_Greek,
-    U8G_Han, U8G_Latin,
-    U8G_SIZE
-};
-
-extern bool     utf8_isgroup(int group, uint32_t c);
-extern bool     utf8_isalpha(uint32_t c);
+extern bool     utf8_valid_n(const char* s, isize nbytes);
+extern int      utf8_encode(char *out, uint32_t c);
+extern int      utf8_icompare(const csview s1, const csview s2);
+extern uint32_t utf8_peek_off(const char* s, int pos);
 extern uint32_t utf8_casefold(uint32_t c);
 extern uint32_t utf8_tolower(uint32_t c);
 extern uint32_t utf8_toupper(uint32_t c);
-extern bool     utf8_iscased(uint32_t c);
-extern bool     utf8_isword(uint32_t c);
-extern bool     utf8_valid_n(const char* s, intptr_t nbytes);
-extern int      utf8_icmp_sv(csview s1, csview s2);
-extern int      utf8_encode(char *out, uint32_t c);
-extern uint32_t utf8_peek_off(const char *s, int offset);
 
 STC_INLINE bool utf8_isupper(uint32_t c)
     { return utf8_tolower(c) != c; }
@@ -579,20 +594,6 @@ STC_INLINE bool utf8_isupper(uint32_t c)
 STC_INLINE bool utf8_islower(uint32_t c)
     { return utf8_toupper(c) != c; }
 
-STC_INLINE bool utf8_isalnum(uint32_t c) {
-    if (c < 128) return isalnum((int)c) != 0;
-    return utf8_isalpha(c) || utf8_isgroup(U8G_Nd, c);
-}
-
-STC_INLINE bool utf8_isblank(uint32_t c) {
-    if (c < 128) return (c == ' ') | (c == '\t');
-    return utf8_isgroup(U8G_Zs, c);
-}
-
-STC_INLINE bool utf8_isspace(uint32_t c) {
-    if (c < 128) return isspace((int)c) != 0;
-    return ((c == 8232) | (c == 8233)) || utf8_isgroup(U8G_Zs, c);
-}
 
 /* decode next utf8 codepoint. https://bjoern.hoehrmann.de/utf-8/decoder/dfa */
 typedef struct { uint32_t state, codep; } utf8_decode_t;
@@ -613,7 +614,7 @@ STC_INLINE uint32_t utf8_peek(const char* s) {
 
 /* case-insensitive utf8 string comparison */
 STC_INLINE int utf8_icmp(const char* s1, const char* s2) {
-    return utf8_icmp_sv(c_sv(s1, INTPTR_MAX), c_sv(s2, INTPTR_MAX));
+    return utf8_icompare(c_sv(s1, INTPTR_MAX), c_sv(s2, INTPTR_MAX));
 }
 
 STC_INLINE bool utf8_valid(const char* s) {
@@ -624,75 +625,75 @@ STC_INLINE bool utf8_valid(const char* s) {
 // ### END_FILE_INCLUDE: utf8_prv.h
 
 #define             zsview_init() c_zv("")
-#define             zsview_clone(rs) c_default_clone(rs)
+#define             zsview_clone(zs) c_default_clone(zs)
 #define             zsview_drop(self) c_default_drop(self)
 #define             zsview_toraw(self) (self)->str
 
 STC_INLINE zsview   zsview_from(const char* str)
-                        { return c_LITERAL(zsview){str, c_strlen(str)}; }
+                        { return c_literal(zsview){str, c_strlen(str)}; }
 STC_INLINE void     zsview_clear(zsview* self) { *self = c_zv(""); }
-STC_INLINE csview   zsview_sv(zsview rs) { return c_sv_2(rs.str, rs.size); }
+STC_INLINE csview   zsview_sv(zsview zs) { return c_sv_2(zs.str, zs.size); }
 
-STC_INLINE intptr_t zsview_size(zsview rs) { return rs.size; }
-STC_INLINE bool     zsview_is_empty(zsview rs) { return rs.size == 0; }
+STC_INLINE isize zsview_size(zsview zs) { return zs.size; }
+STC_INLINE bool     zsview_is_empty(zsview zs) { return zs.size == 0; }
 
-STC_INLINE bool zsview_equals(zsview rs, const char* str) {
-    intptr_t n = c_strlen(str);
-    return rs.size == n && !c_memcmp(rs.str, str, n);
+STC_INLINE bool zsview_equals(zsview zs, const char* str) {
+    isize n = c_strlen(str);
+    return zs.size == n && !c_memcmp(zs.str, str, n);
 }
 
-STC_INLINE intptr_t zsview_find(zsview rs, const char* search) {
-    char* res = strstr(rs.str, search);
-    return res ? (res - rs.str) : c_NPOS;
+STC_INLINE isize zsview_find(zsview zs, const char* search) {
+    char* res = strstr(zs.str, search);
+    return res ? (res - zs.str) : c_NPOS;
 }
 
-STC_INLINE bool zsview_contains(zsview rs, const char* str)
-    { return zsview_find(rs, str) != c_NPOS; }
+STC_INLINE bool zsview_contains(zsview zs, const char* str)
+    { return zsview_find(zs, str) != c_NPOS; }
 
-STC_INLINE bool zsview_starts_with(zsview rs, const char* str) {
-    intptr_t n = c_strlen(str);
-    return n > rs.size ? false : !c_memcmp(rs.str, str, n);
+STC_INLINE bool zsview_starts_with(zsview zs, const char* str) {
+    isize n = c_strlen(str);
+    return n <= zs.size && !c_memcmp(zs.str, str, n);
 }
 
-STC_INLINE bool zsview_ends_with(zsview rs, const char* str) {
-    intptr_t n = c_strlen(str);
-    return n > rs.size ? false : !c_memcmp(rs.str + rs.size - n, str, n);
+STC_INLINE bool zsview_ends_with(zsview zs, const char* str) {
+    isize n = c_strlen(str);
+    return n <= zs.size && !c_memcmp(zs.str + zs.size - n, str, n);
 }
 
-STC_INLINE zsview zsview_from_pos(zsview rs, intptr_t pos) {
-    if (pos < rs.size) { rs.str += pos; rs.size -= pos; }
-    return rs;
+STC_INLINE zsview zsview_from_pos(zsview zs, isize pos) {
+    if (pos < zs.size) { zs.str += pos; zs.size -= pos; }
+    return zs;
 }
 
-STC_INLINE zsview zsview_last(zsview rs, intptr_t count)
-    { return zsview_from_pos(rs, rs.size - count); }
+STC_INLINE zsview zsview_last(zsview zs, isize count)
+    { return zsview_from_pos(zs, zs.size - count); }
 
 /* utf8 */
-STC_INLINE intptr_t zsview_u8_size(zsview rs)
-    { return utf8_size(rs.str); }
+STC_INLINE isize zsview_u8_size(zsview zs)
+    { return utf8_size(zs.str); }
 
-STC_INLINE const char* zsview_u8_at(zsview rs, intptr_t u8idx)
-    { return utf8_at(rs.str, u8idx); }
+STC_INLINE const char* zsview_u8_at(zsview zs, isize u8idx)
+    { return utf8_at(zs.str, u8idx); }
 
-STC_INLINE zsview zsview_u8_from_pos(zsview rs, intptr_t u8idx)
-    { return zsview_from_pos(rs, utf8_pos(rs.str, u8idx)); }
+STC_INLINE zsview zsview_u8_from_pos(zsview zs, isize u8idx)
+    { return zsview_from_pos(zs, utf8_pos(zs.str, u8idx)); }
 
-STC_INLINE zsview zsview_u8_last(zsview rs, intptr_t u8len) {
-    const char* p = rs.str + rs.size;
-    while (u8len && p != rs.str) u8len -= (*--p & 0xC0) != 0x80;
-    return zsview_from_pos(rs, p - rs.str);
+STC_INLINE zsview zsview_u8_last(zsview zs, isize u8len) {
+    const char* p = zs.str + zs.size;
+    while (u8len && p != zs.str) u8len -= (*--p & 0xC0) != 0x80;
+    return zsview_from_pos(zs, p - zs.str);
 }
 
-STC_INLINE bool zsview_u8_valid(zsview rs) // requires linking with utf8 symbols
-    { return utf8_valid_n(rs.str, rs.size); }
+STC_INLINE bool zsview_u8_valid(zsview zs) // requires linking with utf8 symbols
+    { return utf8_valid_n(zs.str, zs.size); }
 
 /* utf8 iterator */
 STC_INLINE zsview_iter zsview_begin(const zsview* self) {
-    return c_LITERAL(zsview_iter){.chr = {self->str, utf8_chr_size(self->str)}};
+    return c_literal(zsview_iter){.chr = {self->str, utf8_chr_size(self->str)}};
 }
 
 STC_INLINE zsview_iter zsview_end(const zsview* self) {
-    (void)self; return c_LITERAL(zsview_iter){.ref = NULL};
+    (void)self; return c_literal(zsview_iter){.ref = NULL};
 }
 
 STC_INLINE void zsview_next(zsview_iter* it) {
@@ -701,7 +702,7 @@ STC_INLINE void zsview_next(zsview_iter* it) {
     if (!*it->ref) it->ref = NULL;
 }
 
-STC_INLINE zsview_iter zsview_advance(zsview_iter it, intptr_t u8pos) {
+STC_INLINE zsview_iter zsview_advance(zsview_iter it, isize u8pos) {
     int inc = -1;
     if (u8pos > 0)
         u8pos = -u8pos, inc = 1;
@@ -712,23 +713,37 @@ STC_INLINE zsview_iter zsview_advance(zsview_iter it, intptr_t u8pos) {
     return it;
 }
 
-/* utf8 ignore case cmp: requires linking with utf8 symbols */
-STC_INLINE int zsview_icmp(const zsview* x, const zsview* y)
-    { return utf8_icmp_sv(c_sv_2(x->str, x->size), c_sv_2(y->str, y->size)); }
+/* ---- Container helper functions ---- */
 
-STC_INLINE int zsview_cmp(const zsview* x, const zsview* y) {
-    intptr_t n = x->size < y->size ? x->size : y->size;
-    int c = c_memcmp(x->str, y->str, n);
-    return c ? c : (int)(x->size - y->size);
-}
+STC_INLINE uint64_t zsview_hash(const zsview *self)
+    { return chash_n(self->str, self->size); }
+
+STC_INLINE int zsview_cmp(const zsview* x, const zsview* y)
+    { return strcmp(x->str, y->str); }
 
 STC_INLINE bool zsview_eq(const zsview* x, const zsview* y)
     { return x->size == y->size && !c_memcmp(x->str, y->str, x->size); }
 
-STC_INLINE uint64_t zsview_hash(const zsview *self)
-    { return c_hash_n(self->str, self->size); }
+STC_INLINE int zsview_icmp(const zsview* x, const zsview* y)
+    { return utf8_icmp(x->str, y->str); }
 
-#endif // STC_CZVIEW_H_INCLUDED
+STC_INLINE bool zsview_ieq(const zsview* x, const zsview* y)
+    { return x->size == y->size && !utf8_icmp(x->str, y->str); }
+
+/* ---- case insensitive ---- */
+
+STC_INLINE bool zsview_iequals(zsview zs, const char* str)
+    { return strlen(str) == zs.size && !utf8_icmp(sz.str, str); }
+
+STC_INLINE bool zsview_istarts_with(zsview zs, const char* str)
+    { return c_strlen(str) <= zs.size && !utf8_icmp(zs.str, str); }
+
+STC_INLINE bool zsview_iends_with(zsview zs, const char* str) {
+    isize n = c_strlen(str);
+    return n <= zs.size && !utf8_icmp(zs.str + zs.size - n, str);
+}
+
+#endif // STC_ZSVIEW_H_INCLUDED
 
 #if defined i_import
 // ### BEGIN_FILE_INCLUDE: utf8_prv.c
@@ -736,7 +751,6 @@ STC_INLINE uint64_t zsview_hash(const zsview *self)
 #define STC_UTF8_PRV_C_INCLUDED
 
 // ### BEGIN_FILE_INCLUDE: utf8_tab.c
-#include <stdint.h>
 
 struct CaseMapping { uint16_t c1, c2, m2; };
 
@@ -1005,8 +1019,7 @@ const uint8_t utf8_dtab[] = {
   12,36,12,12,12,12,12,12,12,12,12,12,
 };
 
-int utf8_encode(char *out, uint32_t c)
-{
+int utf8_encode(char *out, uint32_t c) {
     if (c < 0x80U) {
         out[0] = (char) c;
         return 1;
@@ -1038,7 +1051,7 @@ uint32_t utf8_peek_off(const char* s, int pos) {
     return utf8_peek(s);
 }
 
-bool utf8_valid_n(const char* s, intptr_t nbytes) {
+bool utf8_valid_n(const char* s, isize nbytes) {
     utf8_decode_t d = {.state=0};
     while ((nbytes-- != 0) & (*s != 0))
         utf8_decode(&d, (uint8_t)*s++);
@@ -1084,9 +1097,9 @@ uint32_t utf8_toupper(uint32_t c) {
     return c;
 }
 
-int utf8_icmp_sv(const csview s1, const csview s2) {
+int utf8_icompare(const csview s1, const csview s2) {
     utf8_decode_t d1 = {.state=0}, d2 = {.state=0};
-    intptr_t j1 = 0, j2 = 0;
+    isize j1 = 0, j2 = 0;
     while ((j1 < s1.size) & (j2 < s2.size)) {
         do { utf8_decode(&d1, (uint8_t)s1.buf[j1++]); } while (d1.state);
         do { utf8_decode(&d2, (uint8_t)s2.buf[j2++]); } while (d2.state);
@@ -1096,380 +1109,6 @@ int utf8_icmp_sv(const csview s1, const csview s2) {
     }
     return (int)(s1.size - s2.size);
 }
-
-typedef struct {
-  uint16_t lo;
-  uint16_t hi;
-} URange16;
-
-typedef struct {
-  const URange16 *r16;
-  int nr16;
-} UGroup;
-
-#ifndef __cplusplus
-static
-#else
-extern
-#endif
-const UGroup _utf8_unicode_groups[U8G_SIZE];
-
-bool utf8_isgroup(int group, uint32_t c) {
-    for (int j=0; j<_utf8_unicode_groups[group].nr16; ++j) {
-        if (c < _utf8_unicode_groups[group].r16[j].lo)
-            return false;
-        if (c <= _utf8_unicode_groups[group].r16[j].hi)
-            return true;
-    }
-    return false;
-}
-
-bool utf8_isalpha(uint32_t c) {
-    static int16_t groups[] = {U8G_Latin, U8G_Nl, U8G_Greek, U8G_Cyrillic,
-                               U8G_Han, U8G_Devanagari, U8G_Arabic};
-    if (c < 128) return isalpha((int)c) != 0;
-    for (int j=0; j < c_arraylen(groups); ++j)
-        if (utf8_isgroup(groups[j], c))
-            return true;
-    return false;
-}
-
-bool utf8_iscased(uint32_t c) {
-    if (c < 128) return isalpha((int)c) != 0;
-    return utf8_islower(c) || utf8_isupper(c) ||
-           utf8_isgroup(U8G_Lt, c);
-}
-
-bool utf8_isword(uint32_t c) {
-    if (c < 128) return (isalnum((int)c) != 0) | (c == '_');
-    return utf8_isalpha(c) || utf8_isgroup(U8G_Nd, c) ||
-           utf8_isgroup(U8G_Pc, c);
-}
-
-/* The tables below are extracted from the RE2 library */
-
-static const URange16 Cc_range16[] = { // Control
-    { 0, 31 },
-    { 127, 159 },
-};
-
-static const URange16 Lt_range16[] = { // Title case
-    { 453, 453 },
-    { 456, 456 },
-    { 459, 459 },
-    { 498, 498 },
-    { 8072, 8079 },
-    { 8088, 8095 },
-    { 8104, 8111 },
-    { 8124, 8124 },
-    { 8140, 8140 },
-    { 8188, 8188 },
-};
-
-static const URange16 Nd_range16[] = { // Decimal number
-    { 48, 57 },
-    { 1632, 1641 },
-    { 1776, 1785 },
-    { 1984, 1993 },
-    { 2406, 2415 },
-    { 2534, 2543 },
-    { 2662, 2671 },
-    { 2790, 2799 },
-    { 2918, 2927 },
-    { 3046, 3055 },
-    { 3174, 3183 },
-    { 3302, 3311 },
-    { 3430, 3439 },
-    { 3558, 3567 },
-    { 3664, 3673 },
-    { 3792, 3801 },
-    { 3872, 3881 },
-    { 4160, 4169 },
-    { 4240, 4249 },
-    { 6112, 6121 },
-    { 6160, 6169 },
-    { 6470, 6479 },
-    { 6608, 6617 },
-    { 6784, 6793 },
-    { 6800, 6809 },
-    { 6992, 7001 },
-    { 7088, 7097 },
-    { 7232, 7241 },
-    { 7248, 7257 },
-    { 42528, 42537 },
-    { 43216, 43225 },
-    { 43264, 43273 },
-    { 43472, 43481 },
-    { 43504, 43513 },
-    { 43600, 43609 },
-    { 44016, 44025 },
-    { 65296, 65305 },
-};
-
-static const URange16 Nl_range16[] = { // Number letter
-    { 5870, 5872 },
-    { 8544, 8578 },
-    { 8581, 8584 },
-    { 12295, 12295 },
-    { 12321, 12329 },
-    { 12344, 12346 },
-    { 42726, 42735 },
-};
-
-static const URange16 Pc_range16[] = { // Connector punctuation
-    { 95, 95 },
-    { 8255, 8256 },
-    { 8276, 8276 },
-    { 65075, 65076 },
-    { 65101, 65103 },
-    { 65343, 65343 },
-};
-
-static const URange16 Pd_range16[] = { // Dash punctuation
-    { 45, 45 },
-    { 1418, 1418 },
-    { 1470, 1470 },
-    { 5120, 5120 },
-    { 6150, 6150 },
-    { 8208, 8213 },
-    { 11799, 11799 },
-    { 11802, 11802 },
-    { 11834, 11835 },
-    { 11840, 11840 },
-    { 11869, 11869 },
-    { 12316, 12316 },
-    { 12336, 12336 },
-    { 12448, 12448 },
-    { 65073, 65074 },
-    { 65112, 65112 },
-    { 65123, 65123 },
-    { 65293, 65293 },
-};
-
-static const URange16 Pf_range16[] = { // Final punctuation
-    { 187, 187 },
-    { 8217, 8217 },
-    { 8221, 8221 },
-    { 8250, 8250 },
-    { 11779, 11779 },
-    { 11781, 11781 },
-    { 11786, 11786 },
-    { 11789, 11789 },
-    { 11805, 11805 },
-    { 11809, 11809 },
-};
-
-static const URange16 Pi_range16[] = { // Initial punctuation
-    { 171, 171 },
-    { 8216, 8216 },
-    { 8219, 8220 },
-    { 8223, 8223 },
-    { 8249, 8249 },
-    { 11778, 11778 },
-    { 11780, 11780 },
-    { 11785, 11785 },
-    { 11788, 11788 },
-    { 11804, 11804 },
-    { 11808, 11808 },
-};
-
-static const URange16 Sc_range16[] = { // Currency symbol
-    { 36, 36 },
-    { 162, 165 },
-    { 1423, 1423 },
-    { 1547, 1547 },
-    { 2046, 2047 },
-    { 2546, 2547 },
-    { 2555, 2555 },
-    { 2801, 2801 },
-    { 3065, 3065 },
-    { 3647, 3647 },
-    { 6107, 6107 },
-    { 8352, 8384 },
-    { 43064, 43064 },
-    { 65020, 65020 },
-    { 65129, 65129 },
-    { 65284, 65284 },
-    { 65504, 65505 },
-    { 65509, 65510 },
-};
-
-static const URange16 Zl_range16[] = { // Line separator
-    { 8232, 8232 },
-};
-
-static const URange16 Zp_range16[] = { // Paragraph separator
-    { 8233, 8233 },
-};
-
-static const URange16 Zs_range16[] = { // Space separator
-    { 32, 32 },
-    { 160, 160 },
-    { 5760, 5760 },
-    { 8192, 8202 },
-    { 8239, 8239 },
-    { 8287, 8287 },
-    { 12288, 12288 },
-};
-
-static const URange16 Arabic_range16[] = {
-    { 1536, 1540 },
-    { 1542, 1547 },
-    { 1549, 1562 },
-    { 1564, 1566 },
-    { 1568, 1599 },
-    { 1601, 1610 },
-    { 1622, 1647 },
-    { 1649, 1756 },
-    { 1758, 1791 },
-    { 1872, 1919 },
-    { 2160, 2190 },
-    { 2192, 2193 },
-    { 2200, 2273 },
-    { 2275, 2303 },
-    { 64336, 64450 },
-    { 64467, 64829 },
-    { 64832, 64911 },
-    { 64914, 64967 },
-    { 64975, 64975 },
-    { 65008, 65023 },
-    { 65136, 65140 },
-    { 65142, 65276 },
-};
-
-static const URange16 Cyrillic_range16[] = {
-    { 1024, 1156 },
-    { 1159, 1327 },
-    { 7296, 7304 },
-    { 7467, 7467 },
-    { 7544, 7544 },
-    { 11744, 11775 },
-    { 42560, 42655 },
-    { 65070, 65071 },
-};
-
-static const URange16 Devanagari_range16[] = {
-    { 2304, 2384 },
-    { 2389, 2403 },
-    { 2406, 2431 },
-    { 43232, 43263 },
-};
-
-static const URange16 Greek_range16[] = {
-    { 880, 883 },
-    { 885, 887 },
-    { 890, 893 },
-    { 895, 895 },
-    { 900, 900 },
-    { 902, 902 },
-    { 904, 906 },
-    { 908, 908 },
-    { 910, 929 },
-    { 931, 993 },
-    { 1008, 1023 },
-    { 7462, 7466 },
-    { 7517, 7521 },
-    { 7526, 7530 },
-    { 7615, 7615 },
-    { 7936, 7957 },
-    { 7960, 7965 },
-    { 7968, 8005 },
-    { 8008, 8013 },
-    { 8016, 8023 },
-    { 8025, 8025 },
-    { 8027, 8027 },
-    { 8029, 8029 },
-    { 8031, 8061 },
-    { 8064, 8116 },
-    { 8118, 8132 },
-    { 8134, 8147 },
-    { 8150, 8155 },
-    { 8157, 8175 },
-    { 8178, 8180 },
-    { 8182, 8190 },
-    { 8486, 8486 },
-    { 43877, 43877 },
-};
-
-static const URange16 Han_range16[] = {
-    { 11904, 11929 },
-    { 11931, 12019 },
-    { 12032, 12245 },
-    { 12293, 12293 },
-    { 12295, 12295 },
-    { 12321, 12329 },
-    { 12344, 12347 },
-    { 13312, 19903 },
-    { 19968, 40959 },
-    { 63744, 64109 },
-    { 64112, 64217 },
-};
-
-static const URange16 Latin_range16[] = {
-    { 65, 90 },
-    { 97, 122 },
-    { 170, 170 },
-    { 186, 186 },
-    { 192, 214 },
-    { 216, 246 },
-    { 248, 696 },
-    { 736, 740 },
-    { 7424, 7461 },
-    { 7468, 7516 },
-    { 7522, 7525 },
-    { 7531, 7543 },
-    { 7545, 7614 },
-    { 7680, 7935 },
-    { 8305, 8305 },
-    { 8319, 8319 },
-    { 8336, 8348 },
-    { 8490, 8491 },
-    { 8498, 8498 },
-    { 8526, 8526 },
-    { 8544, 8584 },
-    { 11360, 11391 },
-    { 42786, 42887 },
-    { 42891, 42954 },
-    { 42960, 42961 },
-    { 42963, 42963 },
-    { 42965, 42969 },
-    { 42994, 43007 },
-    { 43824, 43866 },
-    { 43868, 43876 },
-    { 43878, 43881 },
-    { 64256, 64262 },
-    { 65313, 65338 },
-    { 65345, 65370 },
-};
-
-#define UNI_ENTRY(Code) \
-    { Code##_range16, sizeof(Code##_range16)/sizeof(URange16) }
-#ifdef __cplusplus
-    #define _e_arg(k, v) v
-#else
-    #define _e_arg(k, v) [k] = v
-    static
-#endif
-const UGroup _utf8_unicode_groups[U8G_SIZE] = {
-    _e_arg(U8G_Cc, UNI_ENTRY(Cc)),
-    _e_arg(U8G_Lt, UNI_ENTRY(Lt)),
-    _e_arg(U8G_Nd, UNI_ENTRY(Nd)),
-    _e_arg(U8G_Nl, UNI_ENTRY(Nl)),
-    _e_arg(U8G_Pc, UNI_ENTRY(Pc)),
-    _e_arg(U8G_Pd, UNI_ENTRY(Pd)),
-    _e_arg(U8G_Pf, UNI_ENTRY(Pf)),
-    _e_arg(U8G_Pi, UNI_ENTRY(Pi)),
-    _e_arg(U8G_Sc, UNI_ENTRY(Sc)),
-    _e_arg(U8G_Zl, UNI_ENTRY(Zl)),
-    _e_arg(U8G_Zp, UNI_ENTRY(Zp)),
-    _e_arg(U8G_Zs, UNI_ENTRY(Zs)),
-    _e_arg(U8G_Arabic, UNI_ENTRY(Arabic)),
-    _e_arg(U8G_Cyrillic, UNI_ENTRY(Cyrillic)),
-    _e_arg(U8G_Devanagari, UNI_ENTRY(Devanagari)),
-    _e_arg(U8G_Greek, UNI_ENTRY(Greek)),
-    _e_arg(U8G_Han, UNI_ENTRY(Han)),
-    _e_arg(U8G_Latin, UNI_ENTRY(Latin)),
-};
 
 #endif // STC_UTF8_PRV_C_INCLUDED
 // ### END_FILE_INCLUDE: utf8_prv.c
@@ -1481,6 +1120,8 @@ const UGroup _utf8_unicode_groups[U8G_SIZE] = {
 #undef i_calloc
 #undef i_realloc
 #undef i_free
+#undef i_aux
+#undef _i_aux_struct
 
 #undef i_static
 #undef i_header

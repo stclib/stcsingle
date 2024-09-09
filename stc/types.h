@@ -1,4 +1,11 @@
 // ### BEGIN_FILE_INCLUDE: types.h
+
+#ifdef i_aux
+  #define _i_aux_struct struct { i_aux } aux;
+#else
+  #define _i_aux_struct
+#endif
+
 #ifndef STC_TYPES_H_INCLUDED
 #define STC_TYPES_H_INCLUDED
 
@@ -7,22 +14,22 @@
 
 #define forward_arc(C, VAL) _c_arc_types(C, VAL)
 #define forward_box(C, VAL) _c_box_types(C, VAL)
-#define forward_deq(C, VAL) _c_deq_types(C, VAL)
+#define forward_deq(C, VAL) _c_deque_types(C, VAL)
 #define forward_list(C, VAL) _c_list_types(C, VAL)
 #define forward_hmap(C, KEY, VAL) _c_htable_types(C, KEY, VAL, c_true, c_false)
 #define forward_hset(C, KEY) _c_htable_types(C, cset, KEY, KEY, c_false, c_true)
 #define forward_smap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
 #define forward_sset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
 #define forward_stack(C, VAL) _c_stack_types(C, VAL)
-#define forward_pque(C, VAL) _c_pque_types(C, VAL)
-#define forward_queue(C, VAL) _c_deq_types(C, VAL)
+#define forward_pqueue(C, VAL) _c_pqueue_types(C, VAL)
+#define forward_queue(C, VAL) _c_deque_types(C, VAL)
 #define forward_vec(C, VAL) _c_vec_types(C, VAL)
 
 // csview : non-null terminated string view
 typedef const char csview_value;
 typedef struct csview {
     csview_value* buf;
-    intptr_t size;
+    ptrdiff_t size;
 } csview;
 
 typedef union {
@@ -33,14 +40,17 @@ typedef union {
 
 #define c_sv(...) c_MACRO_OVERLOAD(c_sv, __VA_ARGS__)
 #define c_sv_1(literal) c_sv_2(literal, c_litstrlen(literal))
-#define c_sv_2(str, n) (c_LITERAL(csview){str, n})
-#define c_SV(sv) (int)(sv).size, (sv).buf // printf("%.*s\n", c_SV(sv));
+#define c_sv_2(str, n) (c_literal(csview){str, n})
+#define c_svfmt "%.*s"
+#define c_svarg(sv) (int)(sv).size, (sv).buf // printf(c_svfmt "\n", c_svarg(sv));
+#define c_SVARG(sv) c_svarg(sv) // [deprecated]
+#define c_SV(sv) c_svarg(sv) // [deprecated]
 
 // zsview : zero-terminated string view
 typedef csview_value zsview_value;
 typedef struct zsview {
     zsview_value* str;
-    intptr_t size;
+    ptrdiff_t size;
 } zsview;
 
 typedef union {
@@ -48,11 +58,11 @@ typedef union {
     csview chr;
 } zsview_iter;
 
-#define c_zv(literal) (c_LITERAL(zsview){literal, c_litstrlen(literal)})
+#define c_zv(literal) (c_literal(zsview){literal, c_litstrlen(literal)})
 
 // cstr : zero-terminated owning string (short string optimized - sso)
 typedef char cstr_value;
-typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
+typedef struct { cstr_value* data; ptrdiff_t size, cap; } cstr_buf;
 typedef union cstr {
     struct { cstr_value data[ sizeof(cstr_buf) ]; } sml;
     struct { cstr_value* data; size_t size, ncap; } lon;
@@ -86,17 +96,18 @@ typedef union {
         SELF##_value* get; \
     } SELF
 
-#define _c_deq_types(SELF, VAL) \
+#define _c_deque_types(SELF, VAL) \
     typedef VAL SELF##_value; \
 \
     typedef struct SELF { \
         SELF##_value *cbuf; \
-        intptr_t start, end, capmask; \
+        ptrdiff_t start, end, capmask; \
+        _i_aux_struct \
     } SELF; \
 \
     typedef struct { \
         SELF##_value *ref; \
-        intptr_t pos; \
+        ptrdiff_t pos; \
         const SELF* _s; \
     } SELF##_iter
 
@@ -111,6 +122,7 @@ typedef union {
 \
     typedef struct SELF { \
         SELF##_node *last; \
+        _i_aux_struct \
     } SELF
 
 #define _c_htable_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
@@ -123,19 +135,22 @@ typedef union {
 \
     typedef struct { \
         SELF##_value *ref; \
+        size_t idx; \
         bool inserted; \
         uint8_t hashx; \
+        uint16_t dist; \
     } SELF##_result; \
 \
     typedef struct { \
         SELF##_value *ref, *_end; \
-        struct hmap_slot *_sref; \
+        struct hmap_meta *_mref; \
     } SELF##_iter; \
 \
     typedef struct SELF { \
         SELF##_value* table; \
-        struct hmap_slot* slot; \
-        intptr_t size, bucket_count; \
+        struct hmap_meta* meta; \
+        ptrdiff_t size, bucket_count; \
+        _i_aux_struct \
     } SELF
 
 #define _c_aatree_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
@@ -161,27 +176,28 @@ typedef union {
 \
     typedef struct SELF { \
         SELF##_node *nodes; \
-        int32_t root, disp, head, size, cap; \
+        int32_t root, disp, head, size, capacity; \
+        _i_aux_struct \
     } SELF
 
 #define _c_stack_fixed(SELF, VAL, CAP) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
-    typedef struct SELF { SELF##_value data[CAP]; intptr_t _len; } SELF
+    typedef struct SELF { SELF##_value data[CAP]; ptrdiff_t size; } SELF
 
 #define _c_stack_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
-    typedef struct SELF { SELF##_value* data; intptr_t _len, _cap; } SELF
+    typedef struct SELF { SELF##_value* data; ptrdiff_t size, capacity; _i_aux_struct } SELF
 
 #define _c_vec_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
-    typedef struct SELF { SELF##_value *data; intptr_t _len, _cap; } SELF
+    typedef struct SELF { SELF##_value *data; ptrdiff_t size, capacity; _i_aux_struct } SELF
 
-#define _c_pque_types(SELF, VAL) \
+#define _c_pqueue_types(SELF, VAL) \
     typedef VAL SELF##_value; \
-    typedef struct SELF { SELF##_value* data; intptr_t _len, _cap; } SELF
+    typedef struct SELF { SELF##_value* data; ptrdiff_t size, capacity; _i_aux_struct } SELF
 
 #endif // STC_TYPES_H_INCLUDED
 // ### END_FILE_INCLUDE: types.h

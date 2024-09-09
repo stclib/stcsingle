@@ -1,9 +1,70 @@
-// ### BEGIN_FILE_INCLUDE: fmt.h
-#ifndef FMT_H_INCLUDED
-#define FMT_H_INCLUDED
-#include <stdio.h>
-#include <stddef.h>
-#include <assert.h>
+// ### BEGIN_FILE_INCLUDE: random.h
+#define i_header // external linkage of normal_dist by default.
+// ### BEGIN_FILE_INCLUDE: linkage.h
+#undef STC_API
+#undef STC_DEF
+
+#if !defined i_static  && !defined STC_STATIC  && (defined i_header || defined STC_HEADER  || \
+                                                   defined i_implement || defined STC_IMPLEMENT)
+  #define STC_API extern
+  #define STC_DEF
+#else
+  #define i_static
+  #if defined __GNUC__ || defined __clang__
+    #define STC_API static __attribute__((unused))
+  #else
+    #define STC_API static inline
+  #endif
+  #define STC_DEF static
+#endif
+#if defined STC_IMPLEMENT || defined i_import
+  #define i_implement
+#endif
+
+#if defined STC_ALLOCATOR && !defined i_allocator
+  #define i_allocator STC_ALLOCATOR
+#elif !defined i_allocator
+  #define i_allocator c
+#endif
+#ifndef i_malloc
+  #define i_malloc c_JOIN(i_allocator, _malloc)
+  #define i_calloc c_JOIN(i_allocator, _calloc)
+  #define i_realloc c_JOIN(i_allocator, _realloc)
+  #define i_free c_JOIN(i_allocator, _free)
+#endif
+
+#ifdef i_aux
+  #define _i_aux_struct struct { i_aux } aux;
+#else
+  #define _i_aux_struct
+#endif
+
+#if defined __clang__ && !defined __cplusplus
+  #pragma clang diagnostic push
+  #pragma clang diagnostic warning "-Wall"
+  #pragma clang diagnostic warning "-Wextra"
+  #pragma clang diagnostic warning "-Wpedantic"
+  #pragma clang diagnostic warning "-Wconversion"
+  #pragma clang diagnostic warning "-Wwrite-strings"
+  // ignored
+  #pragma clang diagnostic ignored "-Wmissing-field-initializers"
+#elif defined __GNUC__ && !defined __cplusplus
+  #pragma GCC diagnostic push
+  #pragma GCC diagnostic warning "-Wall"
+  #pragma GCC diagnostic warning "-Wextra"
+  #pragma GCC diagnostic warning "-Wpedantic"
+  #pragma GCC diagnostic warning "-Wconversion"
+  #pragma GCC diagnostic warning "-Wwrite-strings"
+  // ignored
+  #pragma GCC diagnostic ignored "-Wuninitialized"
+  #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+  #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
+// ### END_FILE_INCLUDE: linkage.h
+
+#ifndef STC_RANDOM_H_INCLUDED
+#define STC_RANDOM_H_INCLUDED
+
 // ### BEGIN_FILE_INCLUDE: common.h
 #ifndef STC_COMMON_H_INCLUDED
 #define STC_COMMON_H_INCLUDED
@@ -268,218 +329,206 @@ STC_INLINE isize cnextpow2(isize n) {
 #endif // STC_COMMON_H_INCLUDED
 // ### END_FILE_INCLUDE: common.h
 
-#if defined FMT_NDEBUG || defined STC_NDEBUG || defined NDEBUG
-#  define fmt_OK(exp) (void)(exp)
-#else
-#  define fmt_OK(exp) assert(exp)
-#endif
+// ===== crand64 ===================================
 
 typedef struct {
-    char* data;
-    intptr_t cap, len;
-    _Bool overwrite;
-} fmt_stream;
+    uint64_t data[4];
+} crand64;
 
-#if defined FMT_STATIC || defined STC_STATIC || defined i_static
-  #define FMT_API static
-  #define FMT_DEF static
-#elif defined FMT_IMPLEMENT || defined STC_IMPLEMENT || defined i_implement
-  #define FMT_API extern
-  #define FMT_DEF
-#else
-  #define FMT_API
-#endif
+typedef struct {
+    double mean, stddev;
+    double _next;
+    int _has_next;
+} crand64_normal_dist;
 
-struct tm;
-FMT_API const char* fmt_time(const char *fmt, const struct tm* tm, char* buf, int len);
-FMT_API void        fmt_close(fmt_stream* ss);
-FMT_API int        _fmt_parse(char* p, int nargs, const char *fmt, ...);
-FMT_API void       _fmt_sprint(fmt_stream*, const char* fmt, ...);
+STC_API double crand64_normal(crand64_normal_dist* d);
+STC_API double crand64_normal_r(crand64* rng, uint64_t stream, crand64_normal_dist* d);
 
-#ifndef FMT_MAX
-#define FMT_MAX 128
-#endif
-
-#define fmt_print(...) fmt_printd(stdout, __VA_ARGS__)
-#define fmt_println(...) fmt_printd((fmt_stream*)0, __VA_ARGS__)
-#define fmt_printd(...) c_MACRO_OVERLOAD(fmt_printd, __VA_ARGS__)
-#define fmt_sv "{:.*s}"
-#define fmt_svarg(sv) (int)(sv).size, (sv).buf
-
-/* Primary function. */
-#define fmt_printd_2(to, fmt) \
-    do { char _fs[FMT_MAX]; int _n = _fmt_parse(_fs, 0, fmt); \
-         fmt_OK(_n == 0); _fmt_fn(to)(to, fmt); } while (0)
-#define fmt_printd_3(to, fmt, c) \
-    do { char _fs[FMT_MAX]; int _n = _fmt_parse(_fs, 1, fmt, _fc(c)); \
-         fmt_OK(_n == 1); _fmt_fn(to)(to, _fs, c); } while (0)
-#define fmt_printd_4(to, fmt, c, d) \
-    do { char _fs[FMT_MAX]; int _n = _fmt_parse(_fs, 2, fmt, _fc(c), _fc(d)); \
-         fmt_OK(_n == 2); _fmt_fn(to)(to, _fs, c, d); } while (0)
-#define fmt_printd_5(to, fmt, c, d, e) \
-    do { char _fs[FMT_MAX]; int _n = _fmt_parse(_fs, 3, fmt, _fc(c), _fc(d), _fc(e)); \
-         fmt_OK(_n == 3); _fmt_fn(to)(to, _fs, c, d, e); } while (0)
-#define fmt_printd_6(to, fmt, c, d, e, f) \
-    do { char _fs[FMT_MAX]; int _n = _fmt_parse(_fs, 4, fmt, _fc(c), _fc(d), _fc(e), _fc(f)); \
-         fmt_OK(_n == 4); _fmt_fn(to)(to, _fs, c, d, e, f); } while (0)
-#define fmt_printd_7(to, fmt, c, d, e, f, g) \
-    do { char _fs[FMT_MAX]; int _n = _fmt_parse(_fs, 5, fmt, _fc(c), _fc(d), _fc(e), _fc(f), _fc(g)); \
-         fmt_OK(_n == 5); _fmt_fn(to)(to, _fs, c, d, e, f, g); } while (0)
-#define fmt_printd_8(to, fmt, c, d, e, f, g, h) \
-    do { char _fs[FMT_MAX]; int _n = _fmt_parse(_fs, 6, fmt, _fc(c), _fc(d), _fc(e), _fc(f), _fc(g), _fc(h)); \
-         fmt_OK(_n == 6); _fmt_fn(to)(to, _fs, c, d, e, f, g, h); } while (0)
-#define fmt_printd_9(to, fmt, c, d, e, f, g, h, i) \
-    do { char _fs[FMT_MAX]; int _n = _fmt_parse(_fs, 7, fmt, _fc(c), _fc(d), _fc(e), _fc(f), _fc(g), _fc(h), _fc(i)); \
-         fmt_OK(_n == 7); _fmt_fn(to)(to, _fs, c, d, e, f, g, h, i); } while (0)
-#define fmt_printd_10(to, fmt, c, d, e, f, g, h, i, j) \
-    do { char _fs[FMT_MAX]; int _n = _fmt_parse(_fs, 8, fmt, _fc(c), _fc(d), _fc(e), _fc(f), _fc(g), _fc(h), \
-                                                                     _fc(i), _fc(j)); \
-         fmt_OK(_n == 8); _fmt_fn(to)(to, _fs, c, d, e, f, g, h, i, j); } while (0)
-#define fmt_printd_11(to, fmt, c, d, e, f, g, h, i, j, k) \
-    do { char _fs[FMT_MAX]; int _n = _fmt_parse(_fs, 9, fmt, _fc(c), _fc(d), _fc(e), _fc(f), _fc(g), _fc(h), \
-                                                                     _fc(i), _fc(j), _fc(k)); \
-         fmt_OK(_n == 9); _fmt_fn(to)(to, _fs, c, d, e, f, g, h, i, j, k); } while (0)
-#define fmt_printd_12(to, fmt, c, d, e, f, g, h, i, j, k, m) \
-    do { char _fs[FMT_MAX]; int _n = _fmt_parse(_fs, 10, fmt, _fc(c), _fc(d), _fc(e), _fc(f), _fc(g), _fc(h), \
-                                                                      _fc(i), _fc(j), _fc(k), _fc(m)); \
-         fmt_OK(_n == 10); _fmt_fn(to)(to, _fs, c, d, e, f, g, h, i, j, k, m); } while (0)
-#define fmt_printd_13(to, fmt, c, d, e, f, g, h, i, j, k, m, n) \
-    do { char _fs[FMT_MAX]; int _n = _fmt_parse(_fs, 11, fmt, _fc(c), _fc(d), _fc(e), _fc(f), _fc(g), _fc(h), \
-                                                                      _fc(i), _fc(j), _fc(k), _fc(m), _fc(n)); \
-         fmt_OK(_n == 11); _fmt_fn(to)(to, _fs, c, d, e, f, g, h, i, j, k, m, n); } while (0)
-#define fmt_printd_14(to, fmt, c, d, e, f, g, h, i, j, k, m, n, o) \
-    do { char _fs[FMT_MAX]; int _n = _fmt_parse(_fs, 12, fmt, _fc(c), _fc(d), _fc(e), _fc(f), _fc(g), _fc(h), \
-                                                                      _fc(i), _fc(j), _fc(k), _fc(m), _fc(n), _fc(o)); \
-         fmt_OK(_n == 12); _fmt_fn(to)(to, _fs, c, d, e, f, g, h, i, j, k, m, n, o); } while (0)
-
-#define _fmt_fn(x) _Generic ((x), \
-    FILE*: fprintf, \
-    char*: sprintf, \
-    fmt_stream*: _fmt_sprint)
-
-#if defined(_MSC_VER) && !defined(__clang__)
-  #define _signed_char_hhd
-#else
-  #define _signed_char_hhd signed char: "c",
-#endif
-#ifdef __GNUC__
-  #define FMT_UNUSED __attribute__((unused))
-#else
-  #define FMT_UNUSED
-#endif
-
-#define _fc(x) _Generic (x, \
-    _Bool: "d", \
-    unsigned char: "hhu", \
-    _signed_char_hhd \
-    char: "c", \
-    short: "hd", \
-    unsigned short: "hu", \
-    int: "d", \
-    unsigned: "u", \
-    long: "ld", \
-    unsigned long: "lu", \
-    long long: "lld", \
-    unsigned long long: "llu", \
-    float: "g", \
-    double: "@g", \
-    long double: "@Lg", \
-    char*: "s", \
-    wchar_t*: "ls", \
-    void*: "p", \
-    const char*: "s", \
-    const wchar_t*: "ls", \
-    const void*: "p")
-
-#if defined FMT_DEF
-
-#include <stdlib.h>
-#include <stdarg.h>
-#include <string.h>
-#include <time.h>
-
-FMT_DEF FMT_UNUSED void fmt_close(fmt_stream* ss) {
-    free(ss->data);
+STC_INLINE void crand64_seed_r(crand64* rng, uint64_t seed) {
+    uint64_t* s = rng->data;
+    s[0] = seed*0x9e3779b97f4a7c15; s[0] ^= s[0] >> 30;
+    s[1] = s[0]*0xbf58476d1ce4e5b9; s[1] ^= s[1] >> 27;
+    s[2] = s[1]*0x94d049bb133111eb; s[2] ^= s[2] >> 31;
+    s[3] = seed;
 }
 
-FMT_DEF FMT_UNUSED
-const char* fmt_time(const char *fmt, const struct tm* tm, char* buf, int len) {
-    strftime(buf, (size_t)len, fmt, tm);
-    return buf;
+// Minimum period length 2^64 per stream. 2^63 streams (odd numbers only)
+STC_INLINE uint64_t crand64_uint_r(crand64* rng, uint64_t stream) {
+    uint64_t* s = rng->data;
+    const uint64_t result = (s[0] ^ (s[3] += stream)) + s[1];
+    s[0] = s[1] ^ (s[1] >> 11);
+    s[1] = s[2] + (s[2] << 3);
+    s[2] = ((s[2] << 24) | (s[2] >> 40)) + result;
+    return result;
 }
 
-FMT_DEF void _fmt_sprint(fmt_stream* ss, const char* fmt, ...) {
-    va_list args, args2;
-    va_start(args, fmt);
-    if (ss == NULL) {
-        vprintf(fmt, args); putchar('\n');
-        goto done1;
-    }
-    va_copy(args2, args);
-    const int n = vsnprintf(NULL, 0U, fmt, args);
-    if (n < 0) goto done2;
-    const intptr_t pos = ss->overwrite ? 0 : ss->len;
-    ss->len = pos + n;
-    if (ss->len > ss->cap) {
-        ss->cap = ss->len + ss->cap/2;
-        ss->data = (char*)realloc(ss->data, (size_t)ss->cap + 1U);
-    }
-    vsprintf(ss->data + pos, fmt, args2);
-    done2: va_end(args2);
-    done1: va_end(args);
+STC_INLINE double crand64_real_r(crand64* rng, uint64_t stream)
+    { return (double)(crand64_uint_r(rng, stream) >> 11) * 0x1.0p-53; }
+
+STC_INLINE crand64* _stc64(void) {
+    static crand64 rng = {{0x9e3779bb07979af0,0x6f682616bae3641a,0xe220a8397b1dcdaf,0x1}};
+    return &rng;
 }
 
-FMT_DEF int _fmt_parse(char* p, int nargs, const char *fmt, ...) {
-    char *arg, *p0, ch;
-    int n = 0, empty;
-    va_list args;
-    va_start(args, fmt);
+STC_INLINE void crand64_seed(uint64_t seed)
+    { crand64_seed_r(_stc64(), seed); }
+
+STC_INLINE crand64 crand64_from(uint64_t seed)
+    { crand64 rng; crand64_seed_r(&rng, seed); return rng; }
+
+STC_INLINE uint64_t crand64_uint(void)
+    { return crand64_uint_r(_stc64(), 1); }
+
+STC_INLINE double crand64_real(void)
+    { return crand64_real_r(_stc64(), 1); }
+
+// --- crand64_uniform ---
+
+typedef struct {
+    int64_t low;
+    uint64_t range, threshold;
+} crand64_uniform_dist;
+
+STC_INLINE crand64_uniform_dist
+crand64_uniform_from(int64_t low, int64_t high) {
+    crand64_uniform_dist d = {low, (uint64_t)(high - low + 1)};
+    d.threshold = (uint64_t)(0 - d.range) % d.range;
+    return d;
+}
+
+STC_INLINE int64_t
+crand64_uniform_r(crand64* rng, uint64_t stream, crand64_uniform_dist* d) {
+    uint64_t lo, hi;
+    #ifdef c_umul128
+        do { c_umul128(crand64_uint_r(rng, stream), d->range, &lo, &hi); } while (lo < d->threshold);
+    #else
+        do { lo = crand64_uint_r(rng, stream); hi = lo % d->range; } while (lo - hi > -d->range);
+    #endif
+    return d->low + (int64_t)hi;
+}
+
+STC_INLINE int64_t crand64_uniform(crand64_uniform_dist* d)
+    { return crand64_uniform_r(_stc64(), 1, d); }
+
+// ===== crand32 ===================================
+
+typedef struct { uint32_t data[4]; } crand32;
+
+STC_INLINE void crand32_seed_r(crand32* rng, uint32_t seed) {
+    uint32_t* s = rng->data;
+    s[0] = seed*0x9e3779b9; s[0] ^= s[0] >> 16;
+    s[1] = s[0]*0x21f0aaad; s[1] ^= s[1] >> 15;
+    s[2] = s[1]*0x735a2d97; s[2] ^= s[2] >> 15;
+    s[3] = seed;
+}
+
+// Minimum period length 2^32 per stream. 2^31 streams (odd numbers only)
+STC_INLINE uint32_t crand32_uint_r(crand32* rng, uint32_t stream) {
+    uint32_t* s = rng->data;
+    const uint32_t result = (s[0] ^ (s[3] += stream)) + s[1];
+    s[0] = s[1] ^ (s[1] >> 9);
+    s[1] = s[2] + (s[2] << 3);
+    s[2] = ((s[2] << 21) | (s[2] >> 11)) + result;
+    return result;
+}
+
+STC_INLINE double crand32_real_r(crand32* rng, uint32_t stream)
+    { return crand32_uint_r(rng, stream) * 0x1.0p-32; }
+
+STC_INLINE crand32* _stc32(void) {
+    static crand32 rng = {{0x9e37e78e,0x6eab1ba1,0x64625032,0x1}};
+    return &rng;
+}
+
+STC_INLINE void crand32_seed(uint32_t seed)
+    { crand32_seed_r(_stc32(), seed); }
+
+STC_INLINE crand32 crand32_from(uint32_t seed)
+    { crand32 rng; crand32_seed_r(&rng, seed); return rng; }
+
+STC_INLINE uint32_t crand32_uint(void)
+    { return crand32_uint_r(_stc32(), 1); }
+
+STC_INLINE double crand32_real(void)
+    { return crand32_real_r(_stc32(), 1); }
+
+// --- crand32_uniform ---
+
+typedef struct {
+    int32_t low;
+    uint32_t range, threshold;
+} crand32_uniform_dist;
+
+STC_INLINE crand32_uniform_dist
+crand32_uniform_from(int32_t low, int32_t high) {
+    crand32_uniform_dist d = {low, (uint32_t)(high - low + 1)};
+    d.threshold = (uint32_t)(0 - d.range) % d.range;
+    return d;
+}
+
+STC_INLINE int32_t
+crand32_uniform_r(crand32* rng, uint32_t stream, crand32_uniform_dist* d) {
+    uint64_t r;
     do {
-        switch ((ch = *fmt)) {
-        case '%':
-            *p++ = '%';
-            break;
-        case '}':
-            if (*++fmt == '}') break; /* ok */
-            n = 99;
-            continue;
-        case '{':
-            if (*++fmt == '{') break; /* ok */
-            if (++n > nargs) continue;
-            if (*fmt != ':' && *fmt != '}') n = 99;
-            fmt += (*fmt == ':');
-            empty = *fmt == '}';
-            arg = va_arg(args, char *);
-            *p++ = '%', p0 = p;
-            while (1) switch (*fmt) {
-                case '\0': n = 99; /* fall through */
-                case '}': goto done;
-                case '<': *p++ = '-', ++fmt; break;
-                case '>': p0 = NULL; /* fall through */
-                case '-': ++fmt; break;
-                case '*': if (++n <= nargs) arg = va_arg(args, char *); /* fall through */
-                default: *p++ = *fmt++;
-            }
-            done:
-            switch (*arg) {
-            case 'g': if (empty) memcpy(p, ".8", 2), p += 2; break;
-            case '@': ++arg; if (empty) memcpy(p, ".16", 3), p += 3; break;
-            }
-            if (!strchr("csdioxXufFeEaAgGnp", fmt[-1]))
-                while (*arg) *p++ = *arg++;
-            if (p0 && (p[-1] == 's' || p[-1] == 'c')) /* left-align str */
-                memmove(p0 + 1, p0, (size_t)(p++ - p0)), *p0 = '-';
-            fmt += *fmt == '}';
-            continue;
-        }
-        *p++ = *fmt++;
-    } while (ch);
-    va_end(args);
-    return n;
+        r = crand32_uint_r(rng, stream) * (uint64_t)d->range;
+    } while ((uint32_t)r < d->threshold);
+    return d->low + (int32_t)(r >> 32);
 }
-#endif
-#endif
-#undef i_implement
+
+STC_INLINE int64_t crand32_uniform(crand32_uniform_dist* d)
+    { return crand32_uniform_r(_stc32(), 1, d); }
+
+#endif // STC_RANDOM_H_INCLUDED
+
+/* -------------------------- IMPLEMENTATION ------------------------- */
+#if defined i_implement || defined i_static
+
+#ifndef STC_RANDOM_C_INCLUDED
+#define STC_RANDOM_C_INCLUDED
+#include <math.h>
+
+STC_DEF double
+crand64_normal_r(crand64* rng, uint64_t stream, crand64_normal_dist* d) {
+    double v1, v2, sq, rt;
+    if (d->_has_next++ & 1)
+        return d->_next*d->stddev + d->mean;
+    do {
+        // range (-1.0, 1.0):
+        v1 = (double)((int64_t)crand64_uint_r(rng, stream) >> 11) * 0x1.0p-52;
+        v2 = (double)((int64_t)crand64_uint_r(rng, stream) >> 11) * 0x1.0p-52;
+
+        sq = v1*v1 + v2*v2;
+    } while (sq >= 1.0 || sq == 0.0);
+    rt = sqrt(-2.0 * log(sq) / sq);
+    d->_next = v2*rt;
+    return (v1*rt)*d->stddev + d->mean;
+}
+
+STC_DEF double crand64_normal(crand64_normal_dist* d)
+    { return crand64_normal_r(_stc64(), 1, d); }
+
+#endif // STC_RANDOM_C_INCLUDED
+#endif // i_implement
+// ### BEGIN_FILE_INCLUDE: linkage2.h
+
+#undef i_allocator
+#undef i_malloc
+#undef i_calloc
+#undef i_realloc
+#undef i_free
+#undef i_aux
+#undef _i_aux_struct
+
 #undef i_static
-// ### END_FILE_INCLUDE: fmt.h
+#undef i_header
+#undef i_implement
+#undef i_import
+
+#if defined __clang__ && !defined __cplusplus
+  #pragma clang diagnostic pop
+#elif defined __GNUC__ && !defined __cplusplus
+  #pragma GCC diagnostic pop
+#endif
+// ### END_FILE_INCLUDE: linkage2.h
+// ### END_FILE_INCLUDE: random.h
 

@@ -1,11 +1,8 @@
 // ### BEGIN_FILE_INCLUDE: cspan.h
-#ifndef STC_CSPAN_INDEX_TYPE
-  #define STC_CSPAN_INDEX_TYPE int32_t
-#endif
-
 #ifndef STC_CSPAN_H_INCLUDED
 #define STC_CSPAN_H_INCLUDED
 
+#define i_header
 // ### BEGIN_FILE_INCLUDE: linkage.h
 #undef STC_API
 #undef STC_DEF
@@ -39,13 +36,18 @@
   #define i_free c_JOIN(i_allocator, _free)
 #endif
 
+#ifdef i_aux
+  #define _i_aux_struct struct { i_aux } aux;
+#else
+  #define _i_aux_struct
+#endif
+
 #if defined __clang__ && !defined __cplusplus
   #pragma clang diagnostic push
   #pragma clang diagnostic warning "-Wall"
   #pragma clang diagnostic warning "-Wextra"
   #pragma clang diagnostic warning "-Wpedantic"
   #pragma clang diagnostic warning "-Wconversion"
-  #pragma clang diagnostic warning "-Wdouble-promotion"
   #pragma clang diagnostic warning "-Wwrite-strings"
   // ignored
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
@@ -55,9 +57,10 @@
   #pragma GCC diagnostic warning "-Wextra"
   #pragma GCC diagnostic warning "-Wpedantic"
   #pragma GCC diagnostic warning "-Wconversion"
-  #pragma GCC diagnostic warning "-Wdouble-promotion"
   #pragma GCC diagnostic warning "-Wwrite-strings"
   // ignored
+  #pragma GCC diagnostic ignored "-Wuninitialized"
+  #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
   #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 // ### END_FILE_INCLUDE: linkage.h
@@ -101,19 +104,19 @@
 #define _c_SEL31(a, b, c) a
 #define _c_SEL32(a, b, c) b
 #define _c_SEL33(a, b, c) c
-#define _c_SEL(S, ...) S(__VA_ARGS__)
+#define c_SELECT(S, ...) c_EXPAND(S(__VA_ARGS__)) // c_EXPAND for MSVC
 
 #ifndef __cplusplus
-    #define _i_alloc(T)         ((T*)i_malloc(c_sizeof(T)))
-    #define _i_new(T, ...)      ((T*)memcpy(_i_alloc(T), ((T[]){__VA_ARGS__}), sizeof(T)))
+    #define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
+    #define _i_calloc(T, n)     ((T*)i_calloc(n, c_sizeof(T)))
     #define c_new(T, ...)       ((T*)memcpy(malloc(sizeof(T)), ((T[]){__VA_ARGS__}), sizeof(T)))
-    #define c_LITERAL(T)        (T)
+    #define c_literal(T)        (T)
 #else
     #include <new>
-    #define _i_alloc(T)         static_cast<T*>(i_malloc(c_sizeof(T)))
-    #define _i_new(T, ...)      new (_i_alloc(T)) T(__VA_ARGS__)
+    #define _i_malloc(T, n)     static_cast<T*>(i_malloc((n)*c_sizeof(T)))
+    #define _i_calloc(T, n)     static_cast<T*>(i_calloc(n, c_sizeof(T)))
     #define c_new(T, ...)       new (malloc(sizeof(T))) T(__VA_ARGS__)
-    #define c_LITERAL(T)        T
+    #define c_literal(T)        T
 #endif
 #define c_new_n(T, n)           ((T*)malloc(sizeof(T)*c_i2u_size(n)))
 #define c_malloc(sz)            malloc(c_i2u_size(sz))
@@ -130,28 +133,37 @@
 #endif
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
 #define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
-#define c_safe_cast(T, F, x)    ((T)(1 ? (x) : (F){0}))
-#define c_swap(T, xp, yp)       do { T *_xp = xp, *_yp = yp, \
-                                    _tv = *_xp; *_xp = *_yp; *_yp = _tv; } while (0)
+
+#define c_swap(xp, yp) do { \
+    (void)sizeof((xp) == (yp)); \
+    char _tv[sizeof *(xp)]; \
+    void *_xp = xp, *_yp = yp; \
+    memcpy(_tv, _xp, sizeof _tv); \
+    memcpy(_xp, _yp, sizeof _tv); \
+    memcpy(_yp, _tv, sizeof _tv); \
+} while (0)
+
 // use with gcc -Wconversion
-#define c_sizeof                (intptr_t)sizeof
-#define c_strlen(s)             (intptr_t)strlen(s)
+typedef ptrdiff_t               isize;
+#define c_sizeof                (isize)sizeof
+#define c_strlen(s)             (isize)strlen(s)
 #define c_strncmp(a, b, ilen)   strncmp(a, b, c_i2u_size(ilen))
 #define c_memcpy(d, s, ilen)    memcpy(d, s, c_i2u_size(ilen))
 #define c_memmove(d, s, ilen)   memmove(d, s, c_i2u_size(ilen))
 #define c_memset(d, val, ilen)  memset(d, val, c_i2u_size(ilen))
 #define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u_size(ilen))
-#define c_u2i_size(u)           (intptr_t)(1 ? (u) : (size_t)1)
-#define c_i2u_size(i)           (size_t)(1 ? (i) : -1)
+// Mostly library internal, but may be useful in user code:
+#define c_u2i_size(u)           (isize)(1 ? (u) : (size_t)1) // warns if u is signed
+#define c_i2u_size(i)           (size_t)(1 ? (i) : -1)       // warns if i is unsigned
 #define c_uless(a, b)           ((size_t)(a) < (size_t)(b))
+#define c_safe_cast(T, From, x) ((T)(1 ? (x) : (From){0}))
 
 // x and y are i_keyraw* type, defaults to i_key*:
 #define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
 #define c_default_eq(x, y)      (*(x) == *(y))
 #define c_default_less(x, y)    (*(x) < *(y))
 #define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
-#define c_default_hash(d)       c_hash(d)
-#define c_hash(d)               c_hash_n(d, sizeof *(d))
+#define c_default_hash(p)       chash_n(p, sizeof *(p))
 
 #define c_default_clone(v)      (v)
 #define c_default_toraw(vp)     (*(vp))
@@ -160,19 +172,19 @@
 /* Function macros and others */
 
 #define c_litstrlen(literal) (c_sizeof("" literal) - 1)
-#define c_arraylen(a) (intptr_t)(sizeof(a)/sizeof 0[a])
+#define c_arraylen(a) (isize)(sizeof(a)/sizeof 0[a])
 
 // Non-owning c-string "class"
-typedef const char* ccharptr;
-#define ccharptr_cmp(xp, yp) strcmp(*(xp), *(yp))
-#define ccharptr_eq(xp, yp) (ccharptr_cmp(xp, yp) == 0)
-#define ccharptr_hash(p) c_hash_str(*(p))
-#define ccharptr_clone(s) (s)
-#define ccharptr_drop(p) ((void)p)
+typedef const char* cstr_raw;
+#define cstr_raw_cmp(xp, yp) strcmp(*(xp), *(yp))
+#define cstr_raw_eq(xp, yp) (cstr_raw_cmp(xp, yp) == 0)
+#define cstr_raw_hash(p) chash_str(*(p))
+#define cstr_raw_clone(s) (s)
+#define cstr_raw_drop(p) ((void)p)
 
 #define c_ROTL(x, k) (x << (k) | x >> (8*sizeof(x) - (k)))
 
-STC_INLINE uint64_t c_hash_n(const void* key, intptr_t len) {
+STC_INLINE uint64_t chash_n(const void* key, isize len) {
     uint32_t u4; uint64_t u8;
     switch (len) {
         case 8: memcpy(&u8, key, 8); return u8*0xc6a4a7935bd1e99d;
@@ -190,16 +202,16 @@ STC_INLINE uint64_t c_hash_n(const void* key, intptr_t len) {
     return h ^ c_ROTL(h, 26);
 }
 
-STC_INLINE uint64_t c_hash_str(const char *str)
-    { return c_hash_n(str, c_strlen(str)); }
+STC_INLINE uint64_t chash_str(const char *str)
+    { return chash_n(str, c_strlen(str)); }
 
-STC_INLINE uint64_t _c_hash_mix(uint64_t h[], int n) { // n > 0
-    for (int i = 1; i < n; ++i) h[0] ^= h[0] + h[i]; // non-commutative!
+STC_INLINE uint64_t _chash_mix(uint64_t h[], int n) { // n > 0
+    for (int i = 1; i < n; ++i) h[0] += h[0] ^ h[i]; // non-commutative!
     return h[0];
 }
 
-STC_INLINE char* c_strnstrn(const char *str, intptr_t slen,
-                              const char *needle, intptr_t nlen) {
+STC_INLINE char* cstrnstrn(const char *str, isize slen,
+                            const char *needle, isize nlen) {
     if (!nlen) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
@@ -211,7 +223,7 @@ STC_INLINE char* c_strnstrn(const char *str, intptr_t slen,
     return NULL;
 }
 
-STC_INLINE intptr_t c_next_pow2(intptr_t n) {
+STC_INLINE isize cnextpow2(isize n) {
     n--;
     n |= n >> 1, n |= n >> 2;
     n |= n >> 4, n |= n >> 8;
@@ -226,80 +238,80 @@ STC_INLINE intptr_t c_next_pow2(intptr_t n) {
 #define c_foreach(...) c_MACRO_OVERLOAD(c_foreach, __VA_ARGS__)
 #define c_foreach_3(it, C, cnt) \
     for (C##_iter it = C##_begin(&cnt); it.ref; C##_next(&it))
-#define c_foreach_4(it, C, start, finish) \
-    _c_foreach(it, C, start, (finish).ref, _)
+#define c_foreach_4(it, C, start, end) \
+    _c_foreach(it, C, start, (end).ref, _)
 
 #define c_foreach_reverse(...) c_MACRO_OVERLOAD(c_foreach_reverse, __VA_ARGS__)
-#define c_foreach_reverse_3(it, C, cnt) /* works for stack, vec, queue, deq */ \
+#define c_foreach_reverse_3(it, C, cnt) /* works for stack, vec, queue, deque */ \
     for (C##_iter it = C##_rbegin(&cnt); it.ref; C##_rnext(&it))
-#define c_foreach_reverse_4(it, C, start, finish) \
-    _c_foreach(it, C, start, (finish).ref, _r)
+#define c_foreach_reverse_4(it, C, start, end) \
+    _c_foreach(it, C, start, (end).ref, _r)
 
 #define _c_foreach(it, C, start, endref, rev) /* private */ \
     for (C##_iter it = (start), *_endref = c_safe_cast(C##_iter*, C##_value*, endref) \
          ; it.ref != (C##_value*)_endref; C##rev##next(&it))
 
-#define c_foreach_n(it, C, cnt, N) /* iterate up to N items */ \
-    for (struct {C##_iter iter; C##_value* ref; intptr_t index, n;} it = {.iter=C##_begin(&cnt), .n=N} \
-         ; (it.ref = it.iter.ref) && it.index < it.n; C##_next(&it.iter), ++it.index)
+#define c_foreach_kv(...) c_MACRO_OVERLOAD(c_foreach_kv, __VA_ARGS__)
+#define _c_foreach_kv(key, val, C, start, endref) /* structured binding for maps */ \
+    for (const C##_key *key, **_k = &key; _k; ) \
+    for (C##_mapped *val; _k; _k = NULL) \
+    for (C##_iter _it = start, *_endref = c_safe_cast(C##_iter*, C##_value*, endref) ; \
+         _it.ref != (C##_value*)_endref && (key = &_it.ref->first, val = &_it.ref->second); \
+         C##_next(&_it))
 
-#define c_forpair(key, val, C, cnt) /* structured binding */ \
-    for (struct {C##_iter iter; const C##_key* key; C##_mapped* val;} _ = {.iter=C##_begin(&cnt)} \
-         ; _.iter.ref && (_.key = &_.iter.ref->first, _.val = &_.iter.ref->second) \
-         ; C##_next(&_.iter))
+#define c_foreach_kv_4(key, val, C, cnt) \
+        _c_foreach_kv(key, val, C, C##_begin(&cnt), NULL)
+#define c_foreach_kv_5(key, val, C, start, end) \
+        _c_foreach_kv(key, val, C, start, (end).ref)
+
+#define c_forlist(...) 'c_forlist not_supported. Use c_foritems'   // [removed]
+#define c_forpair(...) 'c_forpair not_supported. Use c_foreach_kv' // [removed]
 
 // c_forrange: python-like indexed iteration
 #define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
 #define c_forrange_1(stop) c_forrange_3(_i, 0, stop)
 #define c_forrange_2(i, stop) c_forrange_3(i, 0, stop)
 #define c_forrange_3(i, start, stop) \
-    for (intptr_t i=start, _end=stop; i < _end; ++i)
+    for (isize i=start, _end=stop; i < _end; ++i)
 #define c_forrange_4(i, start, stop, step) \
-    for (intptr_t i=start, _inc=step, _end=(intptr_t)(stop) - (_inc > 0) \
+    for (isize i=start, _inc=step, _end=(isize)(stop) - (_inc > 0) \
          ; (_inc > 0) ^ (i > _end); i += _inc)
 
 #ifndef __cplusplus
     #define c_init(C, ...) \
         C##_from_n((C##_raw[])__VA_ARGS__, c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
-    #define c_forlist(it, T, ...) \
+    #define c_foritems(it, T, ...) \
         for (struct {T* ref; int size, index;} \
              it = {.ref=(T[])__VA_ARGS__, .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
              ; it.index < it.size; ++it.ref, ++it.index)
-    #define c_hash_mix(...) \
-        _c_hash_mix((uint64_t[]){__VA_ARGS__}, c_NUMARGS(__VA_ARGS__))
+    #define chash_mix(...) \
+        _chash_mix((uint64_t[]){__VA_ARGS__}, c_NUMARGS(__VA_ARGS__))
 #else
     #include <initializer_list>
     #include <array>
     template <class C, class T>
-    inline C _from_n(C (*func)(const T[], intptr_t), std::initializer_list<T> il)
+    inline C _from_n(C (*func)(const T[], isize), std::initializer_list<T> il)
         { return func(&*il.begin(), il.size()); }
     #define c_init(C, ...) _from_n<C,C##_raw>(C##_from_n, __VA_ARGS__)
-    #define c_forlist(it, T, ...) \
+    #define c_foritems(it, T, ...) \
         for (struct {std::initializer_list<T> _il; std::initializer_list<T>::iterator ref; size_t size, index;} \
              it = {._il=__VA_ARGS__, .ref=it._il.begin(), .size=it._il.size()} \
              ; it.index < it.size; ++it.ref, ++it.index)
-    #define c_hash_mix(...) \
-        _c_hash_mix(std::array<uint64_t, c_NUMARGS(__VA_ARGS__)>{__VA_ARGS__}.data(), c_NUMARGS(__VA_ARGS__))
+    #define chash_mix(...) \
+        _chash_mix(std::array<uint64_t, c_NUMARGS(__VA_ARGS__)>{__VA_ARGS__}.data(), c_NUMARGS(__VA_ARGS__))
 #endif
 
-#define c_defer(...) \
+#define c_with(...) c_MACRO_OVERLOAD(c_with, __VA_ARGS__)
+#define c_with_2(init, deinit) \
+    for (int _i = 1; _i; ) for (init; _i; _i = 0, deinit) // thanks, tstanisl
+#define c_with_3(init, condition, deinit) \
+    for (int _i = 1; _i; ) for (init; _i && (condition); _i = 0, deinit)
+
+#define c_deferred(...) \
     for (int _i = 1; _i; _i = 0, __VA_ARGS__)
 
-#define c_scoped(...) c_MACRO_OVERLOAD(c_scoped, __VA_ARGS__)
-#define c_scoped_2(declvar, drop) \
-    for (declvar, *_i, **_ip = &_i; _ip; _ip = 0, drop)
-#define c_scoped_3(declvar, pred, drop) \
-    for (declvar, *_i, **_ip = &_i; _ip && (pred); _ip = 0, drop)
-#define c_with c_scoped // [deprecated]
-
-#define c_scope(...) c_MACRO_OVERLOAD(c_scope, __VA_ARGS__)
-#define c_scope_2(init, drop) \
-    for (int _i = (init, 1); _i; _i = 0, drop)
-#define c_scope_3(init, pred, drop) \
-    for (int _i = (init, 1); _i && (pred); _i = 0, drop)
-
 #define c_drop(C, ...) \
-    do { c_forlist (_i, C*, {__VA_ARGS__}) C##_drop(*_i.ref); } while(0)
+    do { c_foritems (_i, C*, {__VA_ARGS__}) C##_drop(*_i.ref); } while(0)
 
 #if defined(__SIZEOF_INT128__)
     #define c_umul128(a, b, lo, hi) \
@@ -315,12 +327,12 @@ STC_INLINE intptr_t c_next_pow2(intptr_t n) {
 
 #endif // STC_COMMON_H_INCLUDED
 // ### END_FILE_INCLUDE: common.h
-typedef STC_CSPAN_INDEX_TYPE cextent_t, cstride_t;
+typedef int32_t cspan_istride, _istride;
 
 #define using_cspan(...) c_MACRO_OVERLOAD(using_cspan, __VA_ARGS__)
 #define using_cspan_2(Self, T) \
     using_cspan_3(Self, T, 1); \
-    STC_INLINE Self Self##_from_n(Self##_value* values, intptr_t n) { \
+    STC_INLINE Self Self##_from_n(Self##_value* values, isize n) { \
         return (Self)cspan_from_n(values, n); \
     } \
     struct stc_nostruct
@@ -330,18 +342,18 @@ typedef STC_CSPAN_INDEX_TYPE cextent_t, cstride_t;
     typedef T Self##_raw; \
     typedef struct { \
         Self##_value *data; \
-        cextent_t shape[RANK]; \
+        _istride shape[RANK]; \
         cspan_tuple##RANK stride; \
     } Self; \
     \
     typedef struct { \
         Self##_value *ref; \
         const Self *_s; \
-        cextent_t pos[RANK]; \
+        _istride pos[RANK]; \
     } Self##_iter; \
     \
-    STC_INLINE Self Self##_slice_(Self##_value* d, const cextent_t shape[], const cstride_t stri[], \
-                                  const intptr_t args[][3], const int rank) { \
+    STC_INLINE Self Self##_slice_(Self##_value* d, const _istride shape[], const _istride stri[], \
+                                  const isize args[][3], const int rank) { \
         Self s; int outrank; \
         s.data = d + _cspan_slice(s.shape, s.stride.d, &outrank, shape, stri, args, rank); \
         c_assert(outrank == RANK); \
@@ -364,7 +376,7 @@ typedef STC_CSPAN_INDEX_TYPE cextent_t, cstride_t;
 #define using_cspan2(Self, T) using_cspan_2(Self, T); using_cspan_3(Self##2, T, 2)
 #define using_cspan3(Self, T) using_cspan2(Self, T); using_cspan_3(Self##3, T, 3)
 #define using_cspan4(Self, T) using_cspan3(Self, T); using_cspan_3(Self##4, T, 4)
-#define using_cspan_tuple(N) typedef struct { cstride_t d[N]; } cspan_tuple##N
+#define using_cspan_tuple(N) typedef struct { _istride d[N]; } cspan_tuple##N
 using_cspan_tuple(1); using_cspan_tuple(2);
 using_cspan_tuple(3); using_cspan_tuple(4);
 using_cspan_tuple(5); using_cspan_tuple(6);
@@ -381,20 +393,20 @@ using_cspan_tuple(7); using_cspan_tuple(8);
 //
 #define cspan_from_n(ptr, n) \
     {.data=(ptr), \
-     .shape={(cextent_t)(n)}, \
+     .shape={(_istride)(n)}, \
      .stride=(cspan_tuple1){.d={1}}}
 
 #define cspan_from_array(array) \
     cspan_from_n(array, c_arraylen(array))
 
 #define cspan_from(container) \
-    cspan_from_n((container)->data, (container)->_len)
+    cspan_from_n((container)->data, (container)->size)
 
 // cspan_subspan on 1d spans
 //
 #define cspan_subspan(self, offset, count) \
     {.data=cspan_at(self, offset), \
-     .shape={(cextent_t)(count)}, \
+     .shape={(_istride)(count)}, \
      .stride=(self)->stride}
 
 // Accessors
@@ -408,7 +420,7 @@ using_cspan_tuple(7); using_cspan_tuple(8);
 #define cspan_front(self) ((self)->data)
 #define cspan_back(self) ((self)->data + cspan_size(self) - 1)
 #define cspan_index(self, ...) \
-    _cspan_index((self)->shape, (self)->stride.d, ((const intptr_t[]){__VA_ARGS__}), \
+    _cspan_index((self)->shape, (self)->stride.d, ((const isize[]){__VA_ARGS__}), \
                  cspan_rank(self) + c_static_assert(cspan_rank(self) == c_NUMARGS(__VA_ARGS__)))
 
 // Multi-dimensional span constructors
@@ -422,7 +434,7 @@ typedef enum {c_ROWMAJOR, c_COLMAJOR} cspan_layout;
     {.data=array, \
      .shape={__VA_ARGS__}, \
      .stride=*(c_JOIN(cspan_tuple,c_NUMARGS(__VA_ARGS__))*) \
-             _cspan_shape2stride(layout, ((cstride_t[]){__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))}
+             _cspan_shape2stride(layout, ((_istride[]){__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))}
 
 // Transpose and swap axes
 //
@@ -439,13 +451,13 @@ typedef enum {c_ROWMAJOR, c_COLMAJOR} cspan_layout;
 
 // General slicing function.
 //
-#define c_END (cextent_t)(((size_t)1 << (sizeof(cextent_t)*8 - 1)) - 1)
+#define c_END (_istride)(((size_t)1 << (sizeof(_istride)*8 - 1)) - 1)
 #define c_ALL 0,c_END
 
 #define cspan_slice(OutSpan, self, ...) \
     OutSpan##_slice_((self)->data, (self)->shape, (self)->stride.d, \
-                     ((const intptr_t[][3]){__VA_ARGS__}), cspan_rank(self) + \
-                     c_static_assert(cspan_rank(self) == sizeof((intptr_t[][3]){__VA_ARGS__})/sizeof(intptr_t[3])))
+                     ((const isize[][3]){__VA_ARGS__}), cspan_rank(self) + \
+                     c_static_assert(cspan_rank(self) == sizeof((isize[][3]){__VA_ARGS__})/sizeof(isize[3])))
 
 // submd#(): # <= 4 optimized. Reduce rank, like e.g. cspan_slice(Span2, &ms3, {x}, {c_ALL}, {c_ALL});
 //
@@ -512,31 +524,31 @@ typedef enum {c_ROWMAJOR, c_COLMAJOR} cspan_layout;
     } \
 } while (0)
 
-/* ------------------- PRIVAT DEFINITIONS ------------------- */
+/* ----- PRIVATE ----- */
 
-STC_INLINE intptr_t _cspan_size(const cextent_t shape[], int rank) {
-    intptr_t size = shape[0];
+STC_INLINE isize _cspan_size(const _istride shape[], int rank) {
+    isize size = shape[0];
     while (--rank) size *= shape[rank];
     return size;
 }
 
-STC_INLINE void _cspan_swap_axes(cextent_t shape[], cstride_t stride[], int i, int j, int rank) {
+STC_INLINE void _cspan_swap_axes(_istride shape[], _istride stride[], int i, int j, int rank) {
     (void)rank;
     c_assert(c_uless(i, rank) & c_uless(j, rank));
-    c_swap(cextent_t, shape + i, shape + j);
-    c_swap(cstride_t, stride + i, stride + j);
+    c_swap(shape + i, shape + j);
+    c_swap(stride + i, stride + j);
 }
 
-STC_INLINE void _cspan_transpose(cextent_t shape[], cstride_t stride[], int rank) {
+STC_INLINE void _cspan_transpose(_istride shape[], _istride stride[], int rank) {
     for (int i = 0; i < --rank; ++i) {
-        c_swap(cextent_t, shape + i, shape + rank);
-        c_swap(cstride_t, stride + i, stride + rank);
+        c_swap(shape + i, shape + rank);
+        c_swap(stride + i, stride + rank);
     }
 }
 
-STC_INLINE intptr_t _cspan_index(const cextent_t shape[], const cstride_t stride[],
-                                 const intptr_t args[], int rank) {
-    intptr_t off = 0;
+STC_INLINE isize _cspan_index(const _istride shape[], const _istride stride[],
+                              const isize args[], int rank) {
+    isize off = 0;
     (void)shape;
     while (rank--) {
         c_assert(c_uless(args[rank], shape[rank]));
@@ -545,11 +557,11 @@ STC_INLINE intptr_t _cspan_index(const cextent_t shape[], const cstride_t stride
     return off;
 }
 
-STC_API void _cspan_print_assist(cextent_t pos[], const cextent_t shape[], const int rank,
+STC_API void _cspan_print_assist(_istride pos[], const _istride shape[], const int rank,
                                  char result[2][16], const char* brackets);
 
-STC_API intptr_t _cspan_next2(cextent_t pos[], const cextent_t shape[], const cstride_t stride[],
-                              int rank, int* done);
+STC_API isize _cspan_next2(_istride pos[], const _istride shape[], const _istride stride[],
+                           int rank, int* done);
 #define _cspan_next1(pos, shape, stride, rank, done) (*done = ++pos[0]==shape[0], stride[0])
 #define _cspan_next3 _cspan_next2
 #define _cspan_next4 _cspan_next2
@@ -558,17 +570,17 @@ STC_API intptr_t _cspan_next2(cextent_t pos[], const cextent_t shape[], const cs
 #define _cspan_next7 _cspan_next2
 #define _cspan_next8 _cspan_next2
 
-STC_API intptr_t _cspan_slice(cextent_t oshape[], cstride_t ostride[], int* orank,
-                              const cextent_t shape[], const cstride_t stride[],
-                              const intptr_t args[][3], int rank);
+STC_API isize _cspan_slice(_istride oshape[], _istride ostride[], int* orank,
+                           const _istride shape[], const _istride stride[],
+                           const isize args[][3], int rank);
 
-STC_API cstride_t* _cspan_shape2stride(cspan_layout layout, cstride_t shape[], int rank);
+STC_API _istride* _cspan_shape2stride(cspan_layout layout, _istride shape[], int rank);
 #endif // STC_CSPAN_H_INCLUDED
 
 /* --------------------- IMPLEMENTATION --------------------- */
-#if defined(i_implement) || defined(i_static)
+#if defined i_implement  || defined i_static
 
-STC_DEF void _cspan_print_assist(cextent_t pos[], const cextent_t shape[], const int rank,
+STC_DEF void _cspan_print_assist(_istride pos[], const _istride shape[], const int rank,
                                  char result[2][16], const char* brackets) {
     int n = 0, j = 0, r = rank - 1;
     memset(result, 0, 32);
@@ -584,24 +596,24 @@ STC_DEF void _cspan_print_assist(cextent_t pos[], const cextent_t shape[], const
     while (n--) result[1][j++] = '\n';
 }
 
-STC_DEF intptr_t _cspan_next2(cextent_t pos[], const cextent_t shape[], const cstride_t stride[],
-                              int r, int* done) {
-    intptr_t off = stride[--r];
-    ++pos[r];
+STC_DEF isize _cspan_next2(_istride pos[], const _istride shape[], const _istride stride[],
+                           int rank, int* done) {
+    isize off = stride[--rank];
+    ++pos[rank];
 
-    for (; r && pos[r] == shape[r]; --r) {
-        pos[r] = 0; ++pos[r - 1];
-        off += stride[r - 1] - (intptr_t)shape[r]*stride[r];
+    for (; rank && pos[rank] == shape[rank]; --rank) {
+        pos[rank] = 0; ++pos[rank - 1];
+        off += stride[rank - 1] - (isize)shape[rank]*stride[rank];
     }
-    *done = pos[r] == shape[r];
+    *done = pos[rank] == shape[rank];
     return off;
 }
 
-STC_DEF cstride_t* _cspan_shape2stride(cspan_layout layout, cstride_t shpstri[], int rank) {
+STC_DEF _istride* _cspan_shape2stride(cspan_layout layout, _istride shpstri[], int rank) {
     int i, inc;
     if (layout == c_COLMAJOR) i = 0, inc = 1;
     else i = rank - 1, inc = -1;
-    cstride_t k = 1, s1 = shpstri[i], s2;
+    _istride k = 1, s1 = shpstri[i], s2;
 
     shpstri[i] = 1;
     while (--rank) {
@@ -613,10 +625,10 @@ STC_DEF cstride_t* _cspan_shape2stride(cspan_layout layout, cstride_t shpstri[],
     return shpstri;
 }
 
-STC_DEF intptr_t _cspan_slice(cextent_t oshape[], cstride_t ostride[], int* orank,
-                              const cextent_t shape[], const cstride_t stride[],
-                              const intptr_t args[][3], int rank) {
-    intptr_t end, off = 0;
+STC_DEF isize _cspan_slice(_istride oshape[], _istride ostride[], int* orank,
+                           const _istride shape[], const _istride stride[],
+                           const isize args[][3], int rank) {
+    isize end, off = 0;
     int i = 0, oi = 0;
 
     for (; i < rank; ++i) {
@@ -626,19 +638,18 @@ STC_DEF intptr_t _cspan_slice(cextent_t oshape[], cstride_t ostride[], int* oran
             case c_END: end = shape[i]; break;
             default: end = args[i][1];
         }
-        oshape[oi] = (cextent_t)(end - args[i][0]);
+        oshape[oi] = (_istride)(end - args[i][0]);
         ostride[oi] = stride[i];
         c_assert((oshape[oi] > 0) & !c_uless(shape[i], end));
         if (args[i][2] > 0) {
-            ostride[oi] *= (cextent_t)args[i][2];
-            oshape[oi] = (oshape[oi] - 1)/(cextent_t)args[i][2] + 1;
+            ostride[oi] *= (_istride)args[i][2];
+            oshape[oi] = (oshape[oi] - 1)/(_istride)args[i][2] + 1;
         }
         ++oi;
     }
     *orank = oi;
     return off;
 }
-
 // ### BEGIN_FILE_INCLUDE: linkage2.h
 
 #undef i_allocator
@@ -646,6 +657,8 @@ STC_DEF intptr_t _cspan_slice(cextent_t oshape[], cstride_t ostride[], int* oran
 #undef i_calloc
 #undef i_realloc
 #undef i_free
+#undef i_aux
+#undef _i_aux_struct
 
 #undef i_static
 #undef i_header
@@ -658,6 +671,6 @@ STC_DEF intptr_t _cspan_slice(cextent_t oshape[], cstride_t ostride[], int* oran
   #pragma GCC diagnostic pop
 #endif
 // ### END_FILE_INCLUDE: linkage2.h
-#endif
+#endif // IMPLEMENT
 // ### END_FILE_INCLUDE: cspan.h
 
