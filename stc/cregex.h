@@ -397,7 +397,7 @@ typedef union {
 \
     typedef SET_ONLY( SELF##_key ) \
             MAP_ONLY( struct SELF##_value ) \
-    SELF##_value; \
+    SELF##_value, SELF##_entry; \
 \
     typedef struct { \
         SELF##_value *ref; \
@@ -426,7 +426,7 @@ typedef union {
 \
     typedef SET_ONLY( SELF##_key ) \
             MAP_ONLY( struct SELF##_value ) \
-    SELF##_value; \
+    SELF##_value, SELF##_entry; \
 \
     typedef struct { \
         SELF##_value *ref; \
@@ -552,7 +552,7 @@ STC_INLINE int cregex_find_sv(const cregex* re, csview input, csview match[]) {
     if (match) match[0] = input;
     return cregex_find_fl(re, input.buf, match, CREG_STARTEND);
 }
-int cregex_find(const cregex* re, const char* input, csview match[])
+STC_INLINE int cregex_find(const cregex* re, const char* input, csview match[])
     { return cregex_find_fl(re, input, match, CREG_DEFAULT); }
 
 
@@ -567,7 +567,7 @@ STC_INLINE bool cregex_is_match(const cregex* re, const char* input)
 int cregex_find_pattern_fl(const char* pattern, const char* input,
                            csview match[], int cmflags);
 
-int cregex_find_pattern(const char* pattern, const char* input, csview match[])
+STC_INLINE int cregex_find_pattern(const char* pattern, const char* input, csview match[])
     { return cregex_find_pattern_fl(pattern, input, match, CREG_DEFAULT); }
 
 

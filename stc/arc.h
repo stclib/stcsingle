@@ -460,7 +460,7 @@ typedef union {
 \
     typedef SET_ONLY( SELF##_key ) \
             MAP_ONLY( struct SELF##_value ) \
-    SELF##_value; \
+    SELF##_value, SELF##_entry; \
 \
     typedef struct { \
         SELF##_value *ref; \
@@ -489,7 +489,7 @@ typedef union {
 \
     typedef SET_ONLY( SELF##_key ) \
             MAP_ONLY( struct SELF##_value ) \
-    SELF##_value; \
+    SELF##_value, SELF##_entry; \
 \
     typedef struct { \
         SELF##_value *ref; \
