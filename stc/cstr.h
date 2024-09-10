@@ -243,7 +243,7 @@ STC_INLINE isize cnextpow2(isize n) {
 #define c_foreach_4(it, C, start, end) \
     _c_foreach(it, C, start, (end).ref, _)
 
-#define c_foreach_count(k, it, C, cnt) \
+#define c_foreach_index(k, it, C, cnt) \
     for (isize k = 0, _i=1; _i; _i=0) \
     for (C##_iter it = C##_begin(&cnt); it.ref; C##_next(&it), ++k)
 
@@ -1150,7 +1150,7 @@ STC_DEF void cstr_u8_erase(cstr* self, const isize bytepos, const isize u8len) {
     _cstr_set_size(self, r.size - len);
 }
 
-STC_DEF isize cstr_vfmt(cstr* self, isize start, const char* fmt, va_list args) {
+static isize cstr_vfmt(cstr* self, isize start, const char* fmt, va_list args) {
     va_list args2;
     va_copy(args2, args);
     const int n = vsnprintf(NULL, 0ULL, fmt, args);

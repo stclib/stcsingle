@@ -1,7 +1,4 @@
 // ### BEGIN_FILE_INCLUDE: cspan.h
-#ifndef STC_CSPAN_H_INCLUDED
-#define STC_CSPAN_H_INCLUDED
-
 #define i_header
 // ### BEGIN_FILE_INCLUDE: linkage.h
 #undef STC_API
@@ -64,6 +61,9 @@
   #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 // ### END_FILE_INCLUDE: linkage.h
+
+#ifndef STC_CSPAN_H_INCLUDED
+#define STC_CSPAN_H_INCLUDED
 // ### BEGIN_FILE_INCLUDE: common.h
 #ifndef STC_COMMON_H_INCLUDED
 #define STC_COMMON_H_INCLUDED
@@ -241,7 +241,7 @@ STC_INLINE isize cnextpow2(isize n) {
 #define c_foreach_4(it, C, start, end) \
     _c_foreach(it, C, start, (end).ref, _)
 
-#define c_foreach_count(k, it, C, cnt) \
+#define c_foreach_index(k, it, C, cnt) \
     for (isize k = 0, _i=1; _i; _i=0) \
     for (C##_iter it = C##_begin(&cnt); it.ref; C##_next(&it), ++k)
 
@@ -654,6 +654,7 @@ STC_DEF isize _cspan_slice(_istride oshape[], _istride ostride[], int* orank,
     *orank = oi;
     return off;
 }
+#endif // IMPLEMENT
 // ### BEGIN_FILE_INCLUDE: linkage2.h
 
 #undef i_allocator
@@ -675,6 +676,5 @@ STC_DEF isize _cspan_slice(_istride oshape[], _istride ostride[], int* orank,
   #pragma GCC diagnostic pop
 #endif
 // ### END_FILE_INCLUDE: linkage2.h
-#endif // IMPLEMENT
 // ### END_FILE_INCLUDE: cspan.h
 
