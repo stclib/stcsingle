@@ -1,6 +1,5 @@
-// ### BEGIN_FILE_INCLUDE: queue.h
-
-// Queue. Implemented as a ring buffer.
+// ### BEGIN_FILE_INCLUDE: sort.h
+#ifndef _i_template
 // ### BEGIN_FILE_INCLUDE: linkage.h
 #undef STC_API
 #undef STC_DEF
@@ -62,9 +61,6 @@
   #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 // ### END_FILE_INCLUDE: linkage.h
-
-#ifndef STC_QUEUE_H_INCLUDED
-#define STC_QUEUE_H_INCLUDED
 // ### BEGIN_FILE_INCLUDE: common.h
 #ifndef STC_COMMON_H_INCLUDED
 #define STC_COMMON_H_INCLUDED
@@ -361,208 +357,21 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen,
 
 #endif // STC_COMMON_H_INCLUDED
 // ### END_FILE_INCLUDE: common.h
-// ### BEGIN_FILE_INCLUDE: types.h
 
-#ifdef i_aux
-  #define _i_aux_struct struct { i_aux } aux;
-#else
-  #define _i_aux_struct
-#endif
+  #define _i_is_array
+  #if defined i_type && !defined i_key
+    #define Self c_SELECT(_c_SEL21, i_type)
+    #define i_key c_SELECT(_c_SEL22, i_type)
+  #elif defined i_type
+    #define Self i_type
+  #else
+    #define Self c_JOIN(i_key, s)
+  #endif
 
-#ifndef STC_TYPES_H_INCLUDED
-#define STC_TYPES_H_INCLUDED
-
-#include <stdint.h>
-#include <stddef.h>
-
-#define forward_arc(C, VAL) _c_arc_types(C, VAL)
-#define forward_box(C, VAL) _c_box_types(C, VAL)
-#define forward_deq(C, VAL) _c_deque_types(C, VAL)
-#define forward_list(C, VAL) _c_list_types(C, VAL)
-#define forward_hmap(C, KEY, VAL) _c_htable_types(C, KEY, VAL, c_true, c_false)
-#define forward_hset(C, KEY) _c_htable_types(C, cset, KEY, KEY, c_false, c_true)
-#define forward_smap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
-#define forward_sset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
-#define forward_stack(C, VAL) _c_stack_types(C, VAL)
-#define forward_pqueue(C, VAL) _c_pqueue_types(C, VAL)
-#define forward_queue(C, VAL) _c_deque_types(C, VAL)
-#define forward_vec(C, VAL) _c_vec_types(C, VAL)
-
-// csview : non-null terminated string view
-typedef const char csview_value;
-typedef struct csview {
-    csview_value* buf;
-    ptrdiff_t size;
-} csview;
-
-typedef union {
-    csview_value* ref;
-    csview chr;
-    struct { csview chr; csview_value* end; } u8;
-} csview_iter;
-
-#define c_sv(...) c_MACRO_OVERLOAD(c_sv, __VA_ARGS__)
-#define c_sv_1(literal) c_sv_2(literal, c_litstrlen(literal))
-#define c_sv_2(str, n) (c_literal(csview){str, n})
-#define c_svfmt "%.*s"
-#define c_svarg(sv) (int)(sv).size, (sv).buf // printf(c_svfmt "\n", c_svarg(sv));
-#define c_SVARG(sv) c_svarg(sv) // [deprecated]
-#define c_SV(sv) c_svarg(sv) // [deprecated]
-
-// zsview : zero-terminated string view
-typedef csview_value zsview_value;
-typedef struct zsview {
-    zsview_value* str;
-    ptrdiff_t size;
-} zsview;
-
-typedef union {
-    zsview_value* ref;
-    csview chr;
-} zsview_iter;
-
-#define c_zv(literal) (c_literal(zsview){literal, c_litstrlen(literal)})
-
-// cstr : zero-terminated owning string (short string optimized - sso)
-typedef char cstr_value;
-typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
-typedef union cstr {
-    struct { cstr_value data[ sizeof(cstr_buf) ]; } sml;
-    struct { cstr_value* data; uintptr_t size, ncap; } lon;
-} cstr;
-
-typedef union {
-    cstr_value* ref;
-    csview chr; // utf8 character/codepoint
-} cstr_iter;
-
-#define c_true(...) __VA_ARGS__
-#define c_false(...)
-
-#define _c_arc_types(SELF, VAL) \
-    typedef VAL SELF##_value; \
-    typedef struct SELF { \
-        SELF##_value* get; \
-        catomic_long* use_count; \
-    } SELF
-
-#define _c_box_types(SELF, VAL) \
-    typedef VAL SELF##_value; \
-    typedef struct SELF { \
-        SELF##_value* get; \
-    } SELF
-
-#define _c_deque_types(SELF, VAL) \
-    typedef VAL SELF##_value; \
-\
-    typedef struct SELF { \
-        SELF##_value *cbuf; \
-        ptrdiff_t start, end, capmask; \
-        _i_aux_struct \
-    } SELF; \
-\
-    typedef struct { \
-        SELF##_value *ref; \
-        ptrdiff_t pos; \
-        const SELF* _s; \
-    } SELF##_iter
-
-#define _c_list_types(SELF, VAL) \
-    typedef VAL SELF##_value; \
-    typedef struct SELF##_node SELF##_node; \
-\
-    typedef struct { \
-        SELF##_value *ref; \
-        SELF##_node *const *_last, *prev; \
-    } SELF##_iter; \
-\
-    typedef struct SELF { \
-        SELF##_node *last; \
-        _i_aux_struct \
-    } SELF
-
-#define _c_htable_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
-    typedef KEY SELF##_key; \
-    typedef VAL SELF##_mapped; \
-\
-    typedef SET_ONLY( SELF##_key ) \
-            MAP_ONLY( struct SELF##_value ) \
-    SELF##_value, SELF##_entry; \
-\
-    typedef struct { \
-        SELF##_value *ref; \
-        size_t idx; \
-        bool inserted; \
-        uint8_t hashx; \
-        uint16_t dist; \
-    } SELF##_result; \
-\
-    typedef struct { \
-        SELF##_value *ref, *_end; \
-        struct hmap_meta *_mref; \
-    } SELF##_iter; \
-\
-    typedef struct SELF { \
-        SELF##_value* table; \
-        struct hmap_meta* meta; \
-        ptrdiff_t size, bucket_count; \
-        _i_aux_struct \
-    } SELF
-
-#define _c_aatree_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
-    typedef KEY SELF##_key; \
-    typedef VAL SELF##_mapped; \
-    typedef struct SELF##_node SELF##_node; \
-\
-    typedef SET_ONLY( SELF##_key ) \
-            MAP_ONLY( struct SELF##_value ) \
-    SELF##_value, SELF##_entry; \
-\
-    typedef struct { \
-        SELF##_value *ref; \
-        bool inserted; \
-    } SELF##_result; \
-\
-    typedef struct { \
-        SELF##_value *ref; \
-        SELF##_node *_d; \
-        int _top; \
-        int32_t _tn, _st[36]; \
-    } SELF##_iter; \
-\
-    typedef struct SELF { \
-        SELF##_node *nodes; \
-        int32_t root, disp, head, size, capacity; \
-        _i_aux_struct \
-    } SELF
-
-#define _c_stack_fixed(SELF, VAL, CAP) \
-    typedef VAL SELF##_value; \
-    typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
-    typedef struct SELF { SELF##_value data[CAP]; ptrdiff_t size; } SELF
-
-#define _c_stack_types(SELF, VAL) \
-    typedef VAL SELF##_value; \
-    typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
-    typedef struct SELF { SELF##_value* data; ptrdiff_t size, capacity; _i_aux_struct } SELF
-
-#define _c_vec_types(SELF, VAL) \
-    typedef VAL SELF##_value; \
-    typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
-    typedef struct SELF { SELF##_value *data; ptrdiff_t size, capacity; _i_aux_struct } SELF
-
-#define _c_pqueue_types(SELF, VAL) \
-    typedef VAL SELF##_value; \
-    typedef struct SELF { SELF##_value* data; ptrdiff_t size, capacity; _i_aux_struct } SELF
-
-#endif // STC_TYPES_H_INCLUDED
-// ### END_FILE_INCLUDE: types.h
-#include <stdlib.h>
-#endif // STC_QUEUE_H_INCLUDED
-
-#ifndef _i_prefix
-  #define _i_prefix queue_
-#endif
+  typedef i_key Self;
+  typedef Self c_JOIN(Self, _value), c_JOIN(Self, _raw);
+  #define i_at(arr, idx) (&(arr)[idx])
+  #define i_at_mut i_at
 // ### BEGIN_FILE_INCLUDE: template.h
 // IWYU pragma: private
 #ifndef _i_template
@@ -840,240 +649,127 @@ typedef union {
 #endif
 #endif // STC_TEMPLATE_H_INCLUDED
 // ### END_FILE_INCLUDE: template.h
-// ### BEGIN_FILE_INCLUDE: queue_prv.h
+#endif
+
+// ### BEGIN_FILE_INCLUDE: sort_prv.h
 
 // IWYU pragma: private
-#ifndef i_is_forward
-_c_DEFTYPES(_c_deque_types, Self, i_key);
-#endif
-typedef i_keyraw _m_raw;
-
-STC_API Self            _c_MEMB(_with_capacity)(const isize n);
-STC_API bool            _c_MEMB(_reserve)(Self* self, const isize n);
-STC_API void            _c_MEMB(_clear)(Self* self);
-STC_API void            _c_MEMB(_drop)(const Self* cself);
-STC_API _m_value*       _c_MEMB(_push)(Self* self, _m_value value); // push_back
-STC_API void            _c_MEMB(_shrink_to_fit)(Self *self);
-STC_API _m_iter         _c_MEMB(_advance)(_m_iter it, isize n);
-
-#define _cbuf_toidx(self, pos) (((pos) - (self)->start) & (self)->capmask)
-#define _cbuf_topos(self, idx) (((self)->start + (idx)) & (self)->capmask)
-
-STC_INLINE Self         _c_MEMB(_init)(void)
-                            { Self cx = {0}; return cx; }
-
-STC_INLINE void         _c_MEMB(_put_n)(Self* self, const _m_raw* raw, isize n)
-                            { while (n--) _c_MEMB(_push)(self, i_keyfrom((*raw))), ++raw; }
-
-STC_INLINE Self         _c_MEMB(_from_n)(const _m_raw* raw, isize n)
-                            { Self cx = {0}; _c_MEMB(_put_n)(&cx, raw, n); return cx; }
-
-STC_INLINE void         _c_MEMB(_value_drop)(_m_value* val) { i_keydrop(val); }
-
-#if !defined i_no_emplace
-STC_INLINE _m_value*    _c_MEMB(_emplace)(Self* self, _m_raw raw)
-                            { return _c_MEMB(_push)(self, i_keyfrom(raw)); }
+#ifdef _i_is_list
+  #define i_at(self, idx) (&((_m_value *)(self)->last)[idx])
+  #define i_at_mut i_at
+#elif !defined i_at
+  #define i_at(self, idx) _c_MEMB(_at)(self, idx)
+  #define i_at_mut(self, idx) _c_MEMB(_at_mut)(self, idx)
 #endif
 
-#if defined _i_has_eq
-STC_API bool            _c_MEMB(_eq)(const Self* self, const Self* other);
+STC_API void _c_MEMB(_sort_lowhigh)(Self* self, isize lo, isize hi);
+
+#ifdef _i_is_array
+STC_API isize _c_MEMB(_lower_bound_range)(const Self* self, const _m_raw raw, isize start, isize end);
+STC_API isize _c_MEMB(_binary_search_range)(const Self* self, const _m_raw raw, isize start, isize end);
+
+static inline void _c_MEMB(_sort)(Self* arr, isize n)
+    { _c_MEMB(_sort_lowhigh)(arr, 0, n - 1); }
+
+static inline isize // -1 = not found
+_c_MEMB(_lower_bound)(const Self* arr, const _m_raw raw, isize n)
+    { return _c_MEMB(_lower_bound_range)(arr, raw, 0, n); }
+
+static inline isize // -1 = not found
+_c_MEMB(_binary_search)(const Self* arr, const _m_raw raw, isize n)
+    { return _c_MEMB(_binary_search_range)(arr, raw, 0, n); }
+
+#elif !defined _i_is_list
+STC_API isize _c_MEMB(_lower_bound_range)(const Self* self, const _m_raw raw, isize start, isize end);
+STC_API isize _c_MEMB(_binary_search_range)(const Self* self, const _m_raw raw, isize start, isize end);
+
+static inline void _c_MEMB(_sort)(Self* self)
+    { _c_MEMB(_sort_lowhigh)(self, 0, _c_MEMB(_size)(self) - 1); }
+
+static inline isize // -1 = not found
+_c_MEMB(_lower_bound)(const Self* self, const _m_raw raw)
+    { return _c_MEMB(_lower_bound_range)(self, raw, 0, _c_MEMB(_size)(self)); }
+
+static inline isize // -1 = not found
+_c_MEMB(_binary_search)(const Self* self, const _m_raw raw)
+    { return _c_MEMB(_binary_search_range)(self, raw, 0, _c_MEMB(_size)(self)); }
 #endif
-
-#if !defined i_no_clone
-STC_API Self            _c_MEMB(_clone)(Self cx);
-STC_INLINE _m_value     _c_MEMB(_value_clone)(_m_value val)
-                            { return i_keyclone(val); }
-
-STC_INLINE void         _c_MEMB(_copy)(Self* self, const Self* other) {
-                            if (self->cbuf == other->cbuf) return;
-                            _c_MEMB(_drop)(self);
-                            *self = _c_MEMB(_clone)(*other);
-                        }
-#endif // !i_no_clone
-STC_INLINE isize        _c_MEMB(_size)(const Self* self)
-                            { return _cbuf_toidx(self, self->end); }
-STC_INLINE isize        _c_MEMB(_capacity)(const Self* self)
-                            { return self->capmask; }
-STC_INLINE bool         _c_MEMB(_is_empty)(const Self* self)
-                            { return self->start == self->end; }
-STC_INLINE _m_raw       _c_MEMB(_value_toraw)(const _m_value* pval)
-                            { return i_keytoraw(pval); }
-
-STC_INLINE const _m_value* _c_MEMB(_front)(const Self* self)
-                            { return self->cbuf + self->start; }
-STC_INLINE _m_value*    _c_MEMB(_front_mut)(Self* self)
-                            { return self->cbuf + self->start; }
-
-STC_INLINE const _m_value* _c_MEMB(_back)(const Self* self)
-                            { return self->cbuf + ((self->end - 1) & self->capmask); }
-STC_INLINE _m_value*    _c_MEMB(_back_mut)(Self* self)
-                            { return (_m_value*)_c_MEMB(_back)(self); }
-
-STC_INLINE void _c_MEMB(_pop)(Self* self) { // pop_front
-    c_assert(!_c_MEMB(_is_empty)(self));
-    i_keydrop((self->cbuf + self->start));
-    self->start = (self->start + 1) & self->capmask;
-}
-
-STC_INLINE _m_value _c_MEMB(_pull)(Self* self) { // move front out of queue
-    c_assert(!_c_MEMB(_is_empty)(self));
-    isize s = self->start;
-    self->start = (s + 1) & self->capmask;
-    return self->cbuf[s];
-}
-
-STC_INLINE _m_iter _c_MEMB(_begin)(const Self* self) {
-    return c_literal(_m_iter){
-        .ref=_c_MEMB(_is_empty)(self) ? NULL : self->cbuf + self->start,
-        .pos=self->start, ._s=self};
-}
-
-STC_INLINE _m_iter _c_MEMB(_rbegin)(const Self* self) {
-    isize pos = (self->end - 1) & self->capmask;
-    return c_literal(_m_iter){
-        .ref=_c_MEMB(_is_empty)(self) ? NULL : self->cbuf + pos,
-        .pos=pos, ._s=self};
-}
-
-STC_INLINE _m_iter _c_MEMB(_end)(const Self* self)
-    { (void)self; return c_literal(_m_iter){0}; }
-
-STC_INLINE _m_iter _c_MEMB(_rend)(const Self* self)
-    { (void)self; return c_literal(_m_iter){0}; }
-
-STC_INLINE void _c_MEMB(_next)(_m_iter* it) {
-    if (it->pos != it->_s->capmask) { ++it->ref; ++it->pos; }
-    else { it->ref -= it->pos; it->pos = 0; }
-    if (it->pos == it->_s->end) it->ref = NULL;
-}
-
-STC_INLINE void _c_MEMB(_rnext)(_m_iter* it) {
-    if (it->pos == it->_s->start) it->ref = NULL;
-    else if (it->pos != 0) { --it->ref; --it->pos; }
-    else it->ref += (it->pos = it->_s->capmask);
-}
-
-STC_INLINE isize _c_MEMB(_index)(const Self* self, _m_iter it)
-    { return _cbuf_toidx(self, it.pos); }
-
-STC_INLINE void _c_MEMB(_adjust_end_)(Self* self, isize n)
-    { self->end = (self->end + n) & self->capmask; }
 
 /* -------------------------- IMPLEMENTATION ------------------------- */
 #if defined i_implement || defined i_static
 
-STC_DEF _m_iter _c_MEMB(_advance)(_m_iter it, isize n) {
-    isize len = _c_MEMB(_size)(it._s);
-    isize pos = it.pos, idx = _cbuf_toidx(it._s, pos);
-    it.pos = (pos + n) & it._s->capmask;
-    it.ref += it.pos - pos;
-    if (!c_uless(idx + n, len)) it.ref = NULL;
-    return it;
-}
-
-STC_DEF void
-_c_MEMB(_clear)(Self* self) {
-    c_foreach (i, Self, *self)
-        { i_keydrop(i.ref); }
-    self->start = 0, self->end = 0;
-}
-
-STC_DEF void
-_c_MEMB(_drop)(const Self* cself) {
-    Self* self = (Self*)cself;
-    _c_MEMB(_clear)(self);
-    i_free(self->cbuf, (self->capmask + 1)*c_sizeof(*self->cbuf));
-}
-
-STC_DEF Self
-_c_MEMB(_with_capacity)(const isize n) {
-    Self cx = {0};
-    _c_MEMB(_reserve)(&cx, n);
-    return cx;
-}
-
-STC_DEF bool
-_c_MEMB(_reserve)(Self* self, const isize n) {
-    if (n <= self->capmask)
-        return true;
-    isize oldpow2 = self->capmask + 1, newpow2 = c_next_pow2(n + 1);
-    _m_value* d = (_m_value *)i_realloc(self->cbuf, oldpow2*c_sizeof *d, newpow2*c_sizeof *d);
-    if (!d)
-        return false;
-    isize head = oldpow2 - self->start;
-    if (self->start <= self->end)
-        ;
-    else if (head < self->end) {
-        self->start = newpow2 - head;
-        c_memmove(d + self->start, d + oldpow2 - head, head*c_sizeof *d);
-    } else {
-        c_memmove(d + oldpow2, d, self->end*c_sizeof *d);
-        self->end += oldpow2;
+static void _c_MEMB(_insertsort_lowhigh)(Self* self, isize lo, isize hi) {
+    for (isize j = lo, i = lo + 1; i <= hi; j = i, ++i) {
+        _m_value x = *i_at(self, i);
+        _m_raw rx = i_keytoraw((&x));
+        while (j >= 0) {
+            _m_raw ry = i_keytoraw(i_at(self, j));
+            if (!(i_less((&rx), (&ry)))) break;
+            *i_at_mut(self, j + 1) = *i_at(self, j);
+            --j;
+        }
+        *i_at_mut(self, j + 1) = x;
     }
-    self->capmask = newpow2 - 1;
-    self->cbuf = d;
-    return true;
 }
 
-STC_DEF _m_value*
-_c_MEMB(_push)(Self* self, _m_value value) { // push_back
-    isize end = (self->end + 1) & self->capmask;
-    if (end == self->start) { // full
-        _c_MEMB(_reserve)(self, self->capmask + 3); // => 2x expand
-        end = (self->end + 1) & self->capmask;
+STC_DEF void _c_MEMB(_sort_lowhigh)(Self* self, isize lo, isize hi) {
+    isize i = lo, j;
+    while (lo < hi) {
+        _m_raw pivot = i_keytoraw(i_at(self, (isize)(lo + (hi - lo)*7LL/16))), rx;
+        j = hi;
+        do {
+            do { rx = i_keytoraw(i_at(self, i)); } while ((i_less((&rx), (&pivot))) && ++i);
+            do { rx = i_keytoraw(i_at(self, j)); } while ((i_less((&pivot), (&rx))) && --j);
+            if (i > j) break;
+            c_swap(i_at_mut(self, i), i_at_mut(self, j));
+            ++i; --j;
+        } while (i <= j);
+
+        if (j - lo > hi - i) {
+            c_swap(&lo, &i);
+            c_swap(&hi, &j);
+        }
+        if (j - lo > 64) _c_MEMB(_sort_lowhigh)(self, lo, j);
+        else if (j > lo) _c_MEMB(_insertsort_lowhigh)(self, lo, j);
+        lo = i;
     }
-    _m_value *v = self->cbuf + self->end;
-    self->end = end;
-    *v = value;
-    return v;
 }
 
-STC_DEF void
-_c_MEMB(_shrink_to_fit)(Self *self) {
-    isize sz = _c_MEMB(_size)(self), j = 0;
-    if (sz > self->capmask/2)
-        return;
-    Self out = _c_MEMB(_with_capacity)(sz);
-    if (!out.cbuf)
-        return;
-    c_foreach (i, Self, *self)
-        out.cbuf[j++] = *i.ref;
-    out.end = sz;
-    i_free(self->cbuf, (self->capmask + 1)*c_sizeof(*self->cbuf));
-    *self = out;
-}
-
-#if !defined i_no_clone
-STC_DEF Self
-_c_MEMB(_clone)(Self q) {
-    isize sz = _c_MEMB(_size)(&q), j = 0;
-    Self tmp = _c_MEMB(_with_capacity)(sz);
-    if (tmp.cbuf)
-        c_foreach (i, Self, q)
-            tmp.cbuf[j++] = i_keyclone((*i.ref));
-    q.cbuf = tmp.cbuf;
-    q.capmask = tmp.capmask;
-    q.start = 0;
-    q.end = sz;
-    return q;
-}
-#endif // i_no_clone
-
-#if defined _i_has_eq
-STC_DEF bool
-_c_MEMB(_eq)(const Self* self, const Self* other) {
-    if (_c_MEMB(_size)(self) != _c_MEMB(_size)(other)) return false;
-    for (_m_iter i = _c_MEMB(_begin)(self), j = _c_MEMB(_begin)(other);
-         i.ref; _c_MEMB(_next)(&i), _c_MEMB(_next)(&j))
-    {
-        const _m_raw _rx = i_keytoraw(i.ref), _ry = i_keytoraw(j.ref);
-        if (!(i_eq((&_rx), (&_ry)))) return false;
+#ifndef _i_is_list
+STC_DEF isize // -1 = not found
+_c_MEMB(_lower_bound_range)(const Self* self, const _m_raw raw, isize start, isize end) {
+    isize count = end - start, step = count/2;
+    while (count > 0) {
+        const _m_raw rx = i_keytoraw(i_at(self, start + step));
+        if (i_less((&rx), (&raw))) {
+            start += step + 1;
+            count -= step + 1;
+            step = count*7/8;
+        } else {
+            count = step;
+            step = count/8;
+        }
     }
-    return true;
+    return start == end ? -1 : start;
 }
-#endif // _i_has_eq
+
+STC_DEF isize // -1 = not found
+_c_MEMB(_binary_search_range)(const Self* self, const _m_raw raw, isize start, isize end) {
+    isize res = _c_MEMB(_lower_bound_range)(self, raw, start, end);
+    if (res != -1) {
+        const _m_raw rx = i_keytoraw(i_at(self, res));
+        if (i_less((&raw), (&rx))) res = -1;
+    }
+    return res;
+}
+#endif // !_i_is_list
 #endif // IMPLEMENTATION
-// ### END_FILE_INCLUDE: queue_prv.h
+#undef i_at
+#undef i_at_mut
+// ### END_FILE_INCLUDE: sort_prv.h
+
+#ifdef _i_is_array
+  #undef _i_is_array
 // ### BEGIN_FILE_INCLUDE: linkage2.h
 
 #undef i_allocator
@@ -1148,5 +844,8 @@ _c_MEMB(_eq)(const Self* self, const Self* other) {
 #undef _i_template
 #undef Self
 // ### END_FILE_INCLUDE: template2.h
-// ### END_FILE_INCLUDE: queue.h
+#endif
+#undef i_at
+#undef i_at_mut
+// ### END_FILE_INCLUDE: sort.h
 

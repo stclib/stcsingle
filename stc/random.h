@@ -78,15 +78,25 @@
 #include <string.h>
 #include <assert.h>
 
-#define c_NPOS INTPTR_MAX
-#define c_ZI PRIiPTR
-#define c_ZU PRIuPTR
-
+typedef ptrdiff_t       isize;
+#ifndef STC_NO_INT_DEFS
+    typedef int8_t      int8;
+    typedef uint8_t     uint8;
+    typedef int16_t     int16;
+    typedef uint16_t    uint16;
+    typedef int32_t     int32;
+    typedef uint32_t    uint32;
+    typedef int64_t     int64;
+    typedef uint64_t    uint64;
+#endif
 #if defined __GNUC__ || defined __clang__
     #define STC_INLINE static inline __attribute((unused))
 #else
     #define STC_INLINE static inline
 #endif
+#define c_ZI PRIiPTR
+#define c_ZU PRIuPTR
+#define c_NPOS INTPTR_MAX
 
 /* Macro overloading feature support based on: https://rextester.com/ONP80107 */
 #define c_MACRO_OVERLOAD(name, ...) \
@@ -100,24 +110,30 @@
 #define _c_ARG_N(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
                  _14, _15, _16, N, ...) N
 
+// Select, e.g. for #define i_type A,B then c_SELECT(_c_SEL22, i_type) is B
+#define c_SELECT(X, ...) c_EXPAND(X(__VA_ARGS__)) // need c_EXPAND for MSVC
 #define _c_SEL21(a, b) a
 #define _c_SEL22(a, b) b
 #define _c_SEL31(a, b, c) a
 #define _c_SEL32(a, b, c) b
 #define _c_SEL33(a, b, c) c
-#define c_SELECT(S, ...) c_EXPAND(S(__VA_ARGS__)) // c_EXPAND for MSVC
 
 #ifndef __cplusplus
     #define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
     #define _i_calloc(T, n)     ((T*)i_calloc(n, c_sizeof(T)))
     #define c_new(T, ...)       ((T*)memcpy(malloc(sizeof(T)), ((T[]){__VA_ARGS__}), sizeof(T)))
     #define c_literal(T)        (T)
+    #define c_make_array(T, ...) ((T[])__VA_ARGS__)
+    #define c_make_array2d(T, N, ...) ((T[][N])__VA_ARGS__)
 #else
     #include <new>
     #define _i_malloc(T, n)     static_cast<T*>(i_malloc((n)*c_sizeof(T)))
     #define _i_calloc(T, n)     static_cast<T*>(i_calloc(n, c_sizeof(T)))
     #define c_new(T, ...)       new (malloc(sizeof(T))) T(__VA_ARGS__)
     #define c_literal(T)        T
+    template<typename T, int M, int N> struct _c_Array { T data[M][N]; };
+    #define c_make_array(T, ...) (_c_Array<T, 1, sizeof((T[])__VA_ARGS__)/sizeof(T)>{{__VA_ARGS__}}.data[0])
+    #define c_make_array2d(T, N, ...) (_c_Array<T, sizeof((T[][N])__VA_ARGS__)/sizeof(T[N]), N>{__VA_ARGS__}.data)
 #endif
 #define c_new_n(T, n)           ((T*)malloc(sizeof(T)*c_i2u_size(n)))
 #define c_malloc(sz)            malloc(c_i2u_size(sz))
@@ -134,18 +150,10 @@
 #endif
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
 #define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
+#define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
+#define c_arraylen(a)           (isize)(sizeof(a)/sizeof 0[a])
 
-#define c_swap(xp, yp) do { \
-    (void)sizeof((xp) == (yp)); \
-    char _tv[sizeof *(xp)]; \
-    void *_xp = xp, *_yp = yp; \
-    memcpy(_tv, _xp, sizeof _tv); \
-    memcpy(_xp, _yp, sizeof _tv); \
-    memcpy(_yp, _tv, sizeof _tv); \
-} while (0)
-
-// use with gcc -Wconversion
-typedef ptrdiff_t               isize;
+// expect signed ints to/from these (use with gcc -Wconversion)
 #define c_sizeof                (isize)sizeof
 #define c_strlen(s)             (isize)strlen(s)
 #define c_strncmp(a, b, ilen)   strncmp(a, b, c_i2u_size(ilen))
@@ -153,88 +161,31 @@ typedef ptrdiff_t               isize;
 #define c_memmove(d, s, ilen)   memmove(d, s, c_i2u_size(ilen))
 #define c_memset(d, val, ilen)  memset(d, val, c_i2u_size(ilen))
 #define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u_size(ilen))
-// Mostly library internal, but may be useful in user code:
+// library internal, but may be useful in user code:
 #define c_u2i_size(u)           (isize)(1 ? (u) : (size_t)1) // warns if u is signed
 #define c_i2u_size(i)           (size_t)(1 ? (i) : -1)       // warns if i is unsigned
 #define c_uless(a, b)           ((size_t)(a) < (size_t)(b))
 #define c_safe_cast(T, From, x) ((T)(1 ? (x) : (From){0}))
 
-// x and y are i_keyraw* type, defaults to i_key*:
+// x, y are i_keyraw* type, which defaults to i_key*:
 #define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
 #define c_default_eq(x, y)      (*(x) == *(y))
 #define c_default_less(x, y)    (*(x) < *(y))
 #define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
-#define c_default_hash(p)       chash_n(p, sizeof *(p))
-
+#define c_default_hash(p)       c_hash_n(p, sizeof *(p))
 #define c_default_clone(v)      (v)
 #define c_default_toraw(vp)     (*(vp))
 #define c_default_drop(vp)      ((void) (vp))
 
-/* Function macros and others */
-
-#define c_litstrlen(literal) (c_sizeof("" literal) - 1)
-#define c_arraylen(a) (isize)(sizeof(a)/sizeof 0[a])
-
-// Non-owning c-string "class"
+// non-owning c-string "class"
 typedef const char* cstr_raw;
 #define cstr_raw_cmp(xp, yp) strcmp(*(xp), *(yp))
 #define cstr_raw_eq(xp, yp) (cstr_raw_cmp(xp, yp) == 0)
-#define cstr_raw_hash(p) chash_str(*(p))
+#define cstr_raw_hash(p) c_hash_str(*(p))
 #define cstr_raw_clone(s) (s)
 #define cstr_raw_drop(p) ((void)p)
 
-#define c_ROTL(x, k) (x << (k) | x >> (8*sizeof(x) - (k)))
-
-STC_INLINE uint64_t chash_n(const void* key, isize len) {
-    uint32_t u4; uint64_t u8;
-    switch (len) {
-        case 8: memcpy(&u8, key, 8); return u8*0xc6a4a7935bd1e99d;
-        case 4: memcpy(&u4, key, 4); return u4*0xc6a4a7935bd1e99d;
-        case 0: return 1;
-    }
-    const uint8_t *x = (const uint8_t*)key;
-    uint64_t h = (uint64_t)*x << 7, n = (uint64_t)len >> 3;
-    len &= 7;
-    while (n--) {
-        memcpy(&u8, x, 8), x += 8;
-        h = (h ^ u8)*0xc6a4a7935bd1e99d;
-    }
-    while (len--) h = (h ^ *x++)*0x100000001b3;
-    return h ^ c_ROTL(h, 26);
-}
-
-STC_INLINE uint64_t chash_str(const char *str)
-    { return chash_n(str, c_strlen(str)); }
-
-STC_INLINE uint64_t _chash_mix(uint64_t h[], int n) { // n > 0
-    for (int i = 1; i < n; ++i) h[0] += h[0] ^ h[i]; // non-commutative!
-    return h[0];
-}
-
-STC_INLINE char* cstrnstrn(const char *str, isize slen,
-                            const char *needle, isize nlen) {
-    if (!nlen) return (char *)str;
-    if (nlen > slen) return NULL;
-    slen -= nlen;
-    do {
-        if (*str == *needle && !c_memcmp(str, needle, nlen))
-            return (char *)str;
-        ++str;
-    } while (slen--);
-    return NULL;
-}
-
-STC_INLINE isize cnextpow2(isize n) {
-    n--;
-    n |= n >> 1, n |= n >> 2;
-    n |= n >> 4, n |= n >> 8;
-    n |= n >> 16;
-    #if INTPTR_MAX == INT64_MAX
-    n |= n >> 32;
-    #endif
-    return n + 1;
-}
-/* Control block macros */
+// Control block macros
 
 #define c_foreach(...) c_MACRO_OVERLOAD(c_foreach, __VA_ARGS__)
 #define c_foreach_3(it, C, cnt) \
@@ -242,9 +193,9 @@ STC_INLINE isize cnextpow2(isize n) {
 #define c_foreach_4(it, C, start, end) \
     _c_foreach(it, C, start, (end).ref, _)
 
-#define c_foreach_index(k, it, C, cnt) \
-    for (isize k = 0, _i=1; _i; _i=0) \
-    for (C##_iter it = C##_begin(&cnt); it.ref; C##_next(&it), ++k)
+#define c_foreach_n(it, C, cnt, n) \
+    for (isize it##_index=0, _c_n=n; _c_n; _c_n=0) \
+    for (C##_iter it = C##_begin(&cnt); it.ref && it##_index < _c_n; C##_next(&it), ++it##_index)
 
 #define c_foreach_reverse(...) c_MACRO_OVERLOAD(c_foreach_reverse, __VA_ARGS__)
 #define c_foreach_reverse_3(it, C, cnt) /* works for stack, vec, queue, deque */ \
@@ -257,67 +208,145 @@ STC_INLINE isize cnextpow2(isize n) {
          ; it.ref != (C##_value*)_endref; C##rev##next(&it))
 
 #define c_foreach_kv(...) c_MACRO_OVERLOAD(c_foreach_kv, __VA_ARGS__)
-#define _c_foreach_kv(key, val, C, start, endref) /* structured binding for maps */ \
-    for (const C##_key *key, **_k = &key; _k; ) \
-    for (C##_mapped *val; _k; _k = NULL) \
+#define c_foreach_kv_4(key, val, C, cnt) /* structured binding for maps */ \
+    _c_foreach_kv(key, val, C, C##_begin(&cnt), NULL)
+#define c_foreach_kv_5(key, val, C, start, end) \
+    _c_foreach_kv(key, val, C, start, (end).ref)
+
+#define _c_foreach_kv(key, val, C, start, endref) /* private */ \
+    for (const C##_key *key, **_c_k = &key; _c_k; ) \
+    for (C##_mapped *val; _c_k; _c_k = NULL) \
     for (C##_iter _it = start, *_endref = c_safe_cast(C##_iter*, C##_value*, endref) ; \
          _it.ref != (C##_value*)_endref && (key = &_it.ref->first, val = &_it.ref->second); \
          C##_next(&_it))
 
-#define c_foreach_kv_4(key, val, C, cnt) \
-        _c_foreach_kv(key, val, C, C##_begin(&cnt), NULL)
-#define c_foreach_kv_5(key, val, C, start, end) \
-        _c_foreach_kv(key, val, C, start, (end).ref)
-
-#define c_forlist(...) 'c_forlist not_supported. Use c_foritems'   // [removed]
-#define c_forpair(...) 'c_forpair not_supported. Use c_foreach_kv' // [removed]
-
-// c_forrange: python-like indexed iteration
-#define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
-#define c_forrange_1(stop) c_forrange_3(_i, 0, stop)
-#define c_forrange_2(i, stop) c_forrange_3(i, 0, stop)
-#define c_forrange_3(i, start, stop) \
-    for (isize i=start, _end=stop; i < _end; ++i)
-#define c_forrange_4(i, start, stop, step) \
-    for (isize i=start, _inc=step, _end=(isize)(stop) - (_inc > 0) \
-         ; (_inc > 0) ^ (i > _end); i += _inc)
-
 #ifndef __cplusplus
-    #define c_init(C, ...) \
-        C##_from_n((C##_raw[])__VA_ARGS__, c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
     #define c_foritems(it, T, ...) \
         for (struct {T* ref; int size, index;} \
              it = {.ref=(T[])__VA_ARGS__, .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
              ; it.index < it.size; ++it.ref, ++it.index)
-    #define chash_mix(...) \
-        _chash_mix((uint64_t[]){__VA_ARGS__}, c_NUMARGS(__VA_ARGS__))
 #else
     #include <initializer_list>
-    #include <array>
-    template <class C, class T>
-    inline C _from_n(C (*func)(const T[], isize), std::initializer_list<T> il)
-        { return func(&*il.begin(), il.size()); }
-    #define c_init(C, ...) _from_n<C,C##_raw>(C##_from_n, __VA_ARGS__)
     #define c_foritems(it, T, ...) \
         for (struct {std::initializer_list<T> _il; std::initializer_list<T>::iterator ref; size_t size, index;} \
              it = {._il=__VA_ARGS__, .ref=it._il.begin(), .size=it._il.size()} \
              ; it.index < it.size; ++it.ref, ++it.index)
-    #define chash_mix(...) \
-        _chash_mix(std::array<uint64_t, c_NUMARGS(__VA_ARGS__)>{__VA_ARGS__}.data(), c_NUMARGS(__VA_ARGS__))
 #endif
+#define c_forlist(...) c_foritems(_VA_ARGS__) // [deprecated]
+#define c_forpair(...) 'c_forpair not_supported. Use c_foreach_kv' // [removed]
+
+// c_forrange, c_forrange32: python-like int range iteration
+#define c_forrange_ex(...) c_MACRO_OVERLOAD(c_forrange_ex, __VA_ARGS__)
+#define c_forrange_ex_3(T, i, stop) c_forrange_ex_4(T, i, 0, stop)
+#define c_forrange_ex_4(T, i, start, stop) \
+    for (T i=start, _c_end=stop; i < _c_end; ++i)
+#define c_forrange_ex_5(T, i, start, stop, step) \
+    for (T i=start, _c_inc=step, _c_end=(stop) - (_c_inc > 0) \
+         ; (_c_inc > 0) == (i <= _c_end); i += _c_inc)
+
+#define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
+#define c_forrange_1(stop) c_forrange_ex_4(isize, _c_i, 0, stop)
+#define c_forrange_2(i, stop) c_forrange_ex_4(isize, i, 0, stop)
+#define c_forrange_3(i, start, stop) c_forrange_ex_4(isize, i, start, stop)
+#define c_forrange_4(i, start, stop, step) c_forrange_ex_5(isize, i, start, stop, step)
+
+#define c_forrange32(...) c_MACRO_OVERLOAD(c_forrange32, __VA_ARGS__)
+#define c_forrange32_2(i, stop) c_forrange_ex_4(int32_t, i, 0, stop)
+#define c_forrange32_3(i, start, stop) c_forrange_ex_4(int32_t, i, start, stop)
+#define c_forrange32_4(i, start, stop, step) c_forrange_ex_5(int32_t, i, start, stop, step)
+
+// init container with literal list, and drop multiple containers of same type
+#define c_init(C, ...) \
+    C##_from_n(c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
+
+#define c_push(C, cnt, ...) \
+    C##_put_n(cnt, c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
+
+#define c_drop(C, ...) \
+    do { c_foritems (_c_i, C*, {__VA_ARGS__}) C##_drop(*_c_i.ref); } while(0)
+
+#define c_func(name, args, RIGHTARROW, ...) \
+    typedef __VA_ARGS__ name##_result; name##_result name args
+
+// RAII scopes
+#define c_defer(...) \
+    for (int _c_i = 1; _c_i; _c_i = 0, __VA_ARGS__)
 
 #define c_with(...) c_MACRO_OVERLOAD(c_with, __VA_ARGS__)
 #define c_with_2(init, deinit) \
-    for (int _i = 1; _i; ) for (init; _i; _i = 0, deinit) // thanks, tstanisl
+    for (int _c_i = 1; _c_i; ) for (init; _c_i; _c_i = 0, deinit) // thanks, tstanisl
 #define c_with_3(init, condition, deinit) \
-    for (int _i = 1; _i; ) for (init; _i && (condition); _i = 0, deinit)
+    for (int _c_i = 1; _c_i; ) for (init; _c_i && (condition); _c_i = 0, deinit)
 
-#define c_defer(...) \
-    for (int _i = 1; _i; _i = 0, __VA_ARGS__)
+// General functions
 
-#define c_drop(C, ...) \
-    do { c_foritems (_i, C*, {__VA_ARGS__}) C##_drop(*_i.ref); } while(0)
+// hashing
+STC_INLINE size_t c_hash_n(const void* key, isize len) {
+    union { size_t block; uint64_t b8; uint32_t b4; } u;
+    switch (len) {
+        case 8: memcpy(&u.b8, key, 8); return (size_t)(u.b8 * 0xc6a4a7935bd1e99d);
+        case 4: memcpy(&u.b4, key, 4); return u.b4 * (size_t)0xa2ffeb2f01000193;
+        case 0: return 0x811c9dc5;
+    }
+    size_t hash = 0x811c9dc5;
+    const uint8_t* msg = (const uint8_t*)key;
+    while (len >= c_sizeof(size_t)) {
+        memcpy(&u.block, msg, sizeof(size_t));
+        hash = (hash ^ u.block) * (size_t)0x89bb179901000193;
+        msg += c_sizeof(size_t);
+        len -= c_sizeof(size_t);
+    }
+    while (len--) hash = (hash ^ *msg++) * (size_t)0xb0340f4501000193;
+    return hash ^ (hash >> 3);
+}
 
+STC_INLINE size_t c_hash_str(const char *str)
+    { return c_hash_n(str, c_strlen(str)); }
+
+STC_INLINE size_t _chash_mix(size_t h[], int n) {
+    for (int i = 1; i < n; ++i) h[0] += h[0] ^ h[i];
+    return h[0];
+}
+#define c_hash_mix(...) /* non-commutative hash combine! */ \
+    _chash_mix(c_make_array(size_t, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
+
+// generic typesafe swap
+#define c_swap(xp, yp) do { \
+    (void)sizeof((xp) == (yp)); \
+    char _tv[sizeof *(xp)]; \
+    void *_xp = xp, *_yp = yp; \
+    memcpy(_tv, _xp, sizeof _tv); \
+    memcpy(_xp, _yp, sizeof _tv); \
+    memcpy(_yp, _tv, sizeof _tv); \
+} while (0)
+
+// get next power of two
+STC_INLINE isize c_next_pow2(isize n) {
+    n--;
+    n |= n >> 1, n |= n >> 2;
+    n |= n >> 4, n |= n >> 8;
+    n |= n >> 16;
+    #if INTPTR_MAX == INT64_MAX
+    n |= n >> 32;
+    #endif
+    return n + 1;
+}
+
+// substring in substring?
+STC_INLINE char* c_strnstrn(const char *str, isize slen,
+                           const char *needle, isize nlen) {
+    if (!nlen) return (char *)str;
+    if (nlen > slen) return NULL;
+    slen -= nlen;
+    do {
+        if (*str == *needle && !c_memcmp(str, needle, nlen))
+            return (char *)str;
+        ++str;
+    } while (slen--);
+    return NULL;
+}
+
+// 128-bit multiplication
 #if defined(__SIZEOF_INT128__)
     #define c_umul128(a, b, lo, hi) \
         do { __uint128_t _z = (__uint128_t)(a)*(b); \
@@ -347,6 +376,33 @@ typedef struct {
 
 STC_API double crand64_normal(crand64_normal_dist* d);
 STC_API double crand64_normal_r(crand64* rng, uint64_t stream, crand64_normal_dist* d);
+
+#if INTPTR_MAX == INT64_MAX
+  #define crandWS crand64
+#else
+  #define crandWS crand32
+#endif
+
+#define c_shuffle_seed(s) \
+    c_JOIN(crandWS, _seed)(s)
+
+#define c_shuffle_array(array, n) do { \
+    typedef struct { char d[sizeof 0[array]]; } _etype; \
+    _etype* _arr = (_etype *)(array); \
+    for (isize _i = (n) - 1; _i > 0; --_i) { \
+        isize _j = (isize)(c_JOIN(crandWS, _uint)() % (_i + 1)); \
+        c_swap(_arr + _i, _arr + _j); \
+    } \
+} while (0)
+
+// Compiles with vec, stack, and deque container types:
+#define c_shuffle(CntType, self) do { \
+    CntType* _self = self; \
+    for (isize _i = CntType##_size(_self) - 1; _i > 0; --_i) { \
+        isize _j = (isize)(c_JOIN(crandWS, _uint)() % (_i + 1)); \
+        c_swap(CntType##_at_mut(_self, _i), CntType##_at_mut(_self, _j)); \
+    } \
+} while (0)
 
 STC_INLINE void crand64_seed_r(crand64* rng, uint64_t seed) {
     uint64_t* s = rng->data;
@@ -394,7 +450,7 @@ typedef struct {
 } crand64_uniform_dist;
 
 STC_INLINE crand64_uniform_dist
-crand64_uniform_from(int64_t low, int64_t high) {
+crand64_make_uniform(int64_t low, int64_t high) {
     crand64_uniform_dist d = {low, (uint64_t)(high - low + 1)};
     d.threshold = (uint64_t)(0 - d.range) % d.range;
     return d;
@@ -464,7 +520,7 @@ typedef struct {
 } crand32_uniform_dist;
 
 STC_INLINE crand32_uniform_dist
-crand32_uniform_from(int32_t low, int32_t high) {
+crand32_make_uniform(int32_t low, int32_t high) {
     crand32_uniform_dist d = {low, (uint32_t)(high - low + 1)};
     d.threshold = (uint32_t)(0 - d.range) % d.range;
     return d;

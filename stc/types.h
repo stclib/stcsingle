@@ -62,23 +62,16 @@ typedef union {
 
 // cstr : zero-terminated owning string (short string optimized - sso)
 typedef char cstr_value;
-typedef struct { cstr_value* data; ptrdiff_t size, cap; } cstr_buf;
+typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {
     struct { cstr_value data[ sizeof(cstr_buf) ]; } sml;
-    struct { cstr_value* data; size_t size, ncap; } lon;
+    struct { cstr_value* data; uintptr_t size, ncap; } lon;
 } cstr;
 
 typedef union {
     cstr_value* ref;
     csview chr; // utf8 character/codepoint
 } cstr_iter;
-
-
-#if defined __GNUC__ || defined __clang__ || defined _MSC_VER
-    typedef long catomic_long;
-#else
-    typedef _Atomic(long) catomic_long;
-#endif
 
 #define c_true(...) __VA_ARGS__
 #define c_false(...)
