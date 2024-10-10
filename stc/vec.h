@@ -256,7 +256,7 @@ typedef const char* cstr_raw;
 
 // init container with literal list, and drop multiple containers of same type
 #define c_init(C, ...) \
-    C##_from_n(c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
+    C##_with_n(c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
 
 #define c_push(C, cnt, ...) \
     C##_put_n(cnt, c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
@@ -281,7 +281,7 @@ typedef const char* cstr_raw;
 
 // hashing
 STC_INLINE size_t c_hash_n(const void* key, isize len) {
-    union { size_t block; uint64_t b8; uint32_t b4; } u;
+    union { size_t block; uint64_t b8; uint32_t b4; } u = {0};
     switch (len) {
         case 8: memcpy(&u.b8, key, 8); return (size_t)(u.b8 * 0xc6a4a7935bd1e99d);
         case 4: memcpy(&u.b4, key, 4); return u.b4 * (size_t)0xa2ffeb2f01000193;
@@ -295,7 +295,8 @@ STC_INLINE size_t c_hash_n(const void* key, isize len) {
         msg += c_sizeof(size_t);
         len -= c_sizeof(size_t);
     }
-    while (len--) hash = (hash ^ *msg++) * (size_t)0xb0340f4501000193;
+    c_memcpy(&u.block, msg, len);
+    hash = (hash ^ u.block) * (size_t)0xb0340f4501000193;
     return hash ^ (hash >> 3);
 }
 
@@ -333,7 +334,7 @@ STC_INLINE isize c_next_pow2(isize n) {
 
 // substring in substring?
 STC_INLINE char* c_strnstrn(const char *str, isize slen,
-                           const char *needle, isize nlen) {
+                            const char *needle, isize nlen) {
     if (!nlen) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
@@ -344,19 +345,6 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen,
     } while (slen--);
     return NULL;
 }
-
-// 128-bit multiplication
-#if defined(__SIZEOF_INT128__)
-    #define c_umul128(a, b, lo, hi) \
-        do { __uint128_t _z = (__uint128_t)(a)*(b); \
-             *(lo) = (uint64_t)_z, *(hi) = (uint64_t)(_z >> 64U); } while(0)
-#elif defined(_MSC_VER) && defined(_WIN64)
-    #include <intrin.h>
-    #define c_umul128(a, b, lo, hi) ((void)(*(lo) = _umul128(a, b, hi)))
-#elif defined(__x86_64__)
-    #define c_umul128(a, b, lo, hi) \
-        asm("mulq %3" : "=a"(*(lo)), "=d"(*(hi)) : "a"(a), "rm"(b))
-#endif
 
 #endif // STC_COMMON_H_INCLUDED
 // ### END_FILE_INCLUDE: common.h
@@ -424,9 +412,9 @@ typedef union {
 
 // cstr : zero-terminated owning string (short string optimized - sso)
 typedef char cstr_value;
-typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
+typedef struct { cstr_value* data; intptr_t size, cap; } cstr_view;
 typedef union cstr {
-    struct { cstr_value data[ sizeof(cstr_buf) ]; } sml;
+    struct { cstr_value data[ sizeof(cstr_view) ]; } sml;
     struct { cstr_value* data; uintptr_t size, ncap; } lon;
 } cstr;
 
@@ -629,7 +617,7 @@ typedef union {
     #define Self i_type
     #define i_key i_cmpclass
     #define i_keytoraw c_default_toraw
-  #elif defined _i_is_map
+  #elif defined _i_is_map && !defined i_val
     #define Self c_SELECT(_c_SEL31, i_type)
     #define i_key c_SELECT(_c_SEL32, i_type)
     #define i_val c_SELECT(_c_SEL33, i_type)
@@ -871,7 +859,7 @@ STC_INLINE _m_value* _c_MEMB(_push)(Self* self, _m_value value) {
 STC_INLINE void _c_MEMB(_put_n)(Self* self, const _m_raw* raw, isize n)
     { while (n--) _c_MEMB(_push)(self, i_keyfrom((*raw))), ++raw; }
 
-STC_INLINE Self _c_MEMB(_from_n)(const _m_raw* raw, isize n)
+STC_INLINE Self _c_MEMB(_with_n)(const _m_raw* raw, isize n)
     { Self cx = {0}; _c_MEMB(_put_n)(&cx, raw, n); return cx; }
 
 #if !defined i_no_emplace
@@ -1038,11 +1026,11 @@ STC_API isize _c_MEMB(_binary_search_range)(const Self* self, const _m_raw raw, 
 static inline void _c_MEMB(_sort)(Self* arr, isize n)
     { _c_MEMB(_sort_lowhigh)(arr, 0, n - 1); }
 
-static inline isize // -1 = not found
+static inline isize // c_NPOS = not found
 _c_MEMB(_lower_bound)(const Self* arr, const _m_raw raw, isize n)
     { return _c_MEMB(_lower_bound_range)(arr, raw, 0, n); }
 
-static inline isize // -1 = not found
+static inline isize // c_NPOS = not found
 _c_MEMB(_binary_search)(const Self* arr, const _m_raw raw, isize n)
     { return _c_MEMB(_binary_search_range)(arr, raw, 0, n); }
 
@@ -1053,11 +1041,11 @@ STC_API isize _c_MEMB(_binary_search_range)(const Self* self, const _m_raw raw, 
 static inline void _c_MEMB(_sort)(Self* self)
     { _c_MEMB(_sort_lowhigh)(self, 0, _c_MEMB(_size)(self) - 1); }
 
-static inline isize // -1 = not found
+static inline isize // c_NPOS = not found
 _c_MEMB(_lower_bound)(const Self* self, const _m_raw raw)
     { return _c_MEMB(_lower_bound_range)(self, raw, 0, _c_MEMB(_size)(self)); }
 
-static inline isize // -1 = not found
+static inline isize // c_NPOS = not found
 _c_MEMB(_binary_search)(const Self* self, const _m_raw raw)
     { return _c_MEMB(_binary_search_range)(self, raw, 0, _c_MEMB(_size)(self)); }
 #endif
@@ -1103,7 +1091,7 @@ STC_DEF void _c_MEMB(_sort_lowhigh)(Self* self, isize lo, isize hi) {
 }
 
 #ifndef _i_is_list
-STC_DEF isize // -1 = not found
+STC_DEF isize // c_NPOS = not found
 _c_MEMB(_lower_bound_range)(const Self* self, const _m_raw raw, isize start, isize end) {
     isize count = end - start, step = count/2;
     while (count > 0) {
@@ -1117,15 +1105,15 @@ _c_MEMB(_lower_bound_range)(const Self* self, const _m_raw raw, isize start, isi
             step = count/8;
         }
     }
-    return start == end ? -1 : start;
+    return start == end ? c_NPOS : start;
 }
 
-STC_DEF isize // -1 = not found
+STC_DEF isize // c_NPOS = not found
 _c_MEMB(_binary_search_range)(const Self* self, const _m_raw raw, isize start, isize end) {
     isize res = _c_MEMB(_lower_bound_range)(self, raw, start, end);
-    if (res != -1) {
+    if (res != c_NPOS) {
         const _m_raw rx = i_keytoraw(i_at(self, res));
-        if (i_less((&raw), (&rx))) res = -1;
+        if (i_less((&raw), (&rx))) res = c_NPOS;
     }
     return res;
 }

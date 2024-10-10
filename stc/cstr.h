@@ -258,7 +258,7 @@ typedef const char* cstr_raw;
 
 // init container with literal list, and drop multiple containers of same type
 #define c_init(C, ...) \
-    C##_from_n(c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
+    C##_with_n(c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
 
 #define c_push(C, cnt, ...) \
     C##_put_n(cnt, c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
@@ -283,7 +283,7 @@ typedef const char* cstr_raw;
 
 // hashing
 STC_INLINE size_t c_hash_n(const void* key, isize len) {
-    union { size_t block; uint64_t b8; uint32_t b4; } u;
+    union { size_t block; uint64_t b8; uint32_t b4; } u = {0};
     switch (len) {
         case 8: memcpy(&u.b8, key, 8); return (size_t)(u.b8 * 0xc6a4a7935bd1e99d);
         case 4: memcpy(&u.b4, key, 4); return u.b4 * (size_t)0xa2ffeb2f01000193;
@@ -297,7 +297,8 @@ STC_INLINE size_t c_hash_n(const void* key, isize len) {
         msg += c_sizeof(size_t);
         len -= c_sizeof(size_t);
     }
-    while (len--) hash = (hash ^ *msg++) * (size_t)0xb0340f4501000193;
+    c_memcpy(&u.block, msg, len);
+    hash = (hash ^ u.block) * (size_t)0xb0340f4501000193;
     return hash ^ (hash >> 3);
 }
 
@@ -335,7 +336,7 @@ STC_INLINE isize c_next_pow2(isize n) {
 
 // substring in substring?
 STC_INLINE char* c_strnstrn(const char *str, isize slen,
-                           const char *needle, isize nlen) {
+                            const char *needle, isize nlen) {
     if (!nlen) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
@@ -346,19 +347,6 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen,
     } while (slen--);
     return NULL;
 }
-
-// 128-bit multiplication
-#if defined(__SIZEOF_INT128__)
-    #define c_umul128(a, b, lo, hi) \
-        do { __uint128_t _z = (__uint128_t)(a)*(b); \
-             *(lo) = (uint64_t)_z, *(hi) = (uint64_t)(_z >> 64U); } while(0)
-#elif defined(_MSC_VER) && defined(_WIN64)
-    #include <intrin.h>
-    #define c_umul128(a, b, lo, hi) ((void)(*(lo) = _umul128(a, b, hi)))
-#elif defined(__x86_64__)
-    #define c_umul128(a, b, lo, hi) \
-        asm("mulq %3" : "=a"(*(lo)), "=d"(*(hi)) : "a"(a), "rm"(b))
-#endif
 
 #endif // STC_COMMON_H_INCLUDED
 // ### END_FILE_INCLUDE: common.h
@@ -426,9 +414,9 @@ typedef union {
 
 // cstr : zero-terminated owning string (short string optimized - sso)
 typedef char cstr_value;
-typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
+typedef struct { cstr_value* data; intptr_t size, cap; } cstr_view;
 typedef union cstr {
-    struct { cstr_value data[ sizeof(cstr_buf) ]; } sml;
+    struct { cstr_value data[ sizeof(cstr_view) ]; } sml;
     struct { cstr_value* data; uintptr_t size, ncap; } lon;
 } cstr;
 
@@ -679,7 +667,7 @@ STC_INLINE bool utf8_valid(const char* s) {
   #pragma GCC diagnostic ignored "-Warray-bounds"
 #endif
 
-enum  { cstr_s_last = sizeof(cstr_buf) - 1,
+enum  { cstr_s_last = sizeof(cstr_view) - 1,
         cstr_s_cap = cstr_s_last - 1 };
 #define cstr_s_size(s)          ((isize)(s)->sml.data[cstr_s_last])
 #define cstr_s_set_size(s, len) ((s)->sml.data[len] = 0, (s)->sml.data[cstr_s_last] = (char)(len))
@@ -705,7 +693,7 @@ extern  char* _cstr_internal_move(cstr* self, isize pos1, isize pos2);
 /**************************** PUBLIC API **********************************/
 
 #define cstr_init() (c_literal(cstr){0})
-#define cstr_lit(literal) cstr_from_n(literal, c_litstrlen(literal))
+#define cstr_lit(literal) cstr_with_n(literal, c_litstrlen(literal))
 extern  cstr        cstr_from_replace(csview sv, csview search, csview repl, int32_t count);
 extern  cstr        cstr_from_fmt(const char* fmt, ...);
 
@@ -725,9 +713,9 @@ extern  size_t      cstr_hash(const cstr *self);
 extern  bool        cstr_u8_valid(const cstr* self);
 extern  void        cstr_u8_erase(cstr* self, isize u8pos, isize u8len);
 
-STC_INLINE cstr_buf cstr_buffer(cstr* s) {
-    return cstr_is_long(s) ? c_literal(cstr_buf){s->lon.data, cstr_l_size(s), cstr_l_cap(s)}
-                           : c_literal(cstr_buf){s->sml.data, cstr_s_size(s), cstr_s_cap};
+STC_INLINE cstr_view cstr_getview(cstr* s) {
+    return cstr_is_long(s) ? c_literal(cstr_view){s->lon.data, cstr_l_size(s), cstr_l_cap(s)}
+                           : c_literal(cstr_view){s->sml.data, cstr_s_size(s), cstr_s_cap};
 }
 STC_INLINE zsview cstr_zv(const cstr* s) {
     return cstr_is_long(s) ? c_literal(zsview){s->lon.data, cstr_l_size(s)}
@@ -738,20 +726,20 @@ STC_INLINE csview cstr_sv(const cstr* s) {
                            : c_literal(csview){s->sml.data, cstr_s_size(s)};
 }
 
-STC_INLINE cstr cstr_from_n(const char* str, const isize len) {
+STC_INLINE cstr cstr_with_n(const char* str, const isize len) {
     cstr s;
     c_memcpy(_cstr_init(&s, len, len), str, len);
     return s;
 }
 
 STC_INLINE cstr cstr_from(const char* str)
-    { return cstr_from_n(str, c_strlen(str)); }
+    { return cstr_with_n(str, c_strlen(str)); }
 
 STC_INLINE cstr cstr_from_sv(csview sv)
-    { return cstr_from_n(sv.buf, sv.size); }
+    { return cstr_with_n(sv.buf, sv.size); }
 
 STC_INLINE cstr cstr_from_zv(zsview zv)
-    { return cstr_from_n(zv.str, zv.size); }
+    { return cstr_with_n(zv.str, zv.size); }
 
 STC_INLINE cstr cstr_with_size(const isize size, const char value) {
     cstr s;
@@ -780,7 +768,7 @@ STC_INLINE cstr cstr_move(cstr* self) {
 
 STC_INLINE cstr cstr_clone(cstr s) {
     csview sv = cstr_sv(&s);
-    return cstr_from_n(sv.buf, sv.size);
+    return cstr_with_n(sv.buf, sv.size);
 }
 
 STC_INLINE void cstr_drop(cstr* self) {
@@ -818,14 +806,17 @@ STC_INLINE isize cstr_to_index(const cstr* self, cstr_iter it)
     { return it.ref - cstr_str(self); }
 
 STC_INLINE cstr cstr_from_s(cstr s, isize pos, isize len)
-    { return cstr_from_n(cstr_str(&s) + pos, len); }
+    { return cstr_with_n(cstr_str(&s) + pos, len); }
 
 STC_INLINE csview cstr_subview(const cstr* self, isize pos, isize len) {
-    csview sv = cstr_sv(self); c_assert(pos + len < sv.size);
+    csview sv = cstr_sv(self);
+    c_assert(((size_t)pos <= (size_t)sv.size) & (len >= 0));
+    if (pos + len > sv.size) len = sv.size - pos;
     return (csview){sv.buf + pos, len};
 }
 
 STC_INLINE zsview cstr_right(const cstr* self, isize len) {
+    c_assert(len >= 0);
     csview sv = cstr_sv(self);
     if (len > sv.size) len = sv.size;
     return (zsview){&sv.buf[sv.size - len], len};
@@ -834,30 +825,28 @@ STC_INLINE zsview cstr_right(const cstr* self, isize len) {
 // BEGIN utf8 functions =====
 
 STC_INLINE cstr cstr_u8_from(const char* str, isize u8pos, isize u8len)
-    { str = utf8_at(str, u8pos); return cstr_from_n(str, utf8_to_index(str, u8len)); }
+    { str = utf8_at(str, u8pos); return cstr_with_n(str, utf8_to_index(str, u8len)); }
 
 STC_INLINE isize cstr_u8_size(const cstr* self)
     { return utf8_count(cstr_str(self)); }
 
-STC_INLINE isize cstr_u8_to_index(const cstr* self, isize i8pos)
-    { return utf8_to_index(cstr_str(self), i8pos); }
+STC_INLINE isize cstr_u8_to_index(const cstr* self, isize u8pos)
+    { return utf8_to_index(cstr_str(self), u8pos); }
 
 STC_INLINE zsview cstr_u8_right(const cstr* self, isize u8len) {
-    csview sv = cstr_sv(self); const char* p = &sv.buf[sv.size];
+    csview sv = cstr_sv(self);
+    const char* p = &sv.buf[sv.size];
     while (u8len && p != sv.buf)
         u8len -= (*--p & 0xC0) != 0x80;
     return (zsview){p, sv.size - (p - sv.buf)};
 }
 
-STC_INLINE csview cstr_u8_subview(const cstr* self, isize u8pos, isize u8len) {
-    csview sv = cstr_sv(self), span = utf8_span(sv.buf, u8pos, u8len);
-    c_assert(span.buf - sv.buf + span.size <= sv.size);
-    return span;
-}
+STC_INLINE csview cstr_u8_subview(const cstr* self, isize u8pos, isize u8len)
+    { return utf8_span(cstr_str(self), u8pos, u8len); }
 
-STC_INLINE csview cstr_u8_chr(const cstr* self, isize i8pos) {
+STC_INLINE csview cstr_u8_chr(const cstr* self, isize u8pos) {
     csview sv;
-    sv.buf = utf8_at(cstr_str(self), i8pos);
+    sv.buf = utf8_at(cstr_str(self), u8pos);
     sv.size = utf8_chr_size(sv.buf);
     return sv;
 }
@@ -1069,7 +1058,7 @@ isize cstr_find_sv(const cstr* self, csview search) {
 }
 
 char* _cstr_internal_move(cstr* self, const isize pos1, const isize pos2) {
-    cstr_buf r = cstr_buffer(self);
+    cstr_view r = cstr_getview(self);
     if (pos1 != pos2) {
         const isize newlen = (r.size + pos2 - pos1);
         if (newlen > r.cap)
@@ -1114,7 +1103,7 @@ char* cstr_reserve(cstr* self, const isize cap) {
 }
 
 char* cstr_resize(cstr* self, const isize size, const char value) {
-    cstr_buf r = cstr_buffer(self);
+    cstr_view r = cstr_getview(self);
     if (size > r.size) {
         if (size > r.cap && !(r.data = cstr_reserve(self, size)))
             return NULL;
@@ -1138,7 +1127,7 @@ char* cstr_assign_n(cstr* self, const char* str, const isize len) {
 }
 
 char* cstr_append_n(cstr* self, const char* str, const isize len) {
-    cstr_buf r = cstr_buffer(self);
+    cstr_view r = cstr_getview(self);
     if (r.size + len > r.cap) {
         const size_t off = (size_t)(str - r.data);
         r.data = cstr_reserve(self, r.size*3/2 + len);
@@ -1166,14 +1155,14 @@ cstr cstr_from_replace(csview in, csview search, csview repl, int32_t count) {
 }
 
 void cstr_erase(cstr* self, const isize pos, isize len) {
-    cstr_buf r = cstr_buffer(self);
+    cstr_view r = cstr_getview(self);
     if (len > r.size - pos) len = r.size - pos;
     c_memmove(&r.data[pos], &r.data[pos + len], r.size - (pos + len));
     _cstr_set_size(self, r.size - len);
 }
 
 void cstr_shrink_to_fit(cstr* self) {
-    cstr_buf r = cstr_buffer(self);
+    cstr_view r = cstr_getview(self);
     if (r.size == r.cap)
         return;
     if (r.size > cstr_s_cap) {
@@ -1193,7 +1182,7 @@ void cstr_shrink_to_fit(cstr* self) {
 #include <stdarg.h>
 
 char* cstr_append_uninit(cstr *self, isize len) {
-    cstr_buf r = cstr_buffer(self);
+    cstr_view r = cstr_getview(self);
     if (r.size + len > r.cap && !(r.data = cstr_reserve(self, r.size*3/2 + len)))
         return NULL;
     _cstr_set_size(self, r.size + len);
@@ -1205,7 +1194,7 @@ bool cstr_getdelim(cstr *self, const int delim, FILE *fp) {
     if (c == EOF)
         return false;
     isize pos = 0;
-    cstr_buf r = cstr_buffer(self);
+    cstr_view r = cstr_getview(self);
     for (;;) {
         if (c == delim || c == EOF) {
             _cstr_set_size(self, pos);

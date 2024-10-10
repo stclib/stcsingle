@@ -256,7 +256,7 @@ typedef const char* cstr_raw;
 
 // init container with literal list, and drop multiple containers of same type
 #define c_init(C, ...) \
-    C##_from_n(c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
+    C##_with_n(c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
 
 #define c_push(C, cnt, ...) \
     C##_put_n(cnt, c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
@@ -281,7 +281,7 @@ typedef const char* cstr_raw;
 
 // hashing
 STC_INLINE size_t c_hash_n(const void* key, isize len) {
-    union { size_t block; uint64_t b8; uint32_t b4; } u;
+    union { size_t block; uint64_t b8; uint32_t b4; } u = {0};
     switch (len) {
         case 8: memcpy(&u.b8, key, 8); return (size_t)(u.b8 * 0xc6a4a7935bd1e99d);
         case 4: memcpy(&u.b4, key, 4); return u.b4 * (size_t)0xa2ffeb2f01000193;
@@ -295,7 +295,8 @@ STC_INLINE size_t c_hash_n(const void* key, isize len) {
         msg += c_sizeof(size_t);
         len -= c_sizeof(size_t);
     }
-    while (len--) hash = (hash ^ *msg++) * (size_t)0xb0340f4501000193;
+    c_memcpy(&u.block, msg, len);
+    hash = (hash ^ u.block) * (size_t)0xb0340f4501000193;
     return hash ^ (hash >> 3);
 }
 
@@ -333,7 +334,7 @@ STC_INLINE isize c_next_pow2(isize n) {
 
 // substring in substring?
 STC_INLINE char* c_strnstrn(const char *str, isize slen,
-                           const char *needle, isize nlen) {
+                            const char *needle, isize nlen) {
     if (!nlen) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
@@ -345,19 +346,6 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen,
     return NULL;
 }
 
-// 128-bit multiplication
-#if defined(__SIZEOF_INT128__)
-    #define c_umul128(a, b, lo, hi) \
-        do { __uint128_t _z = (__uint128_t)(a)*(b); \
-             *(lo) = (uint64_t)_z, *(hi) = (uint64_t)(_z >> 64U); } while(0)
-#elif defined(_MSC_VER) && defined(_WIN64)
-    #include <intrin.h>
-    #define c_umul128(a, b, lo, hi) ((void)(*(lo) = _umul128(a, b, hi)))
-#elif defined(__x86_64__)
-    #define c_umul128(a, b, lo, hi) \
-        asm("mulq %3" : "=a"(*(lo)), "=d"(*(hi)) : "a"(a), "rm"(b))
-#endif
-
 #endif // STC_COMMON_H_INCLUDED
 // ### END_FILE_INCLUDE: common.h
 typedef int32_t cspan_istride, _istride;
@@ -366,8 +354,8 @@ typedef isize _isize_triple[3];
 #define using_cspan(...) c_MACRO_OVERLOAD(using_cspan, __VA_ARGS__)
 #define using_cspan_2(Self, T) \
     using_cspan_3(Self, T, 1); \
-    STC_INLINE Self Self##_from_n(Self##_value* values, isize n) { \
-        return (Self)cspan_from_n(values, n); \
+    STC_INLINE Self Self##_with_n(Self##_value* values, isize n) { \
+        return (Self)cspan_with_n(values, n); \
     } \
     struct stc_nostruct
 
@@ -425,16 +413,16 @@ using_cspan_tuple(7); using_cspan_tuple(8);
 
 // cspan_from* a pointer+size, c-array, or a cvec/cstack container
 //
-#define cspan_from_n(ptr, n) \
+#define cspan_with_n(ptr, n) \
     {.data=(ptr), \
      .shape={(_istride)(n)}, \
      .stride=(cspan_tuple1){.d={1}}}
 
 #define cspan_from_array(array) \
-    cspan_from_n(array, c_arraylen(array))
+    cspan_with_n(array, c_arraylen(array))
 
 #define cspan_from(container) \
-    cspan_from_n((container)->data, (container)->size)
+    cspan_with_n((container)->data, (container)->size)
 
 // cspan_subspan on 1d spans
 //
