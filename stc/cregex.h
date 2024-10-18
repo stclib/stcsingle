@@ -172,24 +172,24 @@ typedef const char* cstr_raw;
 #define c_forpair(...) 'c_forpair not_supported. Use c_foreach_kv' // [removed]
 
 // c_forrange, c_forrange32: python-like int range iteration
-#define c_forrange_ex(...) c_MACRO_OVERLOAD(c_forrange_ex, __VA_ARGS__)
-#define c_forrange_ex_3(T, i, stop) c_forrange_ex_4(T, i, 0, stop)
-#define c_forrange_ex_4(T, i, start, stop) \
+#define c_forrange_t(...) c_MACRO_OVERLOAD(c_forrange_t, __VA_ARGS__)
+#define c_forrange_t_3(T, i, stop) c_forrange_t_4(T, i, 0, stop)
+#define c_forrange_t_4(T, i, start, stop) \
     for (T i=start, _c_end=stop; i < _c_end; ++i)
-#define c_forrange_ex_5(T, i, start, stop, step) \
+#define c_forrange_t_5(T, i, start, stop, step) \
     for (T i=start, _c_inc=step, _c_end=(stop) - (_c_inc > 0) \
          ; (_c_inc > 0) == (i <= _c_end); i += _c_inc)
 
 #define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
-#define c_forrange_1(stop) c_forrange_ex_4(isize, _c_i, 0, stop)
-#define c_forrange_2(i, stop) c_forrange_ex_4(isize, i, 0, stop)
-#define c_forrange_3(i, start, stop) c_forrange_ex_4(isize, i, start, stop)
-#define c_forrange_4(i, start, stop, step) c_forrange_ex_5(isize, i, start, stop, step)
+#define c_forrange_1(stop) c_forrange_t_4(isize, _c_i, 0, stop)
+#define c_forrange_2(i, stop) c_forrange_t_4(isize, i, 0, stop)
+#define c_forrange_3(i, start, stop) c_forrange_t_4(isize, i, start, stop)
+#define c_forrange_4(i, start, stop, step) c_forrange_t_5(isize, i, start, stop, step)
 
 #define c_forrange32(...) c_MACRO_OVERLOAD(c_forrange32, __VA_ARGS__)
-#define c_forrange32_2(i, stop) c_forrange_ex_4(int32_t, i, 0, stop)
-#define c_forrange32_3(i, start, stop) c_forrange_ex_4(int32_t, i, start, stop)
-#define c_forrange32_4(i, start, stop, step) c_forrange_ex_5(int32_t, i, start, stop, step)
+#define c_forrange32_2(i, stop) c_forrange_t_4(int32_t, i, 0, stop)
+#define c_forrange32_3(i, start, stop) c_forrange_t_4(int32_t, i, start, stop)
+#define c_forrange32_4(i, start, stop, step) c_forrange_t_5(int32_t, i, start, stop, step)
 
 // init container with literal list, and drop multiple containers of same type
 #define c_init(C, ...) \
@@ -788,6 +788,7 @@ STC_INLINE bool utf8_valid(const char* s) {
 
 #include <stdio.h> /* FILE*, vsnprintf */
 #include <stdlib.h> /* malloc */
+#include <stddef.h> /* size_t */
 /**************************** PRIVATE API **********************************/
 
 #if defined __GNUC__ && !defined __clang__
@@ -944,7 +945,7 @@ STC_INLINE csview cstr_subview(const cstr* self, isize pos, isize len) {
     return (csview){sv.buf + pos, len};
 }
 
-STC_INLINE zsview cstr_right(const cstr* self, isize len) {
+STC_INLINE zsview cstr_tail(const cstr* self, isize len) {
     c_assert(len >= 0);
     csview sv = cstr_sv(self);
     if (len > sv.size) len = sv.size;
@@ -962,7 +963,7 @@ STC_INLINE isize cstr_u8_size(const cstr* self)
 STC_INLINE isize cstr_u8_to_index(const cstr* self, isize u8pos)
     { return utf8_to_index(cstr_str(self), u8pos); }
 
-STC_INLINE zsview cstr_u8_right(const cstr* self, isize u8len) {
+STC_INLINE zsview cstr_u8_tail(const cstr* self, isize u8len) {
     csview sv = cstr_sv(self);
     const char* p = &sv.buf[sv.size];
     while (u8len && p != sv.buf)
@@ -1182,17 +1183,19 @@ enum {
     U8G_Cc, U8G_Lt, U8G_Nd, U8G_Nl,
     U8G_Pc, U8G_Pd, U8G_Pf, U8G_Pi,
     U8G_Sc, U8G_Zl, U8G_Zp, U8G_Zs,
-    U8G_Arabic, U8G_Cyrillic,
-    U8G_Devanagari, U8G_Greek,
-    U8G_Han, U8G_Latin,
+    U8G_Arabic, U8G_Bengali, U8G_Cyrillic,
+    U8G_Devanagari, U8G_Georgian, U8G_Greek,
+    U8G_Han, U8G_Hiragana, U8G_Katakana,
+    U8G_Latin, U8G_Thai,
     U8G_SIZE
 };
 
 static bool utf8_isgroup(int group, uint32_t c);
 
 static bool utf8_isalpha(uint32_t c) {
-    static int16_t groups[] = {U8G_Latin, U8G_Nl, U8G_Greek, U8G_Cyrillic,
-                               U8G_Han, U8G_Devanagari, U8G_Arabic};
+    static int16_t groups[] = {U8G_Latin, U8G_Nl, U8G_Cyrillic, U8G_Han, U8G_Devanagari,
+                               U8G_Arabic, U8G_Bengali, U8G_Hiragana, U8G_Katakana,
+                               U8G_Thai, U8G_Greek, U8G_Georgian};
     if (c < 128) return isalpha((int)c) != 0;
     for (int j=0; j < (int)(sizeof groups/sizeof groups[0]); ++j)
         if (utf8_isgroup(groups[j], c))
@@ -1206,15 +1209,15 @@ static bool utf8_iscased(uint32_t c) {
            utf8_isgroup(U8G_Lt, c);
 }
 
+static bool utf8_isalnum(uint32_t c) {
+    if (c < 128) return isalnum((int)c) != 0;
+    return utf8_isalpha(c) || utf8_isgroup(U8G_Nd, c);
+}
+
 static bool utf8_isword(uint32_t c) {
     if (c < 128) return (isalnum((int)c) != 0) | (c == '_');
     return utf8_isalpha(c) || utf8_isgroup(U8G_Nd, c) ||
            utf8_isgroup(U8G_Pc, c);
-}
-
-static bool utf8_isalnum(uint32_t c) {
-    if (c < 128) return isalnum((int)c) != 0;
-    return utf8_isalpha(c) || utf8_isgroup(U8G_Nd, c);
 }
 
 static bool utf8_isblank(uint32_t c) {
@@ -1422,6 +1425,23 @@ static const URange16 Arabic_range16[] = {
     { 65142, 65276 },
 };
 
+static const URange16 Bengali_range16[] = {
+    { 2432, 2435 },
+    { 2437, 2444 },
+    { 2447, 2448 },
+    { 2451, 2472 },
+    { 2474, 2480 },
+    { 2482, 2482 },
+    { 2486, 2489 },
+    { 2492, 2500 },
+    { 2503, 2504 },
+    { 2507, 2510 },
+    { 2519, 2519 },
+    { 2524, 2525 },
+    { 2527, 2531 },
+    { 2534, 2558 },
+};
+
 static const URange16 Cyrillic_range16[] = {
     { 1024, 1156 },
     { 1159, 1327 },
@@ -1438,6 +1458,19 @@ static const URange16 Devanagari_range16[] = {
     { 2389, 2403 },
     { 2406, 2431 },
     { 43232, 43263 },
+};
+
+static const URange16 Georgian_range16[] = {
+    { 4256, 4293 },
+    { 4295, 4295 },
+    { 4301, 4301 },
+    { 4304, 4346 },
+    { 4348, 4351 },
+    { 7312, 7354 },
+    { 7357, 7359 },
+    { 11520, 11557 },
+    { 11559, 11559 },
+    { 11565, 11565 },
 };
 
 static const URange16 Greek_range16[] = {
@@ -1490,6 +1523,21 @@ static const URange16 Han_range16[] = {
     { 64112, 64217 },
 };
 
+static const URange16 Hiragana_range16[] = {
+	{ 12353, 12438 },
+	{ 12445, 12447 },
+};
+
+static const URange16 Katakana_range16[] = {
+	{ 12449, 12538 },
+	{ 12541, 12543 },
+	{ 12784, 12799 },
+	{ 13008, 13054 },
+	{ 13056, 13143 },
+	{ 65382, 65391 },
+	{ 65393, 65437 },
+};
+
 static const URange16 Latin_range16[] = {
     { 65, 90 },
     { 97, 122 },
@@ -1527,6 +1575,11 @@ static const URange16 Latin_range16[] = {
     { 65345, 65370 },
 };
 
+static const URange16 Thai_range16[] = {
+    { 3585, 3642 },
+    { 3648, 3675 },
+};
+
 #ifdef __cplusplus
     #define _e_arg(k, v) v
 #else
@@ -1553,11 +1606,16 @@ static const UGroup _utf8_unicode_groups[U8G_SIZE] = {
     _e_arg(U8G_Zp, UNI_ENTRY(Zp)),
     _e_arg(U8G_Zs, UNI_ENTRY(Zs)),
     _e_arg(U8G_Arabic, UNI_ENTRY(Arabic)),
+    _e_arg(U8G_Bengali, UNI_ENTRY(Bengali)),
     _e_arg(U8G_Cyrillic, UNI_ENTRY(Cyrillic)),
     _e_arg(U8G_Devanagari, UNI_ENTRY(Devanagari)),
+    _e_arg(U8G_Georgian, UNI_ENTRY(Georgian)),
     _e_arg(U8G_Greek, UNI_ENTRY(Greek)),
     _e_arg(U8G_Han, UNI_ENTRY(Han)),
+    _e_arg(U8G_Hiragana, UNI_ENTRY(Hiragana)),
+    _e_arg(U8G_Katakana, UNI_ENTRY(Katakana)),
     _e_arg(U8G_Latin, UNI_ENTRY(Latin)),
+    _e_arg(U8G_Thai, UNI_ENTRY(Thai)),
 };
 
 static bool utf8_isgroup(int group, uint32_t c) {
@@ -1674,11 +1732,16 @@ enum {
     UTF_zp = UTF_GRP+2*U8G_Zp, UTF_ZP, /* utf8 separator paragraph */
     UTF_zs = UTF_GRP+2*U8G_Zs, UTF_ZS, /* utf8 separator space */
     UTF_arabic = UTF_GRP+2*U8G_Arabic, UTF_ARABIC,
+    UTF_bengali = UTF_GRP+2*U8G_Bengali, UTF_BENGALI,
     UTF_cyrillic = UTF_GRP+2*U8G_Cyrillic, UTF_CYRILLIC,
     UTF_devanagari = UTF_GRP+2*U8G_Devanagari, UTF_DEVANAGARI,
+    UTF_georgian = UTF_GRP+2*U8G_Georgian, UTF_GEORGIAN,
     UTF_greek = UTF_GRP+2*U8G_Greek, UTF_GREEK,
     UTF_han = UTF_GRP+2*U8G_Han, UTF_HAN,
+    UTF_hiragana = UTF_GRP+2*U8G_Hiragana, UTF_HIRAGANA,
+    UTF_katakana = UTF_GRP+2*U8G_Katakana, UTF_KATAKANA,
     UTF_latin = UTF_GRP+2*U8G_Latin, UTF_LATIN,
+    UTF_thai = UTF_GRP+2*U8G_Thai, UTF_THAI,
     TOK_ANY     = 0x8200000,    /* Any character except newline, . */
     TOK_ANYNL   ,               /* Any character including newline, . */
     TOK_NOP     ,               /* No operation, internal use only */
@@ -2154,9 +2217,17 @@ _lexutfclass(_Parser *par, _Rune *rp)
         {"{Pf}", 4, UTF_pf}, {"{Pi}", 4, UTF_pi},
         {"{Zl}", 4, UTF_zl}, {"{Zp}", 4, UTF_zp},
         {"{Zs}", 4, UTF_zs}, {"{Sc}", 4, UTF_sc},
-        {"{Arabic}", 8, UTF_arabic}, {"{Cyrillic}", 10, UTF_cyrillic},
-        {"{Devanagari}", 10, UTF_devanagari}, {"{Greek}", 7, UTF_greek},
-        {"{Han}", 5, UTF_han}, {"{Latin}", 7, UTF_latin},
+        {"{Arabic}", 8, UTF_arabic},
+        {"{Bengali}", 9, UTF_bengali},
+        {"{Cyrillic}", 10, UTF_cyrillic},
+        {"{Devanagari}", 12, UTF_devanagari},
+        {"{Georgian}", 10, UTF_georgian},
+        {"{Greek}", 7, UTF_greek},
+        {"{Han}", 5, UTF_han},
+        {"{Hiragana}", 10, UTF_hiragana},
+        {"{Katakana}", 10, UTF_katakana},
+        {"{Latin}", 7, UTF_latin},
+        {"{Thai}", 6, UTF_thai},
     };
     unsigned inv = (*rp == 'P');
     for (unsigned i = 0; i < (sizeof cls/sizeof *cls); ++i) {
@@ -2449,11 +2520,16 @@ _runematch(_Rune s, _Rune r)
     case UTF_zp: case UTF_ZP:
     case UTF_zs: case UTF_ZS:
     case UTF_arabic: case UTF_ARABIC:
+    case UTF_bengali: case UTF_BENGALI:
     case UTF_cyrillic: case UTF_CYRILLIC:
     case UTF_devanagari: case UTF_DEVANAGARI:
+    case UTF_georgian: case UTF_GEORGIAN:
     case UTF_greek: case UTF_GREEK:
     case UTF_han: case UTF_HAN:
+    case UTF_hiragana: case UTF_HIRAGANA:
+    case UTF_katakana: case UTF_KATAKANA:
     case UTF_latin: case UTF_LATIN:
+    case UTF_thai: case UTF_THAI:
         n = (int)s - UTF_GRP;
         inv = n & 1;
         return inv ^ (int)utf8_isgroup(n / 2, r);
@@ -3171,7 +3247,7 @@ int utf8_icompare(const csview s1, const csview s2) {
 #ifndef STC_CSTR_CORE_INCLUDED
 #define STC_CSTR_CORE_INCLUDED
 
-uint64_t cstr_hash(const cstr *self) {
+size_t cstr_hash(const cstr *self) {
     csview sv = cstr_sv(self);
     return c_hash_n(sv.buf, sv.size);
 }

@@ -235,24 +235,24 @@ typedef const char* cstr_raw;
 #define c_forpair(...) 'c_forpair not_supported. Use c_foreach_kv' // [removed]
 
 // c_forrange, c_forrange32: python-like int range iteration
-#define c_forrange_ex(...) c_MACRO_OVERLOAD(c_forrange_ex, __VA_ARGS__)
-#define c_forrange_ex_3(T, i, stop) c_forrange_ex_4(T, i, 0, stop)
-#define c_forrange_ex_4(T, i, start, stop) \
+#define c_forrange_t(...) c_MACRO_OVERLOAD(c_forrange_t, __VA_ARGS__)
+#define c_forrange_t_3(T, i, stop) c_forrange_t_4(T, i, 0, stop)
+#define c_forrange_t_4(T, i, start, stop) \
     for (T i=start, _c_end=stop; i < _c_end; ++i)
-#define c_forrange_ex_5(T, i, start, stop, step) \
+#define c_forrange_t_5(T, i, start, stop, step) \
     for (T i=start, _c_inc=step, _c_end=(stop) - (_c_inc > 0) \
          ; (_c_inc > 0) == (i <= _c_end); i += _c_inc)
 
 #define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
-#define c_forrange_1(stop) c_forrange_ex_4(isize, _c_i, 0, stop)
-#define c_forrange_2(i, stop) c_forrange_ex_4(isize, i, 0, stop)
-#define c_forrange_3(i, start, stop) c_forrange_ex_4(isize, i, start, stop)
-#define c_forrange_4(i, start, stop, step) c_forrange_ex_5(isize, i, start, stop, step)
+#define c_forrange_1(stop) c_forrange_t_4(isize, _c_i, 0, stop)
+#define c_forrange_2(i, stop) c_forrange_t_4(isize, i, 0, stop)
+#define c_forrange_3(i, start, stop) c_forrange_t_4(isize, i, start, stop)
+#define c_forrange_4(i, start, stop, step) c_forrange_t_5(isize, i, start, stop, step)
 
 #define c_forrange32(...) c_MACRO_OVERLOAD(c_forrange32, __VA_ARGS__)
-#define c_forrange32_2(i, stop) c_forrange_ex_4(int32_t, i, 0, stop)
-#define c_forrange32_3(i, start, stop) c_forrange_ex_4(int32_t, i, start, stop)
-#define c_forrange32_4(i, start, stop, step) c_forrange_ex_5(int32_t, i, start, stop, step)
+#define c_forrange32_2(i, stop) c_forrange_t_4(int32_t, i, 0, stop)
+#define c_forrange32_3(i, start, stop) c_forrange_t_4(int32_t, i, start, stop)
+#define c_forrange32_4(i, start, stop, step) c_forrange_t_5(int32_t, i, start, stop, step)
 
 // init container with literal list, and drop multiple containers of same type
 #define c_init(C, ...) \
@@ -596,41 +596,35 @@ typedef union {
   #define _m_node _c_MEMB(_node)
 #endif
 
-#if defined i_key_arc
-  #define i_key_arcbox i_key_arc
-#elif defined i_key_box
-  #define i_key_arcbox i_key_box
-#elif defined i_key_str // [deprecated]
-  #define i_key_cstr
+#if defined i_key_arcbox // [deprecated]
+  #define i_keypro i_key_arcbox
+#elif defined i_key_cstr // [deprecated]
+  #define i_keypro cstr
+#elif defined i_key_str  // [deprecated]
+  #define i_keypro cstr
   #define i_tag str
 #endif
-
-#if defined i_val_arc
-  #define i_val_arcbox i_val_arc
-#elif defined i_val_box
-  #define i_val_arcbox i_val_box
-#elif defined i_val_str // [deprecated]
-  #define i_val_cstr
+#if defined i_val_arcbox // [deprecated]
+  #define i_valpro i_val_arcbox
+#elif defined i_val_cstr // [deprecated]
+  #define i_valpro cstr
+#elif defined i_val_str  // [deprecated]
+  #define i_valpro cstr
   #define i_tag str
 #endif
-
-#ifdef i_TYPE // [deprecated]
+#ifdef i_TYPE            // [deprecated]
   #define i_type i_TYPE
 #endif
 
-#if defined i_cmpclass
+#if defined i_rawclass
   #define i_use_cmp
   #define i_use_eq
 #endif
 
-#ifdef i_class
-  #define Self c_SELECT(_c_SEL21, i_class)
-  #define i_keyclass c_SELECT(_c_SEL22, i_class)
-#elif defined i_type && !(defined i_key || defined i_keyclass || \
-                          defined i_key_cstr || defined i_key_arcbox)
-  #if defined i_cmpclass
+#if defined i_type && !(defined i_key || defined i_keyclass || defined i_keypro)
+  #if defined i_rawclass
     #define Self i_type
-    #define i_key i_cmpclass
+    #define i_key i_rawclass
     #define i_keytoraw c_default_toraw
   #elif defined _i_is_map && !defined i_val
     #define Self c_SELECT(_c_SEL31, i_type)
@@ -666,19 +660,16 @@ typedef union {
 
 // Handle predefined element-types with lookup convertion types:
 // cstr_from(const char*) and arc_T_from(T) / box_T_from(T)
-#if defined i_key_cstr
-  #define i_keyclass cstr
-  #define i_cmpclass cstr_raw
-#elif defined i_key_arcbox
-  #define i_keyclass i_key_arcbox
-  #define i_cmpclass c_JOIN(i_key_arcbox, _raw)
+#if defined i_keypro
+  #define i_keyclass i_keypro
+  #define i_rawclass c_JOIN(i_keypro, _raw)
 #endif
 
-// Check for i_keyclass and i_cmpclass, and fill in missing defs.
-#if defined i_cmpclass
-  #define i_keyraw i_cmpclass
+// Check for keyclass and rawclass, and fill in missing defs.
+#if defined i_rawclass
+  #define i_keyraw i_rawclass
 #elif defined i_keyclass && !defined i_keyraw
-  #define i_cmpclass i_key
+  #define i_rawclass i_key
 #endif
 
 // Bind to i_key "class members": _clone, _drop, _from and _toraw (when conditions are met).
@@ -709,15 +700,15 @@ typedef union {
 #endif
 
 // Bind to i_keyraw "class members": _cmp, _eq and _hash (when conditions are met).
-#if defined i_cmpclass // => i_keyraw
+#if defined i_rawclass // => i_keyraw
   #if !(defined i_cmp || defined i_less) && (defined i_use_cmp || defined _i_sorted || defined _i_is_pqueue)
-    #define i_cmp c_JOIN(i_cmpclass, _cmp)
+    #define i_cmp c_JOIN(i_rawclass, _cmp)
   #endif
   #if !defined i_eq && (defined i_use_eq || defined i_hash || defined _i_is_hash)
-    #define i_eq c_JOIN(i_cmpclass, _eq)
+    #define i_eq c_JOIN(i_rawclass, _eq)
   #endif
   #if !(defined i_hash || defined i_no_hash)
-    #define i_hash c_JOIN(i_cmpclass, _hash)
+    #define i_hash c_JOIN(i_rawclass, _hash)
   #endif
 #endif
 
@@ -727,9 +718,6 @@ typedef union {
   #error "If i_keyraw/i_valraw is defined, i_keytoraw/i_valtoraw must be defined too"
 #elif !defined i_no_clone && (defined i_keyclone ^ defined i_keydrop)
   #error "Both i_keyclone/i_valclone and i_keydrop/i_valdrop must be defined, if any (unless i_no_clone defined)."
-#elif defined i_keyboxed || defined i_valboxed
-  #error "i_keyboxed / i_valboxed not supported. " \
-         "Use: i_key_box/i_key_arc ; i_val_box/i_val_arc."
 #elif defined i_from || defined i_drop
   #error "i_from / i_drop not supported. Use i_keyfrom/i_keydrop ; i_valfrom/i_valdrop"
 #elif defined i_keyto || defined i_valto
@@ -781,12 +769,9 @@ typedef union {
 
 #if defined _i_is_map // ---- process hmap/smap value i_val, ... ----
 
-#ifdef i_val_cstr
-  #define i_valclass cstr
-  #define i_valraw const char*
-#elif defined i_val_arcbox
-  #define i_valclass i_val_arcbox
-  #define i_valraw c_JOIN(i_val_arcbox, _raw)
+#if defined i_valpro
+  #define i_valclass i_valpro
+  #define i_valraw c_JOIN(i_valpro, _raw)
 #endif
 
 #ifdef i_valclass
@@ -1311,7 +1296,7 @@ STC_DEF bool _c_MEMB(_sort)(Self* self) {
 // ### END_FILE_INCLUDE: linkage2.h
 // ### BEGIN_FILE_INCLUDE: template2.h
 // IWYU pragma: private
-#undef i_TYPE
+#undef i_TYPE       // [deprecated]
 #undef i_type
 #undef i_class
 #undef i_tag
@@ -1319,13 +1304,12 @@ STC_DEF bool _c_MEMB(_sort)(Self* self) {
 #undef i_capacity
 
 #undef i_key
-#undef i_key_cstr
+#undef i_keypro     // Replaces the next 3
 #undef i_key_str    // [deprecated]
-#undef i_key_arc
-#undef i_key_box
+#undef i_key_cstr   // [deprecated]
 #undef i_key_arcbox // [deprecated]
 #undef i_keyclass
-#undef i_cmpclass   // define i_keyraw, and bind i_cmp, i_eq, i_hash "members"
+#undef i_rawclass   // define i_keyraw, and bind i_cmp, i_eq, i_hash "class members"
 #undef i_keyclone
 #undef i_keydrop
 #undef i_keyraw
@@ -1337,10 +1321,9 @@ STC_DEF bool _c_MEMB(_sort)(Self* self) {
 #undef i_hash
 
 #undef i_val
-#undef i_val_cstr
+#undef i_valpro
 #undef i_val_str    // [deprecated]
-#undef i_val_arc
-#undef i_val_box
+#undef i_val_cstr   // [deprecated]
 #undef i_val_arcbox // [deprecated]
 #undef i_valclass
 #undef i_valclone
