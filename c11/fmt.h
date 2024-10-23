@@ -275,7 +275,7 @@ STC_INLINE isize c_next_pow2(isize n) {
 // substring in substring?
 STC_INLINE char* c_strnstrn(const char *str, isize slen,
                             const char *needle, isize nlen) {
-    if (!nlen) return (char *)str;
+    if (nlen == 0) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
     do {
@@ -445,7 +445,7 @@ FMT_DEF void _fmt_sprint(fmt_stream* ss, const char* fmt, ...) {
         ss->cap = ss->len + ss->cap/2;
         ss->data = (char*)realloc(ss->data, (size_t)ss->cap + 1U);
     }
-    vsprintf(ss->data + pos, fmt, args2);
+    vsnprintf(ss->data + pos, (size_t)n+1, fmt, args2);
     done2: va_end(args2);
     done1: va_end(args);
 }
@@ -486,7 +486,7 @@ FMT_DEF int _fmt_parse(char* p, int nargs, const char *fmt, ...) {
             case 'g': if (empty) memcpy(p, ".8", 2), p += 2; break;
             case '@': ++arg; if (empty) memcpy(p, ".16", 3), p += 3; break;
             }
-            if (!strchr("csdioxXufFeEaAgGnp", fmt[-1]))
+            if (strchr("csdioxXufFeEaAgGnp", fmt[-1]) == NULL)
                 while (*arg) *p++ = *arg++;
             if (p0 && (p[-1] == 's' || p[-1] == 'c')) /* left-align str */
                 memmove(p0 + 1, p0, (size_t)(p++ - p0)), *p0 = '-';

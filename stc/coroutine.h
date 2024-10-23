@@ -272,7 +272,7 @@ STC_INLINE isize c_next_pow2(isize n) {
 // substring in substring?
 STC_INLINE char* c_strnstrn(const char *str, isize slen,
                             const char *needle, isize nlen) {
-    if (!nlen) return (char *)str;
+    if (nlen == 0) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
     do {
@@ -288,24 +288,41 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen,
 
 enum {
     CCO_STATE_INIT = 0,
-    CCO_STATE_FINAL = -1,
+    CCO_STATE_CLEANUP = -1,
     CCO_STATE_DONE = -2,
 };
 typedef enum {
     CCO_DONE = 0,
-    CCO_AWAIT = 1<<29,
-    CCO_YIELD = 1<<30,
+    CCO_YIELD = 1<<29,
+    CCO_AWAIT = 1<<30,
 } cco_result;
 
-#define cco_initial(co) ((co)->cco_state == CCO_STATE_INIT)
-#define cco_suspended(co) ((co)->cco_state > CCO_STATE_INIT)
-#define cco_done(co) ((co)->cco_state == CCO_STATE_DONE)
-#define cco_active(co) ((co)->cco_state != CCO_STATE_DONE)
+typedef struct {
+    int state;
+} cco_state;
+
+#define cco_initial(co) ((co)->cco.state == CCO_STATE_INIT)
+#define cco_suspended(co) ((co)->cco.state > CCO_STATE_INIT)
+#define cco_done(co) ((co)->cco.state == CCO_STATE_DONE)
+#define cco_active(co) ((co)->cco.state != CCO_STATE_DONE)
 
 #define cco_scope(co) \
-    for (int* _state = &(co)->cco_state; *_state != CCO_STATE_DONE; *_state = CCO_STATE_DONE) \
+    for (int* _state = &(co)->cco.state; *_state != CCO_STATE_DONE; *_state = CCO_STATE_DONE) \
         _resume: switch (*_state) case CCO_STATE_INIT: // thanks, @liigo!
+
+#define cco_cleanup \
+    *_state = CCO_STATE_CLEANUP; \
+    /* fall through */ \
+    case CCO_STATE_CLEANUP
+
 #define cco_routine cco_scope // [deprecated]
+#define cco_final cco_cleanup // [deprecated]
+
+#define cco_return \
+    do { \
+        *_state = *_state >= CCO_STATE_INIT ? CCO_STATE_CLEANUP : CCO_STATE_DONE; \
+        goto _resume; \
+    } while (0)
 
 #define cco_yield cco_yield_v(CCO_YIELD)
 #define cco_yield_v(ret) \
@@ -317,16 +334,16 @@ typedef enum {
 #define cco_yield_final cco_yield_final_v(CCO_YIELD)
 #define cco_yield_final_v(value) \
     do { \
-        *_state = *_state >= CCO_STATE_INIT ? CCO_STATE_FINAL : CCO_STATE_DONE; \
+        *_state = *_state >= CCO_STATE_INIT ? CCO_STATE_CLEANUP : CCO_STATE_DONE; \
         return value; \
     } while (0)
 
-#define cco_await(promise) cco_await_and_return(promise, CCO_AWAIT)
-#define cco_await_and_return(promise, ret) \
+#define cco_await(until) cco_await_with_return(until, CCO_AWAIT)
+#define cco_await_with_return(until, ret) \
     do { \
         *_state = __LINE__; \
         /* fall through */ \
-        case __LINE__: if (!(promise)) {return ret; goto _resume;} \
+        case __LINE__: if (!(until)) {return ret; goto _resume;} \
     } while (0)
 
 /* cco_await_coroutine(): assumes coroutine returns a cco_result value (int) */
@@ -336,56 +353,59 @@ typedef enum {
     do { \
         *_state = __LINE__; \
         /* fall through */ \
-        case __LINE__: { int _r = corocall; if (_r & ~(awaitbits)) {return _r; goto _resume;} } \
+        case __LINE__: { \
+            int _r = corocall; \
+            if (_r & ~(awaitbits)) { return _r; goto _resume; } \
+        } \
     } while (0)
 
 /* cco_run_coroutine(): assumes coroutine returns a cco_result value (int) */
-#define cco_run_coroutine(corocall) while ((1 ? (corocall) : -1) != CCO_DONE)
-
-#define cco_final \
-    *_state = CCO_STATE_FINAL; \
-    /* fall through */ \
-    case CCO_STATE_FINAL
-
-#define cco_return \
-    do { \
-        *_state = *_state >= CCO_STATE_INIT ? CCO_STATE_FINAL : CCO_STATE_DONE; \
-        goto _resume; \
-    } while (0)
+#define cco_run_coroutine(corocall) \
+    while ((1 ? (corocall) : -1) != CCO_DONE)
 
 #define cco_stop(co) \
-    ((co)->cco_state = (co)->cco_state >= CCO_STATE_INIT ? CCO_STATE_FINAL : CCO_STATE_DONE)
+    ((co)->cco.state = (co)->cco.state >= CCO_STATE_INIT ? \
+                       CCO_STATE_CLEANUP : CCO_STATE_DONE)
 
 #define cco_reset(co) \
-    (void)((co)->cco_state = 0)
-
+    (void)((co)->cco.state = 0)
 
 /* ============ ADVANCED, OPTIONAL ============= */
 
 
-#define cco_iter_struct(Gen, ...) \
+#define cco_iter_struct(Gen) \
     typedef Gen Gen##_value; \
-    typedef struct Gen##_iter { \
-        Gen##_value* ref; \
-        int cco_state; \
-        __VA_ARGS__ \
-    } Gen##_iter
+    typedef struct Gen##_iter Gen##_iter; \
+    struct Gen##_iter
 
-#define cco_flt_take(n) (c_flt_take(n), _base.done ? _it.cco_state = CCO_STATE_FINAL : 1)
-#define cco_flt_takewhile(pred) (c_flt_takewhile(pred), _base.done ? _it.cco_state = CCO_STATE_FINAL : 1)
+#define cco_default_begin(Gen) \
+Gen##_iter Gen##_begin(Gen* g) { \
+    Gen##_iter it = {.ref = g}; \
+    Gen##_next(&it); \
+    return it; \
+} struct Gen##_iter
+
+
+#define cco_flt_take(n) \
+    (c_flt_take(n), _base.done ? _it.cco.state = CCO_STATE_CLEANUP : 1)
+
+#define cco_flt_takewhile(pred) \
+    (c_flt_takewhile(pred), _base.done ? _it.cco.state = CCO_STATE_CLEANUP : 1)
 
 
 
 struct cco_runtime;
 
-#define cco_task_struct(Task, ...) \
-    struct Task { \
-        int (*cco_func)(struct Task*, struct cco_runtime*); \
-        int cco_state, cco_expect; \
-        __VA_ARGS__ \
-    }
+#define cco_task_struct(Task) \
+    struct Task; \
+    typedef struct { \
+        int (*func)(struct Task*, struct cco_runtime*); \
+        int state, expect; \
+    } Task##_state; \
+    struct Task
 
-typedef cco_task_struct(cco_task, /**/) cco_task; /* Define base Task struct type */
+cco_task_struct(cco_task) { cco_task_state cco; }; /* Define base Task struct type */
+typedef struct cco_task cco_task;
 
 typedef struct cco_runtime {
     int result, top;
@@ -393,25 +413,26 @@ typedef struct cco_runtime {
 } cco_runtime;
 
 #define cco_cast_task(task) \
-    ((struct cco_task *)(task) + 0*sizeof((task)->cco_func(task, (cco_runtime*)0) + ((int*)0 == &(task)->cco_state)))
+    ((struct cco_task *)(task) + 0*sizeof((task)->cco.func(task, (cco_runtime*)0) + ((int*)0 == &(task)->cco.state)))
 
 #define cco_resume_task(task, rt) \
-    (task)->cco_func(task, rt)
+    (task)->cco.func(task, rt)
 
 #define cco_await_task(...) c_MACRO_OVERLOAD(cco_await_task, __VA_ARGS__)
 #define cco_await_task_2(task, rt) cco_await_task_3(task, rt, CCO_DONE)
 #define cco_await_task_3(task, rt, awaitbits) \
     do { \
-        ((rt)->stack[++(rt)->top] = cco_cast_task(task))->cco_expect = (awaitbits); \
+        ((rt)->stack[++(rt)->top] = cco_cast_task(task))->cco.expect = (awaitbits); \
         cco_yield_v(CCO_AWAIT); \
     } while (0)
 
 #define cco_run_task(...) c_MACRO_OVERLOAD(cco_run_task, __VA_ARGS__)
 #define cco_run_task_1(task) cco_run_task_3(task, _rt, 16)
 #define cco_run_task_3(task, rt, STACKDEPTH) \
-    for (struct { int result, top; struct cco_task* stack[STACKDEPTH]; } rt = {.stack={cco_cast_task(task)}}; \
+    for (struct { int result, top; struct cco_task* stack[STACKDEPTH]; } \
+         rt = {.stack = {cco_cast_task(task)}} ; \
          (((rt.result = cco_resume_task(rt.stack[rt.top], (cco_runtime*)&rt)) & \
-           ~rt.stack[rt.top]->cco_expect) || --rt.top >= 0); )
+           ~rt.stack[rt.top]->cco.expect) || --rt.top >= 0) ; )
 
 
 #define cco_foreach(existing_it, C, cnt) \
@@ -423,10 +444,10 @@ typedef struct cco_runtime {
 
 typedef struct { ptrdiff_t count; } cco_semaphore;
 
-#define cco_await_semaphore(sem) cco_await_semaphore_and_return(sem, CCO_AWAIT)
-#define cco_await_semaphore_and_return(sem, ret) \
+#define cco_await_semaphore(sem) cco_await_semaphore_with_return(sem, CCO_AWAIT)
+#define cco_await_semaphore_with_return(sem, ret) \
     do { \
-        cco_await_and_return((sem)->count > 0, ret); \
+        cco_await_with_return((sem)->count > 0, ret); \
         --(sem)->count; \
     } while (0)
 
@@ -478,12 +499,12 @@ typedef struct { ptrdiff_t count; } cco_semaphore;
 
 typedef struct { double interval, start; } cco_timer;
 
-#define cco_await_timer(tm, sec) cco_await_timer_and_return(tm, sec, CCO_AWAIT)
+#define cco_await_timer(tm, sec) cco_await_timer_with_return(tm, sec, CCO_AWAIT)
 #define cco_await_timer_v(...) c_MACRO_OVERLOAD(cco_await_timer_v, __VA_ARGS__)
-#define cco_await_timer_and_return(tm, sec, ret) \
+#define cco_await_timer_with_return(tm, sec, ret) \
     do { \
         cco_timer_start(tm, sec); \
-        cco_await_and_return(cco_timer_expired(tm), ret); \
+        cco_await_with_return(cco_timer_expired(tm), ret); \
     } while (0)
 
 static inline void cco_timer_start(cco_timer* tm, double sec) {

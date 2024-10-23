@@ -336,7 +336,7 @@ STC_INLINE isize c_next_pow2(isize n) {
 // substring in substring?
 STC_INLINE char* c_strnstrn(const char *str, isize slen,
                             const char *needle, isize nlen) {
-    if (!nlen) return (char *)str;
+    if (nlen == 0) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
     do {
@@ -420,7 +420,7 @@ typedef union cstr {
 } cstr;
 
 typedef union {
-    cstr_value* ref;
+    const cstr_value* ref;
     csview chr; // utf8 character/codepoint
 } cstr_iter;
 
@@ -553,6 +553,7 @@ typedef union {
 #ifndef _i_prefix
   #define _i_prefix box_
 #endif
+#define _i_is_box
 // ### BEGIN_FILE_INCLUDE: template.h
 // IWYU pragma: private
 #ifndef _i_template
@@ -601,17 +602,9 @@ typedef union {
   #define i_type i_TYPE
 #endif
 
-#if defined i_rawclass
-  #define i_use_cmp
-  #define i_use_eq
-#endif
-
-#if defined i_type && !(defined i_key || defined i_keyclass || defined i_keypro)
-  #if defined i_rawclass
-    #define Self i_type
-    #define i_key i_rawclass
-    #define i_keytoraw c_default_toraw
-  #elif defined _i_is_map && !defined i_val
+#if defined i_type && !(defined i_key || defined i_keyclass || \
+                        defined i_keypro || defined i_rawclass)
+  #if defined _i_is_map && !defined i_val
     #define Self c_SELECT(_c_SEL31, i_type)
     #define i_key c_SELECT(_c_SEL32, i_type)
     #define i_val c_SELECT(_c_SEL33, i_type)
@@ -623,6 +616,17 @@ typedef union {
   #define Self i_type
 #elif !defined Self
   #define Self c_JOIN(_i_prefix, i_tag)
+#endif
+
+#if defined i_rawclass
+  #if defined _i_is_arc || defined _i_is_box
+    #define i_use_cmp
+    #define i_use_eq
+  #endif
+  #if !(defined i_key || defined i_keyclass)
+    #define i_key i_rawclass
+    #define i_keytoraw c_default_toraw
+  #endif
 #endif
 
 #define i_no_emplace
@@ -869,7 +873,7 @@ STC_INLINE Self _c_MEMB(_from)(_m_raw raw)
 
 #if !defined i_no_clone
     STC_INLINE Self _c_MEMB(_clone)(Self other) {
-        if (!other.get) return other;
+        if (other.get == NULL) return other;
         Self out = {_i_malloc(_m_value, 1)};
         *out.get = i_keyclone((*other.get));
         return out;
@@ -904,7 +908,7 @@ STC_INLINE void _c_MEMB(_assign)(Self* self, Self* moved) {
     STC_INLINE size_t _c_MEMB(_raw_hash)(const _m_raw* rx)
         { return i_hash(rx); }
 #endif // i_no_hash
-
+#undef _i_is_box
 // ### BEGIN_FILE_INCLUDE: linkage2.h
 
 #undef i_allocator

@@ -335,7 +335,7 @@ STC_INLINE isize c_next_pow2(isize n) {
 // substring in substring?
 STC_INLINE char* c_strnstrn(const char *str, isize slen,
                             const char *needle, isize nlen) {
-    if (!nlen) return (char *)str;
+    if (nlen == 0) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
     do {
@@ -419,7 +419,7 @@ typedef union cstr {
 } cstr;
 
 typedef union {
-    cstr_value* ref;
+    const cstr_value* ref;
     csview chr; // utf8 character/codepoint
 } cstr_iter;
 
@@ -601,17 +601,9 @@ typedef union {
   #define i_type i_TYPE
 #endif
 
-#if defined i_rawclass
-  #define i_use_cmp
-  #define i_use_eq
-#endif
-
-#if defined i_type && !(defined i_key || defined i_keyclass || defined i_keypro)
-  #if defined i_rawclass
-    #define Self i_type
-    #define i_key i_rawclass
-    #define i_keytoraw c_default_toraw
-  #elif defined _i_is_map && !defined i_val
+#if defined i_type && !(defined i_key || defined i_keyclass || \
+                        defined i_keypro || defined i_rawclass)
+  #if defined _i_is_map && !defined i_val
     #define Self c_SELECT(_c_SEL31, i_type)
     #define i_key c_SELECT(_c_SEL32, i_type)
     #define i_val c_SELECT(_c_SEL33, i_type)
@@ -623,6 +615,17 @@ typedef union {
   #define Self i_type
 #elif !defined Self
   #define Self c_JOIN(_i_prefix, i_tag)
+#endif
+
+#if defined i_rawclass
+  #if defined _i_is_arc || defined _i_is_box
+    #define i_use_cmp
+    #define i_use_eq
+  #endif
+  #if !(defined i_key || defined i_keyclass)
+    #define i_key i_rawclass
+    #define i_keytoraw c_default_toraw
+  #endif
 #endif
 
 #define i_no_emplace
@@ -935,22 +938,25 @@ STC_INLINE _m_value* _c_MEMB(_at_mut)(Self* self, const isize idx) {
     c_assert(idx < self->size); return self->data + idx;
 }
 
+// iteration
 
 STC_INLINE _m_iter _c_MEMB(_begin)(const Self* self) {
-    isize n = self->size;
-    return c_literal(_m_iter){n ? self->data : NULL, self->data + n};
+    _m_iter it = {(_m_value*)self->data, (_m_value*)self->data};
+    if (it.ref != NULL) it.end += self->size;
+    return it;
 }
 
 STC_INLINE _m_iter _c_MEMB(_rbegin)(const Self* self) {
-    isize n = self->size;
-    return c_literal(_m_iter){n ? self->data + n - 1 : NULL, self->data - 1};
+    _m_iter it = {(_m_value*)self->data, (_m_value*)self->data};
+    if (it.ref != NULL) { it.ref += self->size - 1; it.end -= 1; }
+    return it;
 }
 
 STC_INLINE _m_iter _c_MEMB(_end)(const Self* self)
-    { (void)self; return c_literal(_m_iter){0}; }
+    { (void)self; _m_iter it = {0}; return it; }
 
 STC_INLINE _m_iter _c_MEMB(_rend)(const Self* self)
-    { (void)self; return c_literal(_m_iter){0}; }
+    { (void)self; _m_iter it = {0}; return it; }
 
 STC_INLINE void _c_MEMB(_next)(_m_iter* it)
     { if (++it->ref == it->end) it->ref = NULL; }
@@ -1134,7 +1140,7 @@ _c_MEMB(_reserve)(Self* self, const isize cap) {
     if (cap > self->capacity || (cap && cap == self->size)) {
         _m_value* d = (_m_value*)i_realloc(self->data, self->capacity*c_sizeof *d,
                                            cap*c_sizeof *d);
-        if (!d)
+        if (d == NULL)
             return false;
         self->data = d;
         self->capacity = cap;

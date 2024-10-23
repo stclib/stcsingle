@@ -272,7 +272,7 @@ STC_INLINE isize c_next_pow2(isize n) {
 // substring in substring?
 STC_INLINE char* c_strnstrn(const char *str, isize slen,
                             const char *needle, isize nlen) {
-    if (!nlen) return (char *)str;
+    if (nlen == 0) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
     do {
@@ -356,7 +356,7 @@ typedef union cstr {
 } cstr;
 
 typedef union {
-    cstr_value* ref;
+    const cstr_value* ref;
     csview chr; // utf8 character/codepoint
 } cstr_iter;
 
@@ -985,22 +985,22 @@ STC_INLINE csview cstr_u8_chr(const cstr* self, isize u8pos) {
 
 STC_INLINE cstr_iter cstr_begin(const cstr* self) {
     csview sv = cstr_sv(self);
-    if (!sv.size) return c_literal(cstr_iter){.ref = NULL};
-    return c_literal(cstr_iter){.chr = {sv.buf, utf8_chr_size(sv.buf)}};
+    cstr_iter it = {.chr = {sv.buf, utf8_chr_size(sv.buf)}};
+    return it;
 }
 STC_INLINE cstr_iter cstr_end(const cstr* self) {
-    (void)self; return c_literal(cstr_iter){NULL};
+    (void)self; cstr_iter it = {0}; return it;
 }
 STC_INLINE void cstr_next(cstr_iter* it) {
     it->ref += it->chr.size;
     it->chr.size = utf8_chr_size(it->ref);
-    if (!*it->ref) it->ref = NULL;
+    if (*it->ref == '\0') it->ref = NULL;
 }
 
 STC_INLINE cstr_iter cstr_advance(cstr_iter it, isize u8pos) {
-    it.ref = c_const_cast(char *, utf8_offset(it.ref, u8pos));
+    it.ref = utf8_offset(it.ref, u8pos);
     it.chr.size = utf8_chr_size(it.ref);
-    if (!*it.ref) it.ref = NULL;
+    if (*it.ref == '\0') it.ref = NULL;
     return it;
 }
 
@@ -2188,7 +2188,7 @@ _lexasciiclass(_Parser *par, _Rune *rp) /* assume *rp == '[' and *par->exprp == 
     };
     int inv = par->exprp[1] == '^', off = 1 + inv;
     for (unsigned i = 0; i < (sizeof cls/sizeof *cls); ++i)
-        if (!strncmp(par->exprp + off, cls[i].c, (size_t)cls[i].n)) {
+        if (strncmp(par->exprp + off, cls[i].c, (size_t)cls[i].n) == 0) {
             *rp = (_Rune)cls[i].r;
             par->exprp += off + cls[i].n;
             break;
@@ -2231,7 +2231,7 @@ _lexutfclass(_Parser *par, _Rune *rp)
     };
     unsigned inv = (*rp == 'P');
     for (unsigned i = 0; i < (sizeof cls/sizeof *cls); ++i) {
-        if (!strncmp(par->exprp, cls[i].c, (size_t)cls[i].n)) {
+        if (strncmp(par->exprp, cls[i].c, (size_t)cls[i].n) == 0) {
             if (par->rune_type == TOK_IRUNE && (cls[i].r == UTF_ll || cls[i].r == UTF_lu))
                 *rp = (_Rune)(UTF_lc + inv);
             else
@@ -2414,7 +2414,7 @@ _regcomp1(_Reprog *pp, _Parser *par, const char *s, int cflags)
     isize instcap = 5 + 6*c_strlen(s);
     isize new_allocsize = c_sizeof(_Reprog) + instcap*c_sizeof(_Reinst);
     pp = (_Reprog *)i_realloc(pp, pp ? pp->allocsize : 0, new_allocsize);
-    if (! pp) {
+    if (pp == NULL) {
         par->error = CREG_OUTOFMEMORY;
         return NULL;
     }
@@ -3306,7 +3306,7 @@ char* cstr_reserve(cstr* self, const isize cap) {
 char* cstr_resize(cstr* self, const isize size, const char value) {
     cstr_view r = cstr_getview(self);
     if (size > r.size) {
-        if (size > r.cap && !(r.data = cstr_reserve(self, size)))
+        if (size > r.cap && (r.data = cstr_reserve(self, size)) == NULL)
             return NULL;
         c_memset(r.data + r.size, value, size - r.size);
     }
@@ -3332,7 +3332,7 @@ char* cstr_append_n(cstr* self, const char* str, const isize len) {
     if (r.size + len > r.cap) {
         const size_t off = (size_t)(str - r.data);
         r.data = cstr_reserve(self, r.size*3/2 + len);
-        if (!r.data) return NULL;
+        if (r.data == NULL) return NULL;
         if (off <= (size_t)r.size) str = r.data + off; /* handle self append */
     }
     c_memcpy(r.data + r.size, str, len);
@@ -3343,7 +3343,7 @@ char* cstr_append_n(cstr* self, const char* str, const isize len) {
 cstr cstr_from_replace(csview in, csview search, csview repl, int32_t count) {
     cstr out = cstr_init();
     isize from = 0; char* res;
-    if (!count) count = INT32_MAX;
+    if (count == 0) count = INT32_MAX;
     if (search.size)
         while (count-- && (res = c_strnstrn(in.buf + from, in.size - from, search.buf, search.size))) {
             const isize pos = (res - in.buf);
@@ -3384,7 +3384,7 @@ void cstr_shrink_to_fit(cstr* self) {
 
 char* cstr_append_uninit(cstr *self, isize len) {
     cstr_view r = cstr_getview(self);
-    if (r.size + len > r.cap && !(r.data = cstr_reserve(self, r.size*3/2 + len)))
+    if (r.size + len > r.cap && (r.data = cstr_reserve(self, r.size*3/2 + len)) == NULL)
         return NULL;
     _cstr_set_size(self, r.size + len);
     return r.data + r.size;
@@ -3414,7 +3414,7 @@ static isize cstr_vfmt(cstr* self, isize start, const char* fmt, va_list args) {
     va_list args2;
     va_copy(args2, args);
     const int n = vsnprintf(NULL, 0ULL, fmt, args);
-    vsprintf(cstr_reserve(self, start + n) + start, fmt, args2);
+    vsnprintf(cstr_reserve(self, start + n) + start, (size_t)n+1, fmt, args2);
     va_end(args2);
     _cstr_set_size(self, start + n);
     return n;

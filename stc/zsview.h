@@ -338,7 +338,7 @@ STC_INLINE isize c_next_pow2(isize n) {
 // substring in substring?
 STC_INLINE char* c_strnstrn(const char *str, isize slen,
                             const char *needle, isize nlen) {
-    if (!nlen) return (char *)str;
+    if (nlen == 0) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
     do {
@@ -422,7 +422,7 @@ typedef union cstr {
 } cstr;
 
 typedef union {
-    cstr_value* ref;
+    const cstr_value* ref;
     csview chr; // utf8 character/codepoint
 } cstr_iter;
 
@@ -664,7 +664,7 @@ STC_INLINE zsview   zsview_from(const char* str)
 STC_INLINE void     zsview_clear(zsview* self) { *self = c_zv(""); }
 STC_INLINE csview   zsview_sv(zsview zs) { return c_sv_2(zs.str, zs.size); }
 
-STC_INLINE isize zsview_size(zsview zs) { return zs.size; }
+STC_INLINE isize    zsview_size(zsview zs) { return zs.size; }
 STC_INLINE bool     zsview_is_empty(zsview zs) { return zs.size == 0; }
 
 STC_INLINE bool zsview_equals(zsview zs, const char* str) {
@@ -743,23 +743,23 @@ STC_INLINE bool zsview_u8_valid(zsview zs) // requires linking with utf8 symbols
 /* utf8 iterator */
 
 STC_INLINE zsview_iter zsview_begin(const zsview* self) {
-    return c_literal(zsview_iter){.chr = {self->str, utf8_chr_size(self->str)}};
+    zsview_iter it = {.chr = {self->str, utf8_chr_size(self->str)}}; return it;
 }
 
 STC_INLINE zsview_iter zsview_end(const zsview* self) {
-    (void)self; return c_literal(zsview_iter){.ref = NULL};
+    (void)self; zsview_iter it = {0}; return it;
 }
 
 STC_INLINE void zsview_next(zsview_iter* it) {
     it->ref += it->chr.size;
     it->chr.size = utf8_chr_size(it->ref);
-    if (!*it->ref) it->ref = NULL;
+    if (*it->ref == '\0') it->ref = NULL;
 }
 
 STC_INLINE zsview_iter zsview_advance(zsview_iter it, isize u8pos) {
-    it.ref = c_const_cast(char *, utf8_offset(it.ref, u8pos));
+    it.ref = utf8_offset(it.ref, u8pos);
     it.chr.size = utf8_chr_size(it.ref);
-    if (!*it.ref) it.ref = NULL;
+    if (*it.ref == '\0') it.ref = NULL;
     return it;
 }
 

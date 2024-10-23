@@ -338,7 +338,7 @@ STC_INLINE isize c_next_pow2(isize n) {
 // substring in substring?
 STC_INLINE char* c_strnstrn(const char *str, isize slen,
                             const char *needle, isize nlen) {
-    if (!nlen) return (char *)str;
+    if (nlen == 0) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
     do {
@@ -422,7 +422,7 @@ typedef union cstr {
 } cstr;
 
 typedef union {
-    cstr_value* ref;
+    const cstr_value* ref;
     csview chr; // utf8 character/codepoint
 } cstr_iter;
 
@@ -729,11 +729,12 @@ STC_INLINE const char* csview_at(csview sv, isize idx)
 
 /* utf8 iterator */
 STC_INLINE csview_iter csview_begin(const csview* self) {
-    return c_literal(csview_iter){.u8 = {{self->buf, utf8_chr_size(self->buf)},
-                                          self->buf + self->size}};
+    csview_iter it = {.u8 = {{self->buf, utf8_chr_size(self->buf)},
+                             self->buf + self->size}};
+    return it;
 }
 STC_INLINE csview_iter csview_end(const csview* self) {
-    return c_literal(csview_iter){.u8 = {{0}, self->buf + self->size}};
+    (void)self; csview_iter it = {0}; return it;
 }
 STC_INLINE void csview_next(csview_iter* it) {
     it->ref += it->chr.size;

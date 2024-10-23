@@ -332,7 +332,7 @@ STC_INLINE isize c_next_pow2(isize n) {
 // substring in substring?
 STC_INLINE char* c_strnstrn(const char *str, isize slen,
                             const char *needle, isize nlen) {
-    if (!nlen) return (char *)str;
+    if (nlen == 0) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
     do {
@@ -408,17 +408,9 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen,
   #define i_type i_TYPE
 #endif
 
-#if defined i_rawclass
-  #define i_use_cmp
-  #define i_use_eq
-#endif
-
-#if defined i_type && !(defined i_key || defined i_keyclass || defined i_keypro)
-  #if defined i_rawclass
-    #define Self i_type
-    #define i_key i_rawclass
-    #define i_keytoraw c_default_toraw
-  #elif defined _i_is_map && !defined i_val
+#if defined i_type && !(defined i_key || defined i_keyclass || \
+                        defined i_keypro || defined i_rawclass)
+  #if defined _i_is_map && !defined i_val
     #define Self c_SELECT(_c_SEL31, i_type)
     #define i_key c_SELECT(_c_SEL32, i_type)
     #define i_val c_SELECT(_c_SEL33, i_type)
@@ -430,6 +422,17 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen,
   #define Self i_type
 #elif !defined Self
   #define Self c_JOIN(_i_prefix, i_tag)
+#endif
+
+#if defined i_rawclass
+  #if defined _i_is_arc || defined _i_is_box
+    #define i_use_cmp
+    #define i_use_eq
+  #endif
+  #if !(defined i_key || defined i_keyclass)
+    #define i_key i_rawclass
+    #define i_keytoraw c_default_toraw
+  #endif
 #endif
 
 #define i_no_emplace

@@ -336,7 +336,7 @@ STC_INLINE isize c_next_pow2(isize n) {
 // substring in substring?
 STC_INLINE char* c_strnstrn(const char *str, isize slen,
                             const char *needle, isize nlen) {
-    if (!nlen) return (char *)str;
+    if (nlen == 0) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
     do {
@@ -420,7 +420,7 @@ typedef union cstr {
 } cstr;
 
 typedef union {
-    cstr_value* ref;
+    const cstr_value* ref;
     csview chr; // utf8 character/codepoint
 } cstr_iter;
 
@@ -599,17 +599,9 @@ typedef union {
   #define i_type i_TYPE
 #endif
 
-#if defined i_rawclass
-  #define i_use_cmp
-  #define i_use_eq
-#endif
-
-#if defined i_type && !(defined i_key || defined i_keyclass || defined i_keypro)
-  #if defined i_rawclass
-    #define Self i_type
-    #define i_key i_rawclass
-    #define i_keytoraw c_default_toraw
-  #elif defined _i_is_map && !defined i_val
+#if defined i_type && !(defined i_key || defined i_keyclass || \
+                        defined i_keypro || defined i_rawclass)
+  #if defined _i_is_map && !defined i_val
     #define Self c_SELECT(_c_SEL31, i_type)
     #define i_key c_SELECT(_c_SEL32, i_type)
     #define i_val c_SELECT(_c_SEL33, i_type)
@@ -621,6 +613,17 @@ typedef union {
   #define Self i_type
 #elif !defined Self
   #define Self c_JOIN(_i_prefix, i_tag)
+#endif
+
+#if defined i_rawclass
+  #if defined _i_is_arc || defined _i_is_box
+    #define i_use_cmp
+    #define i_use_eq
+  #endif
+  #if !(defined i_key || defined i_keyclass)
+    #define i_key i_rawclass
+    #define i_keytoraw c_default_toraw
+  #endif
 #endif
 
 #define i_no_emplace
@@ -971,7 +974,7 @@ _c_MEMB(_reserve)(Self* self, const isize n) {
         return true;
     isize oldpow2 = self->capmask + 1, newpow2 = c_next_pow2(n + 1);
     _m_value* d = (_m_value *)i_realloc(self->cbuf, oldpow2*c_sizeof *d, newpow2*c_sizeof *d);
-    if (!d)
+    if (d == NULL)
         return false;
     isize head = oldpow2 - self->start;
     if (self->start <= self->end)
@@ -1007,7 +1010,7 @@ _c_MEMB(_shrink_to_fit)(Self *self) {
     if (sz > self->capmask/2)
         return;
     Self out = _c_MEMB(_with_capacity)(sz);
-    if (!out.cbuf)
+    if (out.cbuf == NULL)
         return;
     c_foreach (i, Self, *self)
         out.cbuf[j++] = *i.ref;

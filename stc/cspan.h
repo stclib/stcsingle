@@ -335,7 +335,7 @@ STC_INLINE isize c_next_pow2(isize n) {
 // substring in substring?
 STC_INLINE char* c_strnstrn(const char *str, isize slen,
                             const char *needle, isize nlen) {
-    if (!nlen) return (char *)str;
+    if (nlen == 0) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
     do {
@@ -353,13 +353,17 @@ typedef isize _isize_triple[3];
 
 #define using_cspan(...) c_MACRO_OVERLOAD(using_cspan, __VA_ARGS__)
 #define using_cspan_2(Self, T) \
-    using_cspan_3(Self, T, 1); \
+    using_cspan_with_eq(Self, T, c_default_eq)
+#define using_cspan_with_eq(Self, T, i_eq) \
+    using_cspan_4(Self, T, 1, i_eq); \
     STC_INLINE Self Self##_with_n(Self##_value* values, isize n) { \
         return (Self)cspan_with_n(values, n); \
     } \
     struct stc_nostruct
 
 #define using_cspan_3(Self, T, RANK) \
+    using_cspan_4(Self, T, RANK, c_default_eq)
+#define using_cspan_no_eq(Self, T, RANK) \
     typedef T Self##_value; \
     typedef T Self##_raw; \
     typedef struct { \
@@ -393,6 +397,22 @@ typedef isize _isize_triple[3];
         it->ref += _cspan_next##RANK(it->pos, it->_s->shape, it->_s->stride.d, RANK, &done); \
         if (done) it->ref = NULL; \
     } \
+    STC_INLINE Self Self##_transpose(Self sp) \
+        { _cspan_transpose(sp.shape, sp.stride.d, cspan_rank(&sp)); return sp; } \
+    struct stc_nostruct
+
+#define using_cspan_4(Self, T, RANK, i_eq) \
+    using_cspan_no_eq(Self, T, RANK); \
+    STC_INLINE bool Self##_eq(const Self* x, const Self* y) { \
+        if (memcmp(x->shape, y->shape, sizeof x->shape) != 0) \
+            return false; \
+        for (Self##_iter _i = Self##_begin(x), _j = Self##_begin(y); \
+             _i.ref != NULL; Self##_next(&_i), Self##_next(&_j)) \
+            { if (!(i_eq(_i.ref, _j.ref))) return false; } \
+        return true; \
+    } \
+    STC_INLINE bool Self##_equals(Self sp1, Self sp2) \
+        { return Self##_eq(&sp1, &sp2); } \
     struct stc_nostruct
 
 #define using_cspan2(Self, T) using_cspan_2(Self, T); using_cspan_3(Self##2, T, 2)
@@ -459,12 +479,6 @@ typedef enum {c_ROWMAJOR, c_COLMAJOR} cspan_layout;
              _cspan_shape2stride(layout, c_make_array(_istride, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))}
 
 // Transpose and swap axes
-//
-#define cspan_transposed2(self) \
-    {.data=(self)->data + c_static_assert(cspan_rank(self) == 2), \
-     .shape={(self)->shape[1], (self)->shape[0]}, \
-     .stride=(cspan_tuple2){.d={(self)->stride.d[1], (self)->stride.d[0]}}}
-
 #define cspan_transpose(self) \
     _cspan_transpose((self)->shape, (self)->stride.d, cspan_rank(self))
 
