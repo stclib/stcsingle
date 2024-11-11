@@ -54,29 +54,32 @@ typedef ptrdiff_t       isize;
 #define _c_SEL32(a, b, c) b
 #define _c_SEL33(a, b, c) c
 
+#define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
+#define _i_calloc(T, n)     ((T*)i_calloc((n), c_sizeof(T)))
 #ifndef __cplusplus
-    #define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
-    #define _i_calloc(T, n)     ((T*)i_calloc(n, c_sizeof(T)))
     #define c_new(T, ...)       ((T*)memcpy(malloc(sizeof(T)), ((T[]){__VA_ARGS__}), sizeof(T)))
     #define c_literal(T)        (T)
     #define c_make_array(T, ...) ((T[])__VA_ARGS__)
     #define c_make_array2d(T, N, ...) ((T[][N])__VA_ARGS__)
 #else
     #include <new>
-    #define _i_malloc(T, n)     static_cast<T*>(i_malloc((n)*c_sizeof(T)))
-    #define _i_calloc(T, n)     static_cast<T*>(i_calloc(n, c_sizeof(T)))
     #define c_new(T, ...)       new (malloc(sizeof(T))) T(__VA_ARGS__)
     #define c_literal(T)        T
     template<typename T, int M, int N> struct _c_Array { T data[M][N]; };
     #define c_make_array(T, ...) (_c_Array<T, 1, sizeof((T[])__VA_ARGS__)/sizeof(T)>{{__VA_ARGS__}}.data[0])
     #define c_make_array2d(T, N, ...) (_c_Array<T, sizeof((T[][N])__VA_ARGS__)/sizeof(T[N]), N>{__VA_ARGS__}.data)
 #endif
-#define c_new_n(T, n)           ((T*)malloc(sizeof(T)*c_i2u_size(n)))
-#define c_malloc(sz)            malloc(c_i2u_size(sz))
-#define c_calloc(n, sz)         calloc(c_i2u_size(n), c_i2u_size(sz))
-#define c_realloc(p, old_sz, sz) realloc(p, c_i2u_size(1 ? (sz) : (old_sz)))
-#define c_free(p, sz)           do { (void)(sz); free(p); } while(0)
-#define c_delete(T, ptr)        do { T *_tp = ptr; T##_drop(_tp); free(_tp); } while (0)
+#ifndef c_malloc
+    #define c_malloc(sz)        malloc(c_i2u_size(sz))
+    #define c_calloc(n, sz)     calloc(c_i2u_size(n), c_i2u_size(sz))
+    #define c_realloc(ptr, old_sz, sz) realloc(ptr, c_i2u_size(1 ? (sz) : (old_sz)))
+    #define c_free(ptr, sz)     do { (void)(sz); free(ptr); } while(0)
+#endif
+#define c_new_n(T, n)           ((T*)c_calloc(n, c_sizeof(T)))
+#define c_delete(T, ptr)        do { T* _tp = ptr; T##_drop(_tp); c_free(_tp, c_sizeof(T)); } while (0)
+#define c_delete_n(T, ptr, n)   do { T* _tp = ptr; isize _n = n, _m = _n; \
+                                     while (_n--) T##_drop((_tp + _n)); \
+                                     c_free(_tp, _m*c_sizeof(T)); } while (0)
 
 #define c_static_assert(expr)   (1 ? 0 : (int)sizeof(int[(expr) ? 1 : -1]))
 #if defined STC_NDEBUG || defined NDEBUG
@@ -156,19 +159,11 @@ typedef const char* cstr_raw;
          _it.ref != (C##_value*)_endref && (key = &_it.ref->first, val = &_it.ref->second); \
          C##_next(&_it))
 
-#ifndef __cplusplus
-    #define c_foritems(it, T, ...) \
-        for (struct {T* ref; int size, index;} \
-             it = {.ref=(T[])__VA_ARGS__, .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
-             ; it.index < it.size; ++it.ref, ++it.index)
-#else
-    #include <initializer_list>
-    #define c_foritems(it, T, ...) \
-        for (struct {std::initializer_list<T> _il; std::initializer_list<T>::iterator ref; size_t size, index;} \
-             it = {._il=__VA_ARGS__, .ref=it._il.begin(), .size=it._il.size()} \
-             ; it.index < it.size; ++it.ref, ++it.index)
-#endif
-#define c_forlist(...) c_foritems(_VA_ARGS__) // [deprecated]
+#define c_foritems(it, T, ...) \
+    for (struct {T* ref; int size, index;} \
+         it = {.ref=c_make_array(T, __VA_ARGS__), .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
+         ; it.index < it.size; ++it.ref, ++it.index)
+#define c_forlist(...) c_foritems(_VA_ARGS__)                      // [deprecated]
 #define c_forpair(...) 'c_forpair not_supported. Use c_foreach_kv' // [removed]
 
 // c_forrange, c_forrange32: python-like int range iteration
@@ -206,13 +201,13 @@ typedef const char* cstr_raw;
 
 // RAII scopes
 #define c_defer(...) \
-    for (int _c_i = 1; _c_i; _c_i = 0, __VA_ARGS__)
+    for (int _c_i = 0; _c_i++ == 0; __VA_ARGS__)
 
 #define c_with(...) c_MACRO_OVERLOAD(c_with, __VA_ARGS__)
 #define c_with_2(init, deinit) \
-    for (int _c_i = 1; _c_i; ) for (init; _c_i; _c_i = 0, deinit) // thanks, tstanisl
+    for (int _c_i = 0; _c_i == 0; ) for (init; _c_i++ == 0; deinit)
 #define c_with_3(init, condition, deinit) \
-    for (int _c_i = 1; _c_i; ) for (init; _c_i && (condition); _c_i = 0, deinit)
+    for (int _c_i = 0; _c_i == 0; ) for (init; _c_i++ == 0 && (condition); deinit)
 
 // General functions
 
@@ -306,8 +301,18 @@ typedef struct {
 #define cco_done(co) ((co)->cco.state == CCO_STATE_DONE)
 #define cco_active(co) ((co)->cco.state != CCO_STATE_DONE)
 
-#define cco_scope(co) \
-    for (int* _state = &(co)->cco.state; *_state != CCO_STATE_DONE; *_state = CCO_STATE_DONE) \
+#if defined __GNUC__ || _MSC_VER >= 1939
+  #define _cco_check_task_struct(co) \
+    c_static_assert(/* error: co->cco not first member in task struct */ \
+                    sizeof((co)->cco) == sizeof(cco_state) || \
+                    offsetof(__typeof__(*(co)), cco) == 0)
+#else
+  #define _cco_check_task_struct(co) 0
+#endif
+
+#define cco_routine(co) \
+    for (int *_state = &(co)->cco.state + _cco_check_task_struct(co) \
+           ; *_state != CCO_STATE_DONE ; *_state = CCO_STATE_DONE) \
         _resume: switch (*_state) case CCO_STATE_INIT: // thanks, @liigo!
 
 #define cco_cleanup \
@@ -315,7 +320,7 @@ typedef struct {
     /* fall through */ \
     case CCO_STATE_CLEANUP
 
-#define cco_routine cco_scope // [deprecated]
+#define cco_scope cco_routine // [deprecated]
 #define cco_final cco_cleanup // [deprecated]
 
 #define cco_return \
@@ -325,25 +330,25 @@ typedef struct {
     } while (0)
 
 #define cco_yield cco_yield_v(CCO_YIELD)
-#define cco_yield_v(ret) \
+#define cco_yield_v(suspendval) \
     do { \
-        *_state = __LINE__; return ret; goto _resume; \
+        *_state = __LINE__; return suspendval; goto _resume; \
         case __LINE__:; \
     } while (0)
 
 #define cco_yield_final cco_yield_final_v(CCO_YIELD)
-#define cco_yield_final_v(value) \
+#define cco_yield_final_v(suspendval) \
     do { \
         *_state = *_state >= CCO_STATE_INIT ? CCO_STATE_CLEANUP : CCO_STATE_DONE; \
-        return value; \
+        return suspendval; \
     } while (0)
 
-#define cco_await(until) cco_await_with_return(until, CCO_AWAIT)
-#define cco_await_with_return(until, ret) \
+#define cco_await(until) cco_await_v(until, CCO_AWAIT)
+#define cco_await_v(until, suspendval) \
     do { \
         *_state = __LINE__; \
         /* fall through */ \
-        case __LINE__: if (!(until)) {return ret; goto _resume;} \
+        case __LINE__: if (!(until)) {return suspendval; goto _resume;} \
     } while (0)
 
 /* cco_await_coroutine(): assumes coroutine returns a cco_result value (int) */
@@ -364,33 +369,18 @@ typedef struct {
     while ((1 ? (corocall) : -1) != CCO_DONE)
 
 #define cco_stop(co) \
-    ((co)->cco.state = (co)->cco.state >= CCO_STATE_INIT ? \
-                       CCO_STATE_CLEANUP : CCO_STATE_DONE)
+    do { \
+        int* _s = &(co)->cco.state; \
+        *_s = *_s >= CCO_STATE_INIT ? CCO_STATE_CLEANUP : CCO_STATE_DONE; \
+    } while (0)
+
+#define cco_cancel(co, func) \
+    do { \
+        cco_stop(co); func(co); \
+    } while (0)
 
 #define cco_reset(co) \
     (void)((co)->cco.state = 0)
-
-/* ============ ADVANCED, OPTIONAL ============= */
-
-
-#define cco_iter_struct(Gen) \
-    typedef Gen Gen##_value; \
-    typedef struct Gen##_iter Gen##_iter; \
-    struct Gen##_iter
-
-#define cco_default_begin(Gen) \
-Gen##_iter Gen##_begin(Gen* g) { \
-    Gen##_iter it = {.ref = g}; \
-    Gen##_next(&it); \
-    return it; \
-} struct Gen##_iter
-
-
-#define cco_flt_take(n) \
-    (c_flt_take(n), _base.done ? _it.cco.state = CCO_STATE_CLEANUP : 1)
-
-#define cco_flt_takewhile(pred) \
-    (c_flt_takewhile(pred), _base.done ? _it.cco.state = CCO_STATE_CLEANUP : 1)
 
 
 
@@ -400,7 +390,7 @@ struct cco_runtime;
     struct Task; \
     typedef struct { \
         int (*func)(struct Task*, struct cco_runtime*); \
-        int state, expect; \
+        int state, await; \
     } Task##_state; \
     struct Task
 
@@ -409,21 +399,37 @@ typedef struct cco_task cco_task;
 
 typedef struct cco_runtime {
     int result, top;
-    struct cco_task* stack[];
+    cco_task* stack[];
 } cco_runtime;
 
 #define cco_cast_task(task) \
-    ((struct cco_task *)(task) + 0*sizeof((task)->cco.func(task, (cco_runtime*)0) + ((int*)0 == &(task)->cco.state)))
+    ((cco_task *)(task) + 0*sizeof((task)->cco.func(task, (cco_runtime*)0)))
 
 #define cco_resume_task(task, rt) \
     (task)->cco.func(task, rt)
 
+#define cco_cancel_task(task, rt) \
+    do { \
+        cco_task* _t = cco_cast_task(task); \
+        cco_stop(_t); _t->cco.func(_t, rt); \
+    } while (0)
+
 #define cco_await_task(...) c_MACRO_OVERLOAD(cco_await_task, __VA_ARGS__)
 #define cco_await_task_2(task, rt) cco_await_task_3(task, rt, CCO_DONE)
-#define cco_await_task_3(task, rt, awaitbits) \
+#define cco_await_task_3(task, rt, awaitbits) cco_await_task_v(task, rt, awaitbits, CCO_AWAIT)
+#define cco_await_task_v(task, rt, awaitbits, suspendval) \
     do { \
-        ((rt)->stack[++(rt)->top] = cco_cast_task(task))->cco.expect = (awaitbits); \
-        cco_yield_v(CCO_AWAIT); \
+        ((rt)->stack[++(rt)->top] = cco_cast_task(task))->cco.await = (awaitbits); \
+        cco_yield_v(suspendval); \
+    } while (0)
+
+#define cco_yield_task(task, rt) cco_yield_task_v(task, rt, CCO_AWAIT)
+#define cco_yield_task_v(task, rt, suspendval) \
+    do { \
+        { cco_task* _t = cco_cast_task(task); \
+        _t->cco.await = (rt)->stack[(rt)->top]->cco.await; \
+        (rt)->stack[(rt)->top] = _t; } \
+        cco_yield_v(suspendval); \
     } while (0)
 
 #define cco_run_task(...) c_MACRO_OVERLOAD(cco_run_task, __VA_ARGS__)
@@ -432,22 +438,30 @@ typedef struct cco_runtime {
     for (struct { int result, top; struct cco_task* stack[STACKDEPTH]; } \
          rt = {.stack = {cco_cast_task(task)}} ; \
          (((rt.result = cco_resume_task(rt.stack[rt.top], (cco_runtime*)&rt)) & \
-           ~rt.stack[rt.top]->cco.expect) || --rt.top >= 0) ; )
+           ~rt.stack[rt.top]->cco.await) || --rt.top >= 0) ; )
+
 
 
 #define cco_foreach(existing_it, C, cnt) \
     for (existing_it = C##_begin(&cnt); (existing_it).ref; C##_next(&existing_it))
+
 #define cco_foreach_reverse(existing_it, C, cnt) \
     for (existing_it = C##_rbegin(&cnt); (existing_it).ref; C##_rnext(&existing_it))
+
+#define cco_flt_take(n) \
+    (c_flt_take(n), _base.done ? _it.cco.state = CCO_STATE_CLEANUP : 1)
+
+#define cco_flt_takewhile(pred) \
+    (c_flt_takewhile(pred), _base.done ? _it.cco.state = CCO_STATE_CLEANUP : 1)
 
 
 
 typedef struct { ptrdiff_t count; } cco_semaphore;
 
-#define cco_await_semaphore(sem) cco_await_semaphore_with_return(sem, CCO_AWAIT)
-#define cco_await_semaphore_with_return(sem, ret) \
+#define cco_await_semaphore(sem) cco_await_semaphore_v(sem, CCO_AWAIT)
+#define cco_await_semaphore_v(sem, suspendval) \
     do { \
-        cco_await_with_return((sem)->count > 0, ret); \
+        cco_await_v((sem)->count > 0, suspendval); \
         --(sem)->count; \
     } while (0)
 
@@ -499,22 +513,21 @@ typedef struct { ptrdiff_t count; } cco_semaphore;
 
 typedef struct { double interval, start; } cco_timer;
 
-#define cco_await_timer(tm, sec) cco_await_timer_with_return(tm, sec, CCO_AWAIT)
-#define cco_await_timer_v(...) c_MACRO_OVERLOAD(cco_await_timer_v, __VA_ARGS__)
-#define cco_await_timer_with_return(tm, sec, ret) \
+static inline cco_timer cco_timer_make(double sec) {
+    cco_timer tm = {.interval=sec, .start=cco_time()};
+    return tm;
+}
+
+#define cco_await_timer(tm, sec) cco_await_timer_v(tm, sec, CCO_AWAIT)
+#define cco_await_timer_v(tm, sec, suspendval) \
     do { \
         cco_timer_start(tm, sec); \
-        cco_await_with_return(cco_timer_expired(tm), ret); \
+        cco_await_v(cco_timer_expired(tm), suspendval); \
     } while (0)
 
 static inline void cco_timer_start(cco_timer* tm, double sec) {
     tm->interval = sec;
     tm->start = cco_time();
-}
-
-static inline cco_timer cco_timer_from(double sec) {
-    cco_timer tm = {.interval=sec, .start=cco_time()};
-    return tm;
 }
 
 static inline void cco_timer_restart(cco_timer* tm) {

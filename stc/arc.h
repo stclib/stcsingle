@@ -117,29 +117,32 @@ typedef ptrdiff_t       isize;
 #define _c_SEL32(a, b, c) b
 #define _c_SEL33(a, b, c) c
 
+#define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
+#define _i_calloc(T, n)     ((T*)i_calloc((n), c_sizeof(T)))
 #ifndef __cplusplus
-    #define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
-    #define _i_calloc(T, n)     ((T*)i_calloc(n, c_sizeof(T)))
     #define c_new(T, ...)       ((T*)memcpy(malloc(sizeof(T)), ((T[]){__VA_ARGS__}), sizeof(T)))
     #define c_literal(T)        (T)
     #define c_make_array(T, ...) ((T[])__VA_ARGS__)
     #define c_make_array2d(T, N, ...) ((T[][N])__VA_ARGS__)
 #else
     #include <new>
-    #define _i_malloc(T, n)     static_cast<T*>(i_malloc((n)*c_sizeof(T)))
-    #define _i_calloc(T, n)     static_cast<T*>(i_calloc(n, c_sizeof(T)))
     #define c_new(T, ...)       new (malloc(sizeof(T))) T(__VA_ARGS__)
     #define c_literal(T)        T
     template<typename T, int M, int N> struct _c_Array { T data[M][N]; };
     #define c_make_array(T, ...) (_c_Array<T, 1, sizeof((T[])__VA_ARGS__)/sizeof(T)>{{__VA_ARGS__}}.data[0])
     #define c_make_array2d(T, N, ...) (_c_Array<T, sizeof((T[][N])__VA_ARGS__)/sizeof(T[N]), N>{__VA_ARGS__}.data)
 #endif
-#define c_new_n(T, n)           ((T*)malloc(sizeof(T)*c_i2u_size(n)))
-#define c_malloc(sz)            malloc(c_i2u_size(sz))
-#define c_calloc(n, sz)         calloc(c_i2u_size(n), c_i2u_size(sz))
-#define c_realloc(p, old_sz, sz) realloc(p, c_i2u_size(1 ? (sz) : (old_sz)))
-#define c_free(p, sz)           do { (void)(sz); free(p); } while(0)
-#define c_delete(T, ptr)        do { T *_tp = ptr; T##_drop(_tp); free(_tp); } while (0)
+#ifndef c_malloc
+    #define c_malloc(sz)        malloc(c_i2u_size(sz))
+    #define c_calloc(n, sz)     calloc(c_i2u_size(n), c_i2u_size(sz))
+    #define c_realloc(ptr, old_sz, sz) realloc(ptr, c_i2u_size(1 ? (sz) : (old_sz)))
+    #define c_free(ptr, sz)     do { (void)(sz); free(ptr); } while(0)
+#endif
+#define c_new_n(T, n)           ((T*)c_calloc(n, c_sizeof(T)))
+#define c_delete(T, ptr)        do { T* _tp = ptr; T##_drop(_tp); c_free(_tp, c_sizeof(T)); } while (0)
+#define c_delete_n(T, ptr, n)   do { T* _tp = ptr; isize _n = n, _m = _n; \
+                                     while (_n--) T##_drop((_tp + _n)); \
+                                     c_free(_tp, _m*c_sizeof(T)); } while (0)
 
 #define c_static_assert(expr)   (1 ? 0 : (int)sizeof(int[(expr) ? 1 : -1]))
 #if defined STC_NDEBUG || defined NDEBUG
@@ -219,19 +222,11 @@ typedef const char* cstr_raw;
          _it.ref != (C##_value*)_endref && (key = &_it.ref->first, val = &_it.ref->second); \
          C##_next(&_it))
 
-#ifndef __cplusplus
-    #define c_foritems(it, T, ...) \
-        for (struct {T* ref; int size, index;} \
-             it = {.ref=(T[])__VA_ARGS__, .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
-             ; it.index < it.size; ++it.ref, ++it.index)
-#else
-    #include <initializer_list>
-    #define c_foritems(it, T, ...) \
-        for (struct {std::initializer_list<T> _il; std::initializer_list<T>::iterator ref; size_t size, index;} \
-             it = {._il=__VA_ARGS__, .ref=it._il.begin(), .size=it._il.size()} \
-             ; it.index < it.size; ++it.ref, ++it.index)
-#endif
-#define c_forlist(...) c_foritems(_VA_ARGS__) // [deprecated]
+#define c_foritems(it, T, ...) \
+    for (struct {T* ref; int size, index;} \
+         it = {.ref=c_make_array(T, __VA_ARGS__), .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
+         ; it.index < it.size; ++it.ref, ++it.index)
+#define c_forlist(...) c_foritems(_VA_ARGS__)                      // [deprecated]
 #define c_forpair(...) 'c_forpair not_supported. Use c_foreach_kv' // [removed]
 
 // c_forrange, c_forrange32: python-like int range iteration
@@ -269,13 +264,13 @@ typedef const char* cstr_raw;
 
 // RAII scopes
 #define c_defer(...) \
-    for (int _c_i = 1; _c_i; _c_i = 0, __VA_ARGS__)
+    for (int _c_i = 0; _c_i++ == 0; __VA_ARGS__)
 
 #define c_with(...) c_MACRO_OVERLOAD(c_with, __VA_ARGS__)
 #define c_with_2(init, deinit) \
-    for (int _c_i = 1; _c_i; ) for (init; _c_i; _c_i = 0, deinit) // thanks, tstanisl
+    for (int _c_i = 0; _c_i == 0; ) for (init; _c_i++ == 0; deinit)
 #define c_with_3(init, condition, deinit) \
-    for (int _c_i = 1; _c_i; ) for (init; _c_i && (condition); _c_i = 0, deinit)
+    for (int _c_i = 0; _c_i == 0; ) for (init; _c_i++ == 0 && (condition); deinit)
 
 // General functions
 
@@ -860,35 +855,34 @@ STC_INLINE Self _c_MEMB(_init)(void)
 STC_INLINE long _c_MEMB(_use_count)(const Self* self)
     { return self->use_count ? *self->use_count : 0; }
 
-STC_INLINE Self _c_MEMB(_from_ptr)(_m_value* ptr) {
-    enum {OFFSET = offsetof(struct _c_MEMB(_rep_), value)};
-    Self arc = {ptr};
-    if (ptr) {
-        // Adds 4 dummy bytes to ensure that the if-test in _drop is safe.
-        struct _arc_metadata* meta = (struct _arc_metadata*)i_malloc(OFFSET + 4);
-        *(arc.use_count = &meta->counter) = 1;
-    }
-    return arc;
-}
 
 // c++: std::make_shared<_m_value>(val)
 STC_INLINE Self _c_MEMB(_make)(_m_value val) {
-    Self arc;
+    Self unowned;
     struct _c_MEMB(_rep_)* rep = _i_malloc(struct _c_MEMB(_rep_), 1);
-    *(arc.use_count = &rep->metadata.counter) = 1;
-    *(arc.get = &rep->value) = val;
-    return arc;
+    *(unowned.use_count = &rep->metadata.counter) = 1;
+    *(unowned.get = &rep->value) = val; // (.use_count, .get) are OFFSET bytes apart.
+    return unowned;
 }
+
+STC_INLINE Self _c_MEMB(_from_ptr)(_m_value* ptr) {
+    enum {OFFSET = offsetof(struct _c_MEMB(_rep_), value)};
+    Self unowned = {ptr};
+    if (ptr) {
+        // Adds 4 dummy bytes to ensure that the if-test in _drop() is safe.
+        struct _arc_metadata* meta = (struct _arc_metadata*)i_malloc(OFFSET + 4);
+        *(unowned.use_count = &meta->counter) = 1;
+    }
+    return unowned;
+}
+
+STC_INLINE Self _c_MEMB(_from)(_m_raw raw)
+    { return _c_MEMB(_make)(i_keyfrom(raw)); }
 
 STC_INLINE _m_raw _c_MEMB(_toraw)(const Self* self)
     { return i_keytoraw(self->get); }
 
-STC_INLINE Self _c_MEMB(_move)(Self* self) {
-    Self arc = *self;
-    self->get = NULL, self->use_count = NULL;
-    return arc;
-}
-
+// destructor
 STC_INLINE void _c_MEMB(_drop)(const Self* self) {
     if (self->use_count && _i_atomic_dec_and_test(self->use_count)) {
         enum {OFFSET = offsetof(struct _c_MEMB(_rep_), value)};
@@ -903,30 +897,36 @@ STC_INLINE void _c_MEMB(_drop)(const Self* self) {
     }
 }
 
+// move ownership to receiving arc
+STC_INLINE Self _c_MEMB(_move)(Self* self) {
+    Self arc = *self;
+    memset(self, 0, sizeof *self);
+    return arc; // now unowned
+}
+
+// take ownership of pointer p
 STC_INLINE void _c_MEMB(_reset_to)(Self* self, _m_value* ptr) {
     _c_MEMB(_drop)(self);
     *self = _c_MEMB(_from_ptr)(ptr);
 }
 
-STC_INLINE Self _c_MEMB(_from)(_m_raw raw)
-    { return _c_MEMB(_make)(i_keyfrom(raw)); }
-
-// does not use i_keyclone, so OK to always define.
-STC_INLINE Self _c_MEMB(_clone)(Self arc) {
-    if (arc.use_count) _i_atomic_inc(arc.use_count);
-    return arc;
-}
-
-// take ownership of unowned
+// take ownership of unowned arc
 STC_INLINE void _c_MEMB(_take)(Self* self, Self unowned) {
     _c_MEMB(_drop)(self);
     *self = unowned;
 }
-// share ownership with arc
-STC_INLINE void _c_MEMB(_assign)(Self* self, Self arc) {
-    if (arc.use_count) _i_atomic_inc(arc.use_count);
+
+// make shared ownership with owned arc
+STC_INLINE void _c_MEMB(_assign)(Self* self, const Self* owned) {
+    if (owned->use_count) _i_atomic_inc(owned->use_count);
     _c_MEMB(_drop)(self);
-    *self = arc;
+    *self = *owned;
+}
+
+// clone by sharing. Does not use i_keyclone, so OK to always define.
+STC_INLINE Self _c_MEMB(_clone)(Self owned) {
+    if (owned.use_count) _i_atomic_inc(owned.use_count);
+    return owned;
 }
 
 #if defined _i_has_cmp
