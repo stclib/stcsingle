@@ -166,8 +166,6 @@ typedef const char* cstr_raw;
     for (struct {T* ref; int size, index;} \
          it = {.ref=c_make_array(T, __VA_ARGS__), .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
          ; it.index < it.size; ++it.ref, ++it.index)
-#define c_forlist(...) c_foritems(_VA_ARGS__)                      // [deprecated]
-#define c_forpair(...) 'c_forpair not_supported. Use c_foreach_kv' // [removed]
 
 // c_forrange, c_forrange32: python-like int range iteration
 #define c_forrange_t(...) c_MACRO_OVERLOAD(c_forrange_t, __VA_ARGS__)
@@ -189,16 +187,24 @@ typedef const char* cstr_raw;
 #define c_forrange32_3(i, start, stop) c_forrange_t_4(int32_t, i, start, stop)
 #define c_forrange32_4(i, start, stop, step) c_forrange_t_5(int32_t, i, start, stop, step)
 
-// init container with literal list, and drop multiple containers of same type
-#define c_init(C, ...) \
+// deprecated/removed:
+#define c_init(C, ...) c_make(C, __VA_ARGS__)                      // [deprecated]
+#define c_forlist(...) c_foritems(_VA_ARGS__)                      // [deprecated]
+#define c_forpair(...) 'c_forpair not_supported. Use c_foreach_kv' // [removed]
+
+// make container from a literal list, and drop multiple containers of same type
+#define c_make(C, ...) \
     C##_with_n(c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
 
+// push multiple elements from a literal list into a container
 #define c_push(C, cnt, ...) \
     C##_put_n(cnt, c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
 
+// drop multiple containers of same type
 #define c_drop(C, ...) \
     do { c_foritems (_c_i, C*, {__VA_ARGS__}) C##_drop(*_c_i.ref); } while(0)
 
+// define function with "on-the-fly" defined return type (e.g. variant, optional)
 #define c_func(name, args, RIGHTARROW, ...) \
     typedef __VA_ARGS__ name##_result; name##_result name args
 
@@ -214,29 +220,23 @@ typedef const char* cstr_raw;
 
 // General functions
 
+// substring in substring?
+char* c_strnstrn(const char *str, isize slen, const char *needle, isize nlen);
+
 // hashing
+size_t c_basehash_n(const void* key, isize len);
+
 STC_INLINE size_t c_hash_n(const void* key, isize len) {
-    union { size_t block; uint64_t b8; uint32_t b4; } u = {0};
+    uint64_t b8; uint32_t b4;
     switch (len) {
-        case 8: memcpy(&u.b8, key, 8); return (size_t)(u.b8 * 0xc6a4a7935bd1e99d);
-        case 4: memcpy(&u.b4, key, 4); return u.b4 * (size_t)0xa2ffeb2f01000193;
-        case 0: return 0x811c9dc5;
+        case 8: memcpy(&b8, key, 8); return (size_t)(b8 * 0xc6a4a7935bd1e99d);
+        case 4: memcpy(&b4, key, 4); return b4 * (size_t)0xa2ffeb2f01000193;
+        default: return c_basehash_n(key, len);
     }
-    size_t hash = 0x811c9dc5;
-    const uint8_t* msg = (const uint8_t*)key;
-    while (len >= c_sizeof(size_t)) {
-        memcpy(&u.block, msg, sizeof(size_t));
-        hash = (hash ^ u.block) * (size_t)0x89bb179901000193;
-        msg += c_sizeof(size_t);
-        len -= c_sizeof(size_t);
-    }
-    c_memcpy(&u.block, msg, len);
-    hash = (hash ^ u.block) * (size_t)0xb0340f4501000193;
-    return hash ^ (hash >> 3);
 }
 
 STC_INLINE size_t c_hash_str(const char *str)
-    { return c_hash_n(str, c_strlen(str)); }
+    { return c_basehash_n(str, c_strlen(str)); }
 
 STC_INLINE size_t _chash_mix(size_t h[], int n) {
     for (int i = 1; i < n; ++i) h[0] += h[0] ^ h[i];
@@ -266,10 +266,12 @@ STC_INLINE isize c_next_pow2(isize n) {
     #endif
     return n + 1;
 }
+#endif // STC_COMMON_H_INCLUDED
 
-// substring in substring?
-STC_INLINE char* c_strnstrn(const char *str, isize slen,
-                            const char *needle, isize nlen) {
+#if !defined STC_COMMON_C_INCLUDED && defined STC_IMPLEMENT
+#define STC_COMMON_C_INCLUDED
+
+char* c_strnstrn(const char *str, isize slen, const char *needle, isize nlen) {
     if (nlen == 0) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
@@ -281,7 +283,20 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen,
     return NULL;
 }
 
-#endif // STC_COMMON_H_INCLUDED
+size_t c_basehash_n(const void* key, isize len) {
+    size_t block = 0, hash = 0x811c9dc5;
+    const uint8_t* msg = (const uint8_t*)key;
+    while (len >= c_sizeof(size_t)) {
+        memcpy(&block, msg, sizeof(size_t));
+        hash = (hash ^ block) * (size_t)0x89bb179901000193;
+        msg += c_sizeof(size_t);
+        len -= c_sizeof(size_t);
+    }
+    c_memcpy(&block, msg, len);
+    hash = (hash ^ block) * (size_t)0xb0340f4501000193;
+    return hash ^ (hash >> 3);
+}
+#endif // STC_COMMON_C_INCLUDED
 // ### END_FILE_INCLUDE: common.h
 
 #if defined FMT_NDEBUG || defined STC_NDEBUG || defined NDEBUG
