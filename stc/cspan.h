@@ -363,17 +363,19 @@ typedef isize _isize_triple[3];
 
 #define using_cspan(...) c_MACRO_OVERLOAD(using_cspan, __VA_ARGS__)
 #define using_cspan_2(Self, T) \
-    using_cspan_with_eq(Self, T, c_default_eq)
-#define using_cspan_with_eq(Self, T, i_eq) \
-    using_cspan_4(Self, T, 1, i_eq); \
-    STC_INLINE Self Self##_with_n(Self##_value* values, isize n) { \
-        return (Self)cspan_with_n(values, n); \
-    } \
+    using_cspan_3(Self, T, 1); \
+    STC_INLINE Self Self##_with_n(Self##_value* values, isize n) \
+        { return (Self)cspan_with_n(values, n); } \
+    struct stc_nostruct
+
+#define using_cspan_with_eq(...) c_MACRO_OVERLOAD(using_cspan_with_eq, __VA_ARGS__)
+#define using_cspan_with_eq_3(Self, T, i_eq) \
+    using_cspan_with_eq_4(Self, T, i_eq, 1); \
+    STC_INLINE Self Self##_with_n(Self##_value* values, isize n) \
+        { return (Self)cspan_with_n(values, n); } \
     struct stc_nostruct
 
 #define using_cspan_3(Self, T, RANK) \
-    using_cspan_4(Self, T, RANK, c_default_eq)
-#define using_cspan_no_eq(Self, T, RANK) \
     typedef T Self##_value; \
     typedef T Self##_raw; \
     typedef struct { \
@@ -411,8 +413,8 @@ typedef isize _isize_triple[3];
         { _cspan_transpose(sp.shape, sp.stride.d, cspan_rank(&sp)); return sp; } \
     struct stc_nostruct
 
-#define using_cspan_4(Self, T, RANK, i_eq) \
-    using_cspan_no_eq(Self, T, RANK); \
+#define using_cspan_with_eq_4(Self, T, i_eq, RANK) \
+    using_cspan_3(Self, T, RANK); \
     STC_INLINE bool Self##_eq(const Self* x, const Self* y) { \
         if (memcmp(x->shape, y->shape, sizeof x->shape) != 0) \
             return false; \
@@ -427,7 +429,10 @@ typedef isize _isize_triple[3];
 
 #define using_cspan2(Self, T) using_cspan_2(Self, T); using_cspan_3(Self##2, T, 2)
 #define using_cspan3(Self, T) using_cspan2(Self, T); using_cspan_3(Self##3, T, 3)
-#define using_cspan4(Self, T) using_cspan3(Self, T); using_cspan_3(Self##4, T, 4)
+#define using_cspan2_with_eq(Self, T, eq) using_cspan_with_eq_3(Self, T, eq); \
+                                           using_cspan_with_eq_4(Self##2, T, eq, 2)
+#define using_cspan3_with_eq(Self, T, eq) using_cspan2_with_eq(Self, T, eq); \
+                                           using_cspan_with_eq_4(Self##3, T, eq, 3)
 #define using_cspan_tuple(N) typedef struct { _istride d[N]; } cspan_tuple##N
 using_cspan_tuple(1); using_cspan_tuple(2);
 using_cspan_tuple(3); using_cspan_tuple(4);
