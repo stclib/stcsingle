@@ -736,7 +736,7 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
 #define _c_vartuple_type(T, Value, type) typedef type Value##_vartype; typedef union T Value##_variant;
 #define _c_vartuple_var(T, Value, type) struct { uint8_t tag; Value##_vartype var; } Value;
 
-#define c_variant(T, ...) \
+#define c_variant_type(T, ...) \
     typedef union T T; \
     c_EVAL(c_LOOP(T, _c_vartuple_type, __VA_ARGS__, (0))) \
     enum { T##_dummytag, c_EVAL(c_LOOP(T, _c_vartuple_tag, __VA_ARGS__, (0))) }; \
@@ -756,7 +756,7 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
 #define c_otherwise \
     break; default:
 
-#define c_make_variant(Value, ...) \
+#define c_variant(Value, ...) \
     ((Value##_variant){.Value={.tag=Value##_vartag, .var=__VA_ARGS__}})
 
 #endif // STC_VARIANT_H_INCLUDED
