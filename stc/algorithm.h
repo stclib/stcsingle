@@ -756,8 +756,8 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
 #define c_otherwise \
     break; default:
 
-#define c_make_variant(Value, value) \
-    ((Value##_variant){.Value={.tag=Value##_vartag, .var=value}})
+#define c_make_variant(Value, ...) \
+    ((Value##_variant){.Value={.tag=Value##_vartag, .var=__VA_ARGS__}})
 
 #endif // STC_VARIANT_H_INCLUDED
 // ### END_FILE_INCLUDE: variant.h
