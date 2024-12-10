@@ -712,6 +712,55 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
 
 #endif // STC_UTILITY_H_INCLUDED
 // ### END_FILE_INCLUDE: utility.h
+// ### BEGIN_FILE_INCLUDE: variant.h
+#ifndef STC_VARIANT_H_INCLUDED
+#define STC_VARIANT_H_INCLUDED
+
+
+#define c_STRIP_PARENS(X) _c_STRIP_PARENS( _c_E1 X )
+#define c_CALL(f, ...) f(__VA_ARGS__)
+#define _c_STRIP_PARENS(X) X
+#define _c_EMPTY()
+#define _c_TUPLE_AT_1(x,y,...) y
+#define _c_CHECK(x,...) _c_TUPLE_AT_1(__VA_ARGS__,x,)
+#define _c_LOOP_END_1 ,_c_LOOP1
+#define _c_LOOP_INDIRECTION() c_LOOP
+#define _c_LOOP0(T,f,x,...) c_CALL(f, T, c_STRIP_PARENS(x)) _c_LOOP_INDIRECTION _c_EMPTY()() (T,f,__VA_ARGS__)
+#define _c_LOOP1(...)
+#define _c_E1(...) __VA_ARGS__
+#define _c_E2(...) _c_E1(_c_E1(_c_E1(_c_E1(_c_E1(_c_E1(__VA_ARGS__))))))
+#define c_EVAL(...) _c_E2(_c_E2(_c_E2(_c_E2(_c_E2(_c_E2(__VA_ARGS__))))))
+#define c_LOOP(T,f,x,...) _c_CHECK(_c_LOOP0, c_JOIN(_c_LOOP_END_, c_NUMARGS x))(T,f,x,__VA_ARGS__)
+
+#define _c_vartuple_tag(T, Value, type) Value##_vartag,
+#define _c_vartuple_type(T, Value, type) typedef type Value##_vartype; typedef union T Value##_variant;
+#define _c_vartuple_var(T, Value, type) struct { uint8_t tag; Value##_vartype var; } Value;
+
+#define c_variant(T, ...) \
+    typedef union T T; \
+    c_EVAL(c_LOOP(T, _c_vartuple_type, __VA_ARGS__, (0))) \
+    enum { T##_dummytag, c_EVAL(c_LOOP(T, _c_vartuple_tag, __VA_ARGS__, (0))) }; \
+    union T { \
+        struct { uint8_t tag; } _dummy; \
+        c_EVAL(c_LOOP(T, _c_vartuple_var, __VA_ARGS__, (0))) \
+    }
+
+#define c_match(variant) \
+    for (void *_match = (void *)(variant); _match != NULL; _match = NULL) \
+    switch ((variant)->_dummy.tag)
+
+#define c_of(Value, x) \
+    break; case Value##_vartag: \
+    for (Value##_vartype *x = &((Value##_variant *)_match)->Value.var; x != NULL; x = NULL)
+
+#define c_otherwise \
+    break; default:
+
+#define c_make_variant(Value, value) \
+    ((Value##_variant){.Value={.tag=Value##_vartag, .var=value}})
+
+#endif // STC_VARIANT_H_INCLUDED
+// ### END_FILE_INCLUDE: variant.h
 // IWYU pragma: end_exports
 
 #endif // STC_ALGORITHM_H_INCLUDED
