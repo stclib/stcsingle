@@ -717,50 +717,60 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
 #define STC_VARIANT_H_INCLUDED
 
 
-#define c_STRIP_PARENS(X) _c_STRIP_PARENS( _c_E1 X )
-#define c_CALL(f, ...) f(__VA_ARGS__)
-#define _c_STRIP_PARENS(X) X
 #define _c_EMPTY()
+#define _c_CALL(f, ...) f(__VA_ARGS__)
+#define _c_LOOP_INDIRECTION() c_LOOP
+#define _c_LOOP_END_1 ,_c_LOOP1
+#define _c_LOOP0(f,T,x,...) _c_CALL(f,T,c_EXPAND x) _c_LOOP_INDIRECTION _c_EMPTY()()(f,T,__VA_ARGS__)
+#define _c_LOOP1(...)
 #define _c_TUPLE_AT_1(x,y,...) y
 #define _c_CHECK(x,...) _c_TUPLE_AT_1(__VA_ARGS__,x,)
-#define _c_LOOP_END_1 ,_c_LOOP1
-#define _c_LOOP_INDIRECTION() c_LOOP
-#define _c_LOOP0(T,f,x,...) c_CALL(f, T, c_STRIP_PARENS(x)) _c_LOOP_INDIRECTION _c_EMPTY()() (T,f,__VA_ARGS__)
-#define _c_LOOP1(...)
 #define _c_E1(...) __VA_ARGS__
 #define _c_E2(...) _c_E1(_c_E1(_c_E1(_c_E1(_c_E1(_c_E1(__VA_ARGS__))))))
 #define c_EVAL(...) _c_E2(_c_E2(_c_E2(_c_E2(_c_E2(_c_E2(__VA_ARGS__))))))
-#define c_LOOP(T,f,x,...) _c_CHECK(_c_LOOP0, c_JOIN(_c_LOOP_END_, c_NUMARGS x))(T,f,x,__VA_ARGS__)
+#define c_LOOP(f,T,x,...) _c_CHECK(_c_LOOP0, c_JOIN(_c_LOOP_END_, c_NUMARGS x))(f,T,x,__VA_ARGS__)
 
-#define _c_vartuple_tag(T, Ident, Type) Ident##_tag,
-#define _c_vartuple_type(T, Ident, Type) typedef Type Ident##_type; typedef T Ident##_variant;
-#define _c_vartuple_var(T, Ident, Type) struct { uint8_t _tag; Ident##_type _var; } Ident;
+#define _c_vartuple_tag(T, Choice, ...) Choice##_tag,
+#define _c_vartuple_type(T, Choice, ...) typedef __VA_ARGS__ Choice##_type; typedef T Choice##_sumtype;
+#define _c_vartuple_var(T, Choice, ...) struct { uint8_t _tag; Choice##_type _var; } Choice;
 
-#define c_variant_type(T, ...) \
+#define c_sumtype(T, ...) \
     typedef union T T; \
-    c_EVAL(c_LOOP(T, _c_vartuple_type, __VA_ARGS__, (0))) \
-    enum { T##_nulltag, c_EVAL(c_LOOP(T, _c_vartuple_tag, __VA_ARGS__, (0))) }; \
+    c_EVAL(c_LOOP(_c_vartuple_type, T,  __VA_ARGS__, (0),)) \
+    enum { T##_nulltag, c_EVAL(c_LOOP(_c_vartuple_tag, T, __VA_ARGS__, (0),)) }; \
     union T { \
         struct { uint8_t _tag; } _current; \
-        c_EVAL(c_LOOP(T, _c_vartuple_var, __VA_ARGS__, (0))) \
+        c_EVAL(c_LOOP(_c_vartuple_var, T, __VA_ARGS__, (0),)) \
     }
 
-#define c_match(variant) \
-    for (void *_match = (void *)(variant); _match != NULL; _match = NULL) \
-    switch ((variant)->_current._tag)
+#if defined __GNUC__ || defined __clang__ || defined __TINYC__ || _MSC_VER >= 1939
+    #define c_match(variant) \
+        for (__typeof__(variant) _match = (variant); _match; _match = NULL) \
+        switch (_match->_current._tag)
 
-#define c_of(Ident, x) \
-    break; case Ident##_tag: \
-    for (Ident##_type *x = &((Ident##_variant *)_match)->Ident._var; x != NULL; x = NULL)
+    #define c_of(Choice, x) \
+        break; case Choice##_tag: \
+        for (Choice##_type *x = &_match->Choice._var; x; x = NULL)
+#else
+    typedef union { struct { uint8_t _tag; } _current; } c_base_variant;
+    #define c_match(variant) \
+        for (c_base_variant* _match = (c_base_variant *)(variant) + 0*sizeof((variant)->_current._tag) \
+            ; _match ; _match = NULL) \
+        switch (_match->_current._tag)
+
+    #define c_of(Choice, x) \
+        break; case Choice##_tag: \
+        for (Choice##_type *x = &((Choice##_sumtype *)_match)->Choice._var; x; x = NULL)
+#endif
 
 #define c_otherwise \
     break; default:
 
-#define c_variant(Ident, ...) \
-    ((Ident##_variant){.Ident={._tag=Ident##_tag, ._var=__VA_ARGS__}})
+#define c_variant(Choice, ...) \
+    ((Choice##_sumtype){.Choice={._tag=Choice##_tag, ._var=__VA_ARGS__}})
 
-#define c_variant_holds(Ident, variant) \
-    ((variant)->Ident._tag == Ident##_tag)
+#define c_variant_holds(Choice, variant) \
+    ((variant)->Choice._tag == Choice##_tag)
 
 #define c_variant_tag(variant) \
     ((variant)->_current._tag)
