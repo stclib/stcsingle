@@ -56,8 +56,9 @@
   #pragma GCC diagnostic warning "-Wconversion"
   #pragma GCC diagnostic warning "-Wwrite-strings"
   // ignored
-  #pragma GCC diagnostic ignored "-Wuninitialized"
-  #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+  #pragma GCC diagnostic ignored "-Wclobbered"
+  #pragma GCC diagnostic ignored "-Wimplicit-fallthrough=3"
+  #pragma GCC diagnostic ignored "-Wstringop-overflow="
   #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 // ### END_FILE_INCLUDE: linkage.h
@@ -97,25 +98,23 @@ typedef ptrdiff_t       isize;
 #define c_ZU PRIuPTR
 #define c_NPOS INTPTR_MAX
 
-/* Macro overloading feature support based on: https://rextester.com/ONP80107 */
+// Macro overloading feature support based on: https://rextester.com/ONP80107
 #define c_MACRO_OVERLOAD(name, ...) \
     c_JOIN(c_JOIN0(name,_),c_NUMARGS(__VA_ARGS__))(__VA_ARGS__)
 #define c_JOIN0(a, b) a ## b
 #define c_JOIN(a, b) c_JOIN0(a, b)
 #define c_EXPAND(...) __VA_ARGS__
+// This is the way to make c_NUMARGS work also for MSVC++ and MSVC pre -std:c11
 #define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
 #define _c_APPLY_ARG_N(args) c_EXPAND(_c_ARG_N args)
-#define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
-#define _c_ARG_N(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
-                 _14, _15, _16, N, ...) N
+#define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,N,...) N
 
-// Select, e.g. for #define i_type A,B then c_SELECT(_c_SEL22, i_type) is B
-#define c_SELECT(X, ...) c_EXPAND(X(__VA_ARGS__)) // need c_EXPAND for MSVC
-#define _c_SEL21(a, b) a
-#define _c_SEL22(a, b) b
-#define _c_SEL31(a, b, c) a
-#define _c_SEL32(a, b, c) b
-#define _c_SEL33(a, b, c) c
+// Select arg, e.g. for #define i_type A,B then c_SELECT(c_ARG_2, i_type) is B
+#define c_SELECT(X, ...) c_EXPAND(X(__VA_ARGS__,,)) // need c_EXPAND for MSVC
+#define c_ARG_1(a, ...) a
+#define c_ARG_2(a, b, ...) b
+#define c_ARG_3(a, b, c, ...) c
 
 #define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
 #define _i_calloc(T, n)     ((T*)i_calloc((n), c_sizeof(T)))
@@ -398,11 +397,11 @@ typedef isize _isize_triple[3];
         return s; \
     } \
     STC_INLINE Self##_iter Self##_begin(const Self* self) { \
-        return (Self##_iter){.ref=self->data, ._s=self}; \
+        return c_literal(Self##_iter){.ref=self->data, ._s=self}; \
     } \
     STC_INLINE Self##_iter Self##_end(const Self* self) { \
         (void)self; \
-        return (Self##_iter){0}; \
+        return c_literal(Self##_iter){0}; \
     } \
     STC_INLINE void Self##_next(Self##_iter* it) { \
         int done; \
@@ -444,7 +443,7 @@ using_cspan_tuple(7); using_cspan_tuple(8);
 #define cspan_make(Span, ...) \
     (c_literal(Span){.data=c_make_array(Span##_value, __VA_ARGS__), \
                      .shape={sizeof((Span##_value[])__VA_ARGS__)/sizeof(Span##_value)}, \
-                     .stride=(cspan_tuple1){.d={1}}})
+                     .stride=c_literal(cspan_tuple1){.d={1}}})
 
 // cspan_from* a pointer+size, c-array, or a cvec/cstack container
 //
@@ -515,31 +514,31 @@ typedef enum {c_ROWMAJOR, c_COLMAJOR} cspan_layout;
 #define cspan_submd2(self, x) \
     {.data=cspan_at(self, x, 0), \
      .shape={(self)->shape[1]}, \
-     .stride=(cspan_tuple1){.d={(self)->stride.d[1]}}}
+     .stride=c_literal(cspan_tuple1){.d={(self)->stride.d[1]}}}
 
 #define cspan_submd3(...) c_MACRO_OVERLOAD(cspan_submd3, __VA_ARGS__)
 #define cspan_submd3_2(self, x) \
     {.data=cspan_at(self, x, 0, 0), \
      .shape={(self)->shape[1], (self)->shape[2]}, \
-     .stride=(cspan_tuple2){.d={(self)->stride.d[1], (self)->stride.d[2]}}}
+     .stride=c_literal(cspan_tuple2){.d={(self)->stride.d[1], (self)->stride.d[2]}}}
 #define cspan_submd3_3(self, x, y) \
     {.data=cspan_at(self, x, y, 0), \
      .shape={(self)->shape[2]}, \
-     .stride=(cspan_tuple1){.d={(self)->stride.d[2]}}}
+     .stride=c_literal(cspan_tuple1){.d={(self)->stride.d[2]}}}
 
 #define cspan_submd4(...) c_MACRO_OVERLOAD(cspan_submd4, __VA_ARGS__)
 #define cspan_submd4_2(self, x) \
     {.data=cspan_at(self, x, 0, 0, 0), \
      .shape={(self)->shape[1], (self)->shape[2], (self)->shape[3]}, \
-     .stride=(cspan_tuple3){.d={(self)->stride.d[1], (self)->stride.d[2], (self)->stride.d[3]}}}
+     .stride=c_literal(cspan_tuple3){.d={(self)->stride.d[1], (self)->stride.d[2], (self)->stride.d[3]}}}
 #define cspan_submd4_3(self, x, y) \
     {.data=cspan_at(self, x, y, 0, 0), \
      .shape={(self)->shape[2], (self)->shape[3]}, \
-     .stride=(cspan_tuple2){.d={(self)->stride.d[2], (self)->stride.d[3]}}}
+     .stride=c_literal(cspan_tuple2){.d={(self)->stride.d[2], (self)->stride.d[3]}}}
 #define cspan_submd4_4(self, x, y, z) \
     {.data=cspan_at(self, x, y, z, 0), \
      .shape={(self)->shape[3]}, \
-     .stride=(cspan_tuple1){.d={(self)->stride.d[3]}}}
+     .stride=c_literal(cspan_tuple1){.d={(self)->stride.d[3]}}}
 
 #define cspan_print(...) c_MACRO_OVERLOAD(cspan_print, __VA_ARGS__)
 #if 0

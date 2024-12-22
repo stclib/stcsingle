@@ -34,25 +34,23 @@ typedef ptrdiff_t       isize;
 #define c_ZU PRIuPTR
 #define c_NPOS INTPTR_MAX
 
-/* Macro overloading feature support based on: https://rextester.com/ONP80107 */
+// Macro overloading feature support based on: https://rextester.com/ONP80107
 #define c_MACRO_OVERLOAD(name, ...) \
     c_JOIN(c_JOIN0(name,_),c_NUMARGS(__VA_ARGS__))(__VA_ARGS__)
 #define c_JOIN0(a, b) a ## b
 #define c_JOIN(a, b) c_JOIN0(a, b)
 #define c_EXPAND(...) __VA_ARGS__
+// This is the way to make c_NUMARGS work also for MSVC++ and MSVC pre -std:c11
 #define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
 #define _c_APPLY_ARG_N(args) c_EXPAND(_c_ARG_N args)
-#define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
-#define _c_ARG_N(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
-                 _14, _15, _16, N, ...) N
+#define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,N,...) N
 
-// Select, e.g. for #define i_type A,B then c_SELECT(_c_SEL22, i_type) is B
-#define c_SELECT(X, ...) c_EXPAND(X(__VA_ARGS__)) // need c_EXPAND for MSVC
-#define _c_SEL21(a, b) a
-#define _c_SEL22(a, b) b
-#define _c_SEL31(a, b, c) a
-#define _c_SEL32(a, b, c) b
-#define _c_SEL33(a, b, c) c
+// Select arg, e.g. for #define i_type A,B then c_SELECT(c_ARG_2, i_type) is B
+#define c_SELECT(X, ...) c_EXPAND(X(__VA_ARGS__,,)) // need c_EXPAND for MSVC
+#define c_ARG_1(a, ...) a
+#define c_ARG_2(a, b, ...) b
+#define c_ARG_3(a, b, c, ...) c
 
 #define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
 #define _i_calloc(T, n)     ((T*)i_calloc((n), c_sizeof(T)))
@@ -309,18 +307,18 @@ size_t c_basehash_n(const void* key, isize len) {
 #include <stdint.h>
 #include <stddef.h>
 
-#define forward_arc(C, VAL) _c_arc_types(C, VAL)
-#define forward_box(C, VAL) _c_box_types(C, VAL)
-#define forward_deq(C, VAL) _c_deque_types(C, VAL)
-#define forward_list(C, VAL) _c_list_types(C, VAL)
-#define forward_hmap(C, KEY, VAL) _c_htable_types(C, KEY, VAL, c_true, c_false)
-#define forward_hset(C, KEY) _c_htable_types(C, cset, KEY, KEY, c_false, c_true)
-#define forward_smap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
-#define forward_sset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
-#define forward_stack(C, VAL) _c_stack_types(C, VAL)
-#define forward_pqueue(C, VAL) _c_pqueue_types(C, VAL)
-#define forward_queue(C, VAL) _c_deque_types(C, VAL)
-#define forward_vec(C, VAL) _c_vec_types(C, VAL)
+#define declare_arc(C, VAL) _c_arc_types(C, VAL)
+#define declare_box(C, VAL) _c_box_types(C, VAL)
+#define declare_deq(C, VAL) _c_deque_types(C, VAL)
+#define declare_list(C, VAL) _c_list_types(C, VAL)
+#define declare_hmap(C, KEY, VAL) _c_htable_types(C, KEY, VAL, c_true, c_false)
+#define declare_hset(C, KEY) _c_htable_types(C, cset, KEY, KEY, c_false, c_true)
+#define declare_smap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
+#define declare_sset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
+#define declare_stack(C, VAL) _c_stack_types(C, VAL)
+#define declare_pqueue(C, VAL) _c_pqueue_types(C, VAL)
+#define declare_queue(C, VAL) _c_deque_types(C, VAL)
+#define declare_vec(C, VAL) _c_vec_types(C, VAL)
 
 // csview : non-null terminated string view
 typedef const char csview_value;
@@ -675,8 +673,9 @@ void cregex_drop(cregex* re);
   #pragma GCC diagnostic warning "-Wconversion"
   #pragma GCC diagnostic warning "-Wwrite-strings"
   // ignored
-  #pragma GCC diagnostic ignored "-Wuninitialized"
-  #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+  #pragma GCC diagnostic ignored "-Wclobbered"
+  #pragma GCC diagnostic ignored "-Wimplicit-fallthrough=3"
+  #pragma GCC diagnostic ignored "-Wstringop-overflow="
   #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 // ### END_FILE_INCLUDE: linkage.h
@@ -951,11 +950,11 @@ STC_INLINE const char* cstr_str(const cstr* self)
 STC_INLINE const char* cstr_toraw(const cstr* self)
     { return SSO_CALL(self, data(self)); }
 
-STC_INLINE bool cstr_is_empty(const cstr* self)
-    { return cstr_s_size(self) == 0; }
-
 STC_INLINE isize cstr_size(const cstr* self)
     { return SSO_CALL(self, size(self)); }
+
+STC_INLINE bool cstr_is_empty(const cstr* self)
+    { return cstr_size(self) == 0; }
 
 STC_INLINE isize cstr_capacity(const cstr* self)
     { return cstr_is_long(self) ? cstr_l_cap(self) : (isize)cstr_s_cap; }
@@ -970,14 +969,14 @@ STC_INLINE csview cstr_subview(const cstr* self, isize pos, isize len) {
     csview sv = cstr_sv(self);
     c_assert(((size_t)pos <= (size_t)sv.size) & (len >= 0));
     if (pos + len > sv.size) len = sv.size - pos;
-    return (csview){sv.buf + pos, len};
+    return c_literal(csview){sv.buf + pos, len};
 }
 
 STC_INLINE zsview cstr_tail(const cstr* self, isize len) {
     c_assert(len >= 0);
     csview sv = cstr_sv(self);
     if (len > sv.size) len = sv.size;
-    return (zsview){&sv.buf[sv.size - len], len};
+    return c_literal(zsview){&sv.buf[sv.size - len], len};
 }
 
 // BEGIN utf8 functions =====
@@ -996,7 +995,7 @@ STC_INLINE zsview cstr_u8_tail(const cstr* self, isize u8len) {
     const char* p = &sv.buf[sv.size];
     while (u8len && p != sv.buf)
         u8len -= (*--p & 0xC0) != 0x80;
-    return (zsview){p, sv.size - (p - sv.buf)};
+    return c_literal(zsview){p, sv.size - (p - sv.buf)};
 }
 
 STC_INLINE csview cstr_u8_subview(const cstr* self, isize u8pos, isize u8len)
@@ -2641,7 +2640,7 @@ _regexec1(const _Reprog *progp,  /* program to run */
 
                 switch (inst->type) {
                 case TOK_IRUNE:
-                    r = utf8_casefold(r); /* fall through */
+                    r = utf8_casefold(r); /* FALLTHRU */
                 case TOK_RUNE:
                     ok = _runematch(inst->r.rune, r);
                     break;
@@ -2667,7 +2666,7 @@ _regexec1(const _Reprog *progp,  /* program to run */
                     if (s == bol) continue;
                     break;
                 case TOK_EOL:
-                    if (r == '\n') continue; /* fall through */
+                    if (r == '\n') continue; /* FALLTHRU */
                 case TOK_EOS:
                     if (s == j->eol || r == 0) continue;
                     break;
@@ -2675,14 +2674,14 @@ _regexec1(const _Reprog *progp,  /* program to run */
                     if (s == j->eol || r == 0 || (r == '\n' && s[1] == 0)) continue;
                     break;
                 case TOK_NWBOUND:
-                    ok = true; /* fall through */
+                    ok = true; /* FALLTHRU */
                 case TOK_WBOUND:
                     if (ok ^ (s == bol || s == j->eol || (utf8_isword(utf8_peek_at(s, -1))
                                                         ^ utf8_isword(utf8_peek(s)))))
                         continue;
                     break;
                 case TOK_NCCLASS:
-                    ok = true; /* fall through */
+                    ok = true; /* FALLTHRU */
                 case TOK_CCLASS:
                     ep = inst->r.classp->end;
                     if (icase) r = utf8_casefold(r);
@@ -3409,7 +3408,7 @@ void cstr_shrink_to_fit(cstr* self) {
 
 // ------------------- STC_CSTR_IO --------------------
 #if !defined STC_CSTR_IO_C_INCLUDED && \
-    (defined i_import || defined STC_IMPLEMENT || defined STC_CSTR_IO)
+    (defined i_import || defined STC_CSTR_IO)
 #define STC_CSTR_IO_C_INCLUDED
 
 #include <stdarg.h>
@@ -3481,8 +3480,7 @@ isize cstr_printf(cstr* self, const char* fmt, ...) {
 
 // ------------------- STC_CSTR_UTF8 --------------------
 #if !defined STC_CSTR_UTF8_C_INCLUDED && \
-    (defined i_import || defined STC_IMPLEMENT || \
-     defined STC_CSTR_UTF8 || defined STC_UTF8_PRV_C_INCLUDED)
+    (defined i_import || defined STC_CSTR_UTF8 || defined STC_UTF8_PRV_C_INCLUDED)
 #define STC_CSTR_UTF8_C_INCLUDED
 
 #include <ctype.h>

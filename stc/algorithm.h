@@ -64,8 +64,9 @@
   #pragma GCC diagnostic warning "-Wconversion"
   #pragma GCC diagnostic warning "-Wwrite-strings"
   // ignored
-  #pragma GCC diagnostic ignored "-Wuninitialized"
-  #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+  #pragma GCC diagnostic ignored "-Wclobbered"
+  #pragma GCC diagnostic ignored "-Wimplicit-fallthrough=3"
+  #pragma GCC diagnostic ignored "-Wstringop-overflow="
   #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 // ### END_FILE_INCLUDE: linkage.h
@@ -102,25 +103,23 @@ typedef ptrdiff_t       isize;
 #define c_ZU PRIuPTR
 #define c_NPOS INTPTR_MAX
 
-/* Macro overloading feature support based on: https://rextester.com/ONP80107 */
+// Macro overloading feature support based on: https://rextester.com/ONP80107
 #define c_MACRO_OVERLOAD(name, ...) \
     c_JOIN(c_JOIN0(name,_),c_NUMARGS(__VA_ARGS__))(__VA_ARGS__)
 #define c_JOIN0(a, b) a ## b
 #define c_JOIN(a, b) c_JOIN0(a, b)
 #define c_EXPAND(...) __VA_ARGS__
+// This is the way to make c_NUMARGS work also for MSVC++ and MSVC pre -std:c11
 #define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
 #define _c_APPLY_ARG_N(args) c_EXPAND(_c_ARG_N args)
-#define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
-#define _c_ARG_N(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
-                 _14, _15, _16, N, ...) N
+#define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,N,...) N
 
-// Select, e.g. for #define i_type A,B then c_SELECT(_c_SEL22, i_type) is B
-#define c_SELECT(X, ...) c_EXPAND(X(__VA_ARGS__)) // need c_EXPAND for MSVC
-#define _c_SEL21(a, b) a
-#define _c_SEL22(a, b) b
-#define _c_SEL31(a, b, c) a
-#define _c_SEL32(a, b, c) b
-#define _c_SEL33(a, b, c) c
+// Select arg, e.g. for #define i_type A,B then c_SELECT(c_ARG_2, i_type) is B
+#define c_SELECT(X, ...) c_EXPAND(X(__VA_ARGS__,,)) // need c_EXPAND for MSVC
+#define c_ARG_1(a, ...) a
+#define c_ARG_2(a, b, ...) b
+#define c_ARG_3(a, b, c, ...) c
 
 #define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
 #define _i_calloc(T, n)     ((T*)i_calloc((n), c_sizeof(T)))
@@ -718,62 +717,80 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
 
 
 #define _c_EMPTY()
-#define _c_CALL(f, ...) f(__VA_ARGS__)
 #define _c_LOOP_INDIRECTION() c_LOOP
 #define _c_LOOP_END_1 ,_c_LOOP1
-#define _c_LOOP0(f,T,x,...) _c_CALL(f,T,c_EXPAND x) _c_LOOP_INDIRECTION _c_EMPTY()()(f,T,__VA_ARGS__)
+#define _c_LOOP0(f,T,x,...) f c_EXPAND((T, c_EXPAND x)) _c_LOOP_INDIRECTION _c_EMPTY()()(f,T,__VA_ARGS__)
 #define _c_LOOP1(...)
 #define _c_TUPLE_AT_1(x,y,...) y
-#define _c_CHECK(x,...) _c_TUPLE_AT_1(__VA_ARGS__,x,)
-#define _c_E1(...) __VA_ARGS__
-#define _c_E2(...) _c_E1(_c_E1(_c_E1(_c_E1(_c_E1(_c_E1(__VA_ARGS__))))))
-#define c_EVAL(...) _c_E2(_c_E2(_c_E2(_c_E2(_c_E2(_c_E2(__VA_ARGS__))))))
+#define _c_CHECK(x,...) _c_TUPLE_AT_1 c_EXPAND((__VA_ARGS__,x,))
+#define _c_E0(...) __VA_ARGS__
+#define _c_E1(...) _c_E0(_c_E0(_c_E0(_c_E0(_c_E0(__VA_ARGS__)))))
+#define _c_E2(...) _c_E1(_c_E1(_c_E1(_c_E1(_c_E1(__VA_ARGS__)))))
+#define c_EVAL(...) _c_E2(_c_E2(_c_E2(_c_E2(__VA_ARGS__))))
 #define c_LOOP(f,T,x,...) _c_CHECK(_c_LOOP0, c_JOIN(_c_LOOP_END_, c_NUMARGS x))(f,T,x,__VA_ARGS__)
 
-#define _c_vartuple_tag(T, Choice, ...) Choice##_tag,
-#define _c_vartuple_type(T, Choice, ...) typedef __VA_ARGS__ Choice##_type; typedef T Choice##_sumtype;
-#define _c_vartuple_var(T, Choice, ...) struct { uint8_t _tag; Choice##_type _var; } Choice;
+
+#define _c_vartuple_tag(T, Tag, ...) Tag,
+#define _c_vartuple_type(T, Tag, ...) typedef __VA_ARGS__ Tag##_type; typedef T Tag##_sumtype;
+#define _c_vartuple_var(T, Tag, ...) struct { uint8_t tag; Tag##_type var; } Tag;
 
 #define c_sumtype(T, ...) \
     typedef union T T; \
     c_EVAL(c_LOOP(_c_vartuple_type, T,  __VA_ARGS__, (0),)) \
-    enum { T##_nulltag, c_EVAL(c_LOOP(_c_vartuple_tag, T, __VA_ARGS__, (0),)) }; \
+    enum enum_##T { null_##T, c_EVAL(c_LOOP(_c_vartuple_tag, T, __VA_ARGS__, (0),)) }; \
     union T { \
-        struct { uint8_t _tag; } _current; \
+        struct { uint8_t tag; } _any_; \
         c_EVAL(c_LOOP(_c_vartuple_var, T, __VA_ARGS__, (0),)) \
     }
 
 #if defined __GNUC__ || defined __clang__ || defined __TINYC__ || _MSC_VER >= 1939
-    #define c_match(variant) \
-        for (__typeof__(variant) _match = (variant); _match; _match = NULL) \
-        switch (_match->_current._tag)
+    #define c_match(var) \
+        for (__typeof__(var) _match = (var); _match; _match = NULL) \
+        switch (_match->_any_.tag)
 
-    #define c_of(Choice, x) \
-        break; case Choice##_tag: \
-        for (Choice##_type *x = &_match->Choice._var; x; x = NULL)
+    #define c_is_2(Tag, x) \
+        break; case Tag: \
+        for (__typeof__(_match->Tag.var)* x = &_match->Tag.var; x; x = NULL)
+
+    #define c_if_is(v, Tag, x) \
+        for (__typeof__(v) _var = (v); _var; _var = NULL) \
+            if (c_holds(_var, Tag)) \
+                for (__typeof__(_var->Tag.var) *x = &_var->Tag.var; x; x = NULL)
 #else
-    typedef union { struct { uint8_t _tag; } _current; } c_base_variant;
-    #define c_match(variant) \
-        for (c_base_variant* _match = (c_base_variant *)(variant) + 0*sizeof((variant)->_current._tag) \
-            ; _match ; _match = NULL) \
-        switch (_match->_current._tag)
+    typedef union { struct { uint8_t tag; } _any_; } _c_any_variant;
+    #define c_match(var) \
+        for (_c_any_variant* _match = (_c_any_variant *)(var) + 0*sizeof((var)->_any_.tag); \
+             _match; _match = NULL) \
+            switch (_match->_any_.tag)
 
-    #define c_of(Choice, x) \
-        break; case Choice##_tag: \
-        for (Choice##_type *x = &((Choice##_sumtype *)_match)->Choice._var; x; x = NULL)
+    #define c_is_2(Tag, x) \
+        break; case Tag: \
+        for (Tag##_type *x = &((Tag##_sumtype *)_match)->Tag.var; x; x = NULL)
+
+    #define c_if_is(v, Tag, x) \
+        for (Tag##_sumtype* _var = c_const_cast(Tag##_sumtype*, v); _var; _var = NULL) \
+            if (c_holds(_var, Tag)) \
+                for (Tag##_type *x = &_var->Tag.var; x; x = NULL)
 #endif
+
+#define c_is(...) c_MACRO_OVERLOAD(c_is, __VA_ARGS__)
+#define c_is_1(Tag) \
+    break; case Tag:
+
+#define c_or_is(Tag) \
+    ; case Tag:
 
 #define c_otherwise \
     break; default:
 
-#define c_variant(Choice, ...) \
-    ((Choice##_sumtype){.Choice={._tag=Choice##_tag, ._var=__VA_ARGS__}})
+#define c_variant(Tag, ...) \
+    (c_literal(Tag##_sumtype){.Tag={.tag=Tag, .var=__VA_ARGS__}})
 
-#define c_variant_holds(Choice, variant) \
-    ((variant)->Choice._tag == Choice##_tag)
+#define c_tag_index(var) \
+    ((var)->_any_.tag)
 
-#define c_variant_tag(variant) \
-    ((variant)->_current._tag)
+#define c_holds(var, Tag) \
+    (c_tag_index(var) == Tag)
 
 #endif // STC_VARIANT_H_INCLUDED
 // ### END_FILE_INCLUDE: variant.h

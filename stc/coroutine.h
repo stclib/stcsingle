@@ -35,25 +35,23 @@ typedef ptrdiff_t       isize;
 #define c_ZU PRIuPTR
 #define c_NPOS INTPTR_MAX
 
-/* Macro overloading feature support based on: https://rextester.com/ONP80107 */
+// Macro overloading feature support based on: https://rextester.com/ONP80107
 #define c_MACRO_OVERLOAD(name, ...) \
     c_JOIN(c_JOIN0(name,_),c_NUMARGS(__VA_ARGS__))(__VA_ARGS__)
 #define c_JOIN0(a, b) a ## b
 #define c_JOIN(a, b) c_JOIN0(a, b)
 #define c_EXPAND(...) __VA_ARGS__
+// This is the way to make c_NUMARGS work also for MSVC++ and MSVC pre -std:c11
 #define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
 #define _c_APPLY_ARG_N(args) c_EXPAND(_c_ARG_N args)
-#define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
-#define _c_ARG_N(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
-                 _14, _15, _16, N, ...) N
+#define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,N,...) N
 
-// Select, e.g. for #define i_type A,B then c_SELECT(_c_SEL22, i_type) is B
-#define c_SELECT(X, ...) c_EXPAND(X(__VA_ARGS__)) // need c_EXPAND for MSVC
-#define _c_SEL21(a, b) a
-#define _c_SEL22(a, b) b
-#define _c_SEL31(a, b, c) a
-#define _c_SEL32(a, b, c) b
-#define _c_SEL33(a, b, c) c
+// Select arg, e.g. for #define i_type A,B then c_SELECT(c_ARG_2, i_type) is B
+#define c_SELECT(X, ...) c_EXPAND(X(__VA_ARGS__,,)) // need c_EXPAND for MSVC
+#define c_ARG_1(a, ...) a
+#define c_ARG_2(a, b, ...) b
+#define c_ARG_3(a, b, c, ...) c
 
 #define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
 #define _i_calloc(T, n)     ((T*)i_calloc((n), c_sizeof(T)))
@@ -342,8 +340,7 @@ typedef struct {
     } while (0)
 
 #define cco_finally \
-    *_state = CCO_STATE_FINALLY; \
-    /* fall through */ \
+    *_state = CCO_STATE_FINALLY; /* FALLTHRU */ \
     case CCO_STATE_FINALLY
 
 #define cco_scope cco_routine   // [deprecated]
@@ -372,8 +369,7 @@ typedef struct {
 
 #define cco_await(until) \
     do { \
-        *_state = __LINE__; \
-        /* fall through */ \
+        *_state = __LINE__; /* FALLTHRU */ \
         case __LINE__: if (!(until)) {return CCO_AWAIT; goto _resume;} \
     } while (0)
 
@@ -382,8 +378,7 @@ typedef struct {
 #define cco_await_coroutine_1(corocall) cco_await_coroutine_2(corocall, CCO_DONE)
 #define cco_await_coroutine_2(corocall, awaitbits) \
     do { \
-        *_state = __LINE__; \
-        /* fall through */ \
+        *_state = __LINE__; /* FALLTHRU */ \
         case __LINE__: { \
             int _res = corocall; \
             if (_res & ~(awaitbits)) { return _res; goto _resume; } \
@@ -427,22 +422,20 @@ typedef struct {
 cco_task_struct(cco_task) { cco_task_state cco; };
 typedef struct cco_task cco_task;
 
-#define cco_cast_task(task) \
-    ((cco_task *)(task) + (1 ? 0 : sizeof((task)->cco.func(task, (cco_runtime*)0))))
+#define cco_cast_task(...) \
+    ((cco_task *)(__VA_ARGS__) + (1 ? 0 : sizeof((__VA_ARGS__)->cco.func(__VA_ARGS__, (cco_runtime*)0))))
 
 #define cco_resume_task(task, rt) \
-    do { \
-        cco_task* _resume_task = cco_cast_task(task); \
-        (rt)->result = (_resume_task)->cco.func(_resume_task, rt); \
-    } while (0)
+    _cco_resume_task(cco_cast_task(task), rt)
 
 /* Stop and immediate cleanup */
 #define cco_cancel_task(task, rt) \
-    do { \
-        cco_task* _cancel_task = cco_cast_task(task); \
-        cco_stop(_cancel_task); \
-        (rt)->result = (_cancel_task)->cco.func(_cancel_task, rt); \
-    } while (0)
+    _cco_cancel_task(cco_cast_task(task), rt)
+
+static inline int _cco_resume_task(cco_task* task, cco_runtime* rt)
+    { return task->cco.func(task, rt); }
+static inline int _cco_cancel_task(cco_task* task, cco_runtime* rt)
+    { cco_stop(task); return task->cco.func(task, rt); }
 
 /* Asymmetric coroutine await/call */
 #define cco_await_task(...) c_MACRO_OVERLOAD(cco_await_task, __VA_ARGS__)
@@ -464,26 +457,26 @@ typedef struct cco_task cco_task;
         cco_yield_v(CCO_NOOP); \
     } while (0)
 
-/* Task dispatcher coroutine */
-struct cco_taskrunner {
+/* Task dispatcher task */
+cco_task_struct (cco_taskrunner) {
+    cco_taskrunner_state cco;
     cco_runtime rt;
-    cco_state cco;
 };
 
-extern int cco_taskrunner(struct cco_taskrunner* co);
+extern int cco_taskrunner(struct cco_taskrunner* co, cco_runtime* rrt);
 
 /* -------------------------- IMPLEMENTATION ------------------------- */
 #if defined i_implement || defined STC_IMPLEMENT
 #include <stdio.h>
-// Coroutine task runner
-int cco_taskrunner(struct cco_taskrunner* co) {
+
+int cco_taskrunner(struct cco_taskrunner* co, cco_runtime* rrt) {
     cco_runtime* rt = &co->rt;
     cco_routine (co) {
         while (1) {
-            cco_resume_task(rt->current, rt);
+            rt->result = cco_resume_task(rt->current, rt);
             if (rt->error != 0) {
                 do {
-                    cco_cancel_task(rt->current, rt);
+                    rt->result = cco_cancel_task(rt->current, rt);
                 } while ((rt->error != 0) &&
                          (rt->current = rt->current->cco.parent) != NULL);
                 if (rt->current == NULL) break;
@@ -497,9 +490,13 @@ int cco_taskrunner(struct cco_taskrunner* co) {
 
         cco_finally:
         if (rt->error != 0) {
-            fprintf(stderr, __FILE__ ":%d: error: unhandled error '%d' in a coroutine task at line %d.\n",
-                            __LINE__, rt->error, rt->error_line);
-            exit(rt->error);
+            if (rrt) {
+                rrt->error = rt->error; rrt->error_line = rt->error_line;
+            } else {
+                fprintf(stderr, __FILE__ ":%d: error: unhandled error '%d' in a coroutine task at line %d.\n",
+                                __LINE__, rt->error, rt->error_line);
+                exit(rt->error);
+            }
         }
     }
     return 0;
@@ -508,15 +505,16 @@ int cco_taskrunner(struct cco_taskrunner* co) {
 #endif
 
 #define cco_make_taskrunner(task, ctx) \
-    ((struct cco_taskrunner){.rt = {.current = cco_cast_task(task), .context = ctx}})
+    (c_literal(struct cco_taskrunner){.cco = {cco_taskrunner}, \
+                                      .rt = {.current = cco_cast_task(task), \
+                                             .context = ctx}})
 
 #define cco_run_task(...) c_MACRO_OVERLOAD(cco_run_task, __VA_ARGS__)
 #define cco_run_task_1(task) cco_run_task_3(task, NULL, _runner)
 #define cco_run_task_2(task, ctx) cco_run_task_3(task, ctx, _runner)
 #define cco_run_task_3(task, ctx, runner) \
     for (struct cco_taskrunner runner = cco_make_taskrunner(task, ctx) \
-         ; cco_taskrunner(&runner) != CCO_DONE \
-         ; )
+         ; cco_taskrunner(&runner, NULL) != CCO_DONE ; )
 
 
 #define cco_foreach(existing_it, C, cnt) \
@@ -535,7 +533,7 @@ int cco_taskrunner(struct cco_taskrunner* co) {
 
 typedef struct { ptrdiff_t count; } cco_semaphore;
 
-#define cco_make_semaphore(value) ((cco_semaphore){value})
+#define cco_make_semaphore(value) (c_literal(cco_semaphore){value})
 #define cco_set_semaphore(sem, value) ((sem)->count = value)
 #define cco_acquire_semaphore(sem) (--(sem)->count)
 #define cco_release_semaphore(sem) (++(sem)->count)

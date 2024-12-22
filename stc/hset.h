@@ -63,8 +63,9 @@
   #pragma GCC diagnostic warning "-Wconversion"
   #pragma GCC diagnostic warning "-Wwrite-strings"
   // ignored
-  #pragma GCC diagnostic ignored "-Wuninitialized"
-  #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+  #pragma GCC diagnostic ignored "-Wclobbered"
+  #pragma GCC diagnostic ignored "-Wimplicit-fallthrough=3"
+  #pragma GCC diagnostic ignored "-Wstringop-overflow="
   #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 // ### END_FILE_INCLUDE: linkage.h
@@ -104,25 +105,23 @@ typedef ptrdiff_t       isize;
 #define c_ZU PRIuPTR
 #define c_NPOS INTPTR_MAX
 
-/* Macro overloading feature support based on: https://rextester.com/ONP80107 */
+// Macro overloading feature support based on: https://rextester.com/ONP80107
 #define c_MACRO_OVERLOAD(name, ...) \
     c_JOIN(c_JOIN0(name,_),c_NUMARGS(__VA_ARGS__))(__VA_ARGS__)
 #define c_JOIN0(a, b) a ## b
 #define c_JOIN(a, b) c_JOIN0(a, b)
 #define c_EXPAND(...) __VA_ARGS__
+// This is the way to make c_NUMARGS work also for MSVC++ and MSVC pre -std:c11
 #define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
 #define _c_APPLY_ARG_N(args) c_EXPAND(_c_ARG_N args)
-#define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
-#define _c_ARG_N(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
-                 _14, _15, _16, N, ...) N
+#define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,N,...) N
 
-// Select, e.g. for #define i_type A,B then c_SELECT(_c_SEL22, i_type) is B
-#define c_SELECT(X, ...) c_EXPAND(X(__VA_ARGS__)) // need c_EXPAND for MSVC
-#define _c_SEL21(a, b) a
-#define _c_SEL22(a, b) b
-#define _c_SEL31(a, b, c) a
-#define _c_SEL32(a, b, c) b
-#define _c_SEL33(a, b, c) c
+// Select arg, e.g. for #define i_type A,B then c_SELECT(c_ARG_2, i_type) is B
+#define c_SELECT(X, ...) c_EXPAND(X(__VA_ARGS__,,)) // need c_EXPAND for MSVC
+#define c_ARG_1(a, ...) a
+#define c_ARG_2(a, b, ...) b
+#define c_ARG_3(a, b, c, ...) c
 
 #define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
 #define _i_calloc(T, n)     ((T*)i_calloc((n), c_sizeof(T)))
@@ -379,18 +378,18 @@ size_t c_basehash_n(const void* key, isize len) {
 #include <stdint.h>
 #include <stddef.h>
 
-#define forward_arc(C, VAL) _c_arc_types(C, VAL)
-#define forward_box(C, VAL) _c_box_types(C, VAL)
-#define forward_deq(C, VAL) _c_deque_types(C, VAL)
-#define forward_list(C, VAL) _c_list_types(C, VAL)
-#define forward_hmap(C, KEY, VAL) _c_htable_types(C, KEY, VAL, c_true, c_false)
-#define forward_hset(C, KEY) _c_htable_types(C, cset, KEY, KEY, c_false, c_true)
-#define forward_smap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
-#define forward_sset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
-#define forward_stack(C, VAL) _c_stack_types(C, VAL)
-#define forward_pqueue(C, VAL) _c_pqueue_types(C, VAL)
-#define forward_queue(C, VAL) _c_deque_types(C, VAL)
-#define forward_vec(C, VAL) _c_vec_types(C, VAL)
+#define declare_arc(C, VAL) _c_arc_types(C, VAL)
+#define declare_box(C, VAL) _c_box_types(C, VAL)
+#define declare_deq(C, VAL) _c_deque_types(C, VAL)
+#define declare_list(C, VAL) _c_list_types(C, VAL)
+#define declare_hmap(C, KEY, VAL) _c_htable_types(C, KEY, VAL, c_true, c_false)
+#define declare_hset(C, KEY) _c_htable_types(C, cset, KEY, KEY, c_false, c_true)
+#define declare_smap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
+#define declare_sset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
+#define declare_stack(C, VAL) _c_stack_types(C, VAL)
+#define declare_pqueue(C, VAL) _c_pqueue_types(C, VAL)
+#define declare_queue(C, VAL) _c_deque_types(C, VAL)
+#define declare_vec(C, VAL) _c_vec_types(C, VAL)
 
 // csview : non-null terminated string view
 typedef const char csview_value;
@@ -589,7 +588,7 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
 #ifndef STC_TEMPLATE_H_INCLUDED
 #define STC_TEMPLATE_H_INCLUDED
   #define c_option(flag)  ((i_opt) & (flag))
-  #define c_is_forward    (1<<0)
+  #define c_declared      (1<<0)
   #define c_no_atomic     (1<<1)
   #define c_no_clone      (1<<2)
   #define c_no_hash       (1<<4)
@@ -631,13 +630,10 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
 
 #if defined i_type && !(defined i_key || defined i_keyclass || \
                         defined i_keypro || defined i_rawclass)
+  #define Self c_SELECT(c_ARG_1, i_type)
+  #define i_key c_SELECT(c_ARG_2, i_type)
   #if defined _i_is_map && !defined i_val
-    #define Self c_SELECT(_c_SEL31, i_type)
-    #define i_key c_SELECT(_c_SEL32, i_type)
-    #define i_val c_SELECT(_c_SEL33, i_type)
-  #else
-    #define Self c_SELECT(_c_SEL21, i_type)
-    #define i_key c_SELECT(_c_SEL22, i_type)
+    #define i_val c_SELECT(c_ARG_3, i_type)
   #endif
 #elif !defined Self && defined i_type
   #define Self i_type
@@ -658,8 +654,8 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
 
 #define i_no_emplace
 
-#if c_option(c_is_forward)
-  #define i_is_forward
+#if c_option(c_declared)
+  #define i_declared
 #endif
 #if c_option(c_no_hash)
   #define i_no_hash
@@ -846,7 +842,7 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
 #endif
 #endif // STC_TEMPLATE_H_INCLUDED
 // ### END_FILE_INCLUDE: template.h
-#ifndef i_is_forward
+#ifndef i_declared
   _c_DEFTYPES(_c_htable_types, Self, i_key, i_val, _i_MAP_ONLY, _i_SET_ONLY);
 #endif
 
@@ -1348,7 +1344,7 @@ _c_MEMB(_erase_entry)(Self* self, _m_value* _val) {
 #undef i_no_hash
 #undef i_no_clone
 #undef i_no_emplace
-#undef i_is_forward
+#undef i_declared
 
 #undef _i_has_cmp
 #undef _i_has_eq
