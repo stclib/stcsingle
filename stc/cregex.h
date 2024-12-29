@@ -364,8 +364,8 @@ typedef union cstr {
 } cstr;
 
 typedef union {
-    const cstr_value* ref;
     csview chr; // utf8 character/codepoint
+    const cstr_value* ref;
 } cstr_iter;
 
 #define c_true(...) __VA_ARGS__
@@ -505,9 +505,6 @@ enum {
     /* replace-flags */
     CREG_STRIP = 1<<5,     /* only keep the matched strings, strip rest */
 
-    /* replace-count */
-    CREG_REPLACEALL = INT32_MAX,
-
     /* limits */
     CREG_MAX_CLASSES = 16,
     CREG_MAX_CAPTURES = 32,
@@ -537,29 +534,36 @@ typedef struct {
 
 typedef struct {
     const cregex* regex;
-    const char* input;
+    csview input;
     csview match[CREG_MAX_CAPTURES];
 } cregex_iter;
 
-#define c_formatch(it, re, string) \
-    for (cregex_iter it = {.regex=re, .input=string, .match={{0}}}; \
-         cregex_find_ex(it.regex, it.input, it.match, CREG_NEXT) == CREG_OK && it.match[0].size > 0; )
+#define c_formatch(it, re, str) \
+    for (cregex_iter it = {.regex=re, .input={str}, .match={{0}}}; \
+         cregex_match_next(it.regex, it.input.buf, it.match) == CREG_OK && it.match[0].size; )
 
+#define c_formatch_sv(it, re, strview) \
+    for (cregex_iter it = {.regex=re, .input=strview, .match={{0}}}; \
+         cregex_match_next_sv(it.regex, it.input, it.match) == CREG_OK && it.match[0].size; )
+
+#define cregex_from(...) c_MACRO_OVERLOAD(cregex_from, __VA_ARGS__)
+#define cregex_compile(...) c_MACRO_OVERLOAD(cregex_compile, __VA_ARGS__)
+#define cregex_match(...) c_MACRO_OVERLOAD(cregex_match, __VA_ARGS__)
 
 /* compile a regex from a pattern. return CREG_OK, or negative error code on failure. */
-int cregex_compile_ex(cregex *re, const char* pattern, int cflags);
+int cregex_compile_3(cregex *re, const char* pattern, int cflags);
 
-STC_INLINE int cregex_compile(cregex* re, const char* pattern)
-    { return cregex_compile_ex(re, pattern, CREG_DEFAULT); }
+STC_INLINE int cregex_compile_2(cregex* re, const char* pattern)
+    { return cregex_compile_3(re, pattern, CREG_DEFAULT); }
 
 /* construct and return a regex from a pattern. return CREG_OK, or negative error code on failure. */
-STC_INLINE cregex cregex_from_ex(const char* pattern, int cflags) {
+STC_INLINE cregex cregex_from_2(const char* pattern, int cflags) {
     cregex re = {0};
-    cregex_compile_ex(&re, pattern, cflags);
+    cregex_compile_3(&re, pattern, cflags);
     return re;
 }
-STC_INLINE cregex cregex_from(const char* pattern)
-    { return cregex_from_ex(pattern, CREG_DEFAULT); }
+STC_INLINE cregex cregex_from_1(const char* pattern)
+    { return cregex_from_2(pattern, CREG_DEFAULT); }
 
 
 /* number of capture groups in a regex pattern, excluding the full match capture (0) */
@@ -567,48 +571,56 @@ int cregex_captures(const cregex* re);
 
 
 /* return CREG_OK, CREG_NOMATCH or CREG_MATCHERROR. */
-int cregex_find_ex(const cregex* re, const char* input, csview match[], int mflags);
+int cregex_match_4(const cregex* re, const char* input, csview match[], int mflags);
 
-STC_INLINE int cregex_find_sv(const cregex* re, csview input, csview match[]) {
-    if (match) match[0] = input;
-    return cregex_find_ex(re, input.buf, match, CREG_STARTEND);
+STC_INLINE int cregex_match_sv(const cregex* re, csview input, csview match[]) {
+    match[0] = input;
+    return cregex_match_4(re, input.buf, match, CREG_STARTEND);
 }
-STC_INLINE int cregex_find(const cregex* re, const char* input, csview match[])
-    { return cregex_find_ex(re, input, match, CREG_DEFAULT); }
 
+STC_INLINE int cregex_match_3(const cregex* re, const char* input, csview match[])
+    { return cregex_match_4(re, input, match, CREG_DEFAULT); }
 
-STC_INLINE bool cregex_is_match_ex(const cregex* re, const char* input, int mflags)
-    { return cregex_find_ex(re, input, NULL, mflags) == CREG_OK; }
 
 STC_INLINE bool cregex_is_match(const cregex* re, const char* input)
-    { return cregex_is_match_ex(re, input, CREG_DEFAULT); }
+    { return cregex_match_4(re, input, NULL, CREG_DEFAULT) == CREG_OK; }
+
+
+STC_INLINE int cregex_match_next_sv(const cregex* re, csview input, csview match[]) {
+    if (match[0].buf) {
+        match[0].buf += match[0].size;
+        match[0].size = input.buf + input.size - match[0].buf;
+    }
+    return cregex_match_4(re, input.buf, match, CREG_STARTEND);
+}
+
+STC_INLINE int cregex_match_next(const cregex* re, const char* input, csview match[]) {
+    return cregex_match_4(re, input, match, CREG_NEXT);
+}
 
 
 /* match + compile RE pattern */
-int cregex_find_pattern_ex(const char* pattern, const char* input,
-                           csview match[], int cmflags);
-
-STC_INLINE int cregex_find_pattern(const char* pattern, const char* input, csview match[])
-    { return cregex_find_pattern_ex(pattern, input, match, CREG_DEFAULT); }
+int cregex_match_pattern(const char* pattern, const char* input, csview match[]);
 
 
 /* replace csview input with replace using regular expression pattern */
-cstr cregex_replace_ex(const cregex* re, csview input, const char* replace, int count,
+cstr cregex_replace_sv(const cregex* re, csview input, const char* replace, int count,
                        bool(*transform)(int group, csview match, cstr* result), int rflags);
 
-/* replace matches in input */
+/* replace const char* input with replace using regular expression pattern */
 STC_INLINE cstr cregex_replace(const cregex* re, const char* input, const char* replace) {
     csview sv = {input, c_strlen(input)};
-    return cregex_replace_ex(re, sv, replace, INT32_MAX, NULL, CREG_DEFAULT);
+    return cregex_replace_sv(re, sv, replace, INT32_MAX, NULL, CREG_DEFAULT);
 }
 
+
 /* replace + compile RE pattern, and extra arguments */
-cstr cregex_replace_pattern_ex(const char* pattern, csview input, const char* replace, int count,
+cstr cregex_replace_pattern_sv(const char* pattern, csview input, const char* replace, int count,
                                bool(*transform)(int group, csview match, cstr* result), int crflags);
 
 STC_INLINE cstr cregex_replace_pattern(const char* pattern, const char* input, const char* replace) {
-    csview sv = c_sv(input, c_strlen(input));
-    return cregex_replace_pattern_ex(pattern, sv, replace, INT32_MAX, NULL, CREG_DEFAULT);
+    csview sv = {input, c_strlen(input)};
+    return cregex_replace_pattern_sv(pattern, sv, replace, INT32_MAX, NULL, CREG_DEFAULT);
 }
 
 /* destroy regex */
@@ -735,7 +747,7 @@ STC_INLINE const char* utf8_offset(const char* s, isize u8pos) {
 STC_INLINE isize utf8_to_index(const char* s, isize u8pos)
     { return utf8_at(s, u8pos) - s; }
 
-STC_INLINE csview utf8_span(const char *s, isize u8pos, isize u8len) {
+STC_INLINE csview utf8_subview(const char *s, isize u8pos, isize u8len) {
     csview span;
     span.buf = utf8_at(s, u8pos);
     span.size = utf8_to_index(span.buf, u8len);
@@ -999,13 +1011,14 @@ STC_INLINE zsview cstr_u8_tail(const cstr* self, isize u8len) {
 }
 
 STC_INLINE csview cstr_u8_subview(const cstr* self, isize u8pos, isize u8len)
-    { return utf8_span(cstr_str(self), u8pos, u8len); }
+    { return utf8_subview(cstr_str(self), u8pos, u8len); }
 
-STC_INLINE csview cstr_u8_chr(const cstr* self, isize u8pos) {
+STC_INLINE cstr_iter cstr_u8_at(const cstr* self, isize u8pos) {
     csview sv;
     sv.buf = utf8_at(cstr_str(self), u8pos);
     sv.size = utf8_chr_size(sv.buf);
-    return sv;
+    c_assert(sv.size);
+    return c_literal(cstr_iter){.chr = sv};
 }
 
 // utf8 iterator
@@ -1161,11 +1174,11 @@ STC_INLINE char* cstr_append_s(cstr* self, cstr s)
 STC_INLINE void cstr_replace_sv(cstr* self, csview search, csview repl, int32_t count)
     { cstr_take(self, cstr_from_replace(cstr_sv(self), search, repl, count)); }
 
-STC_INLINE void cstr_replace_count(cstr* self, const char* search, const char* repl, int32_t count)
+STC_INLINE void cstr_replace_nfirst(cstr* self, const char* search, const char* repl, int32_t count)
     { cstr_replace_sv(self, c_sv(search, c_strlen(search)), c_sv(repl, c_strlen(repl)), count); }
 
 STC_INLINE void cstr_replace(cstr* self, const char* search, const char* repl)
-    { cstr_replace_count(self, search, repl, INT32_MAX); }
+    { cstr_replace_nfirst(self, search, repl, INT32_MAX); }
 
 
 STC_INLINE void cstr_replace_at_sv(cstr* self, isize pos, isize len, const csview repl) {
@@ -1176,7 +1189,7 @@ STC_INLINE void cstr_replace_at(cstr* self, isize pos, isize len, const char* re
     { cstr_replace_at_sv(self, pos, len, c_sv(repl, c_strlen(repl))); }
 
 STC_INLINE void cstr_u8_replace(cstr* self, isize u8pos, isize u8len, const char* repl) {
-    const char* s = cstr_str(self); csview span = utf8_span(s, u8pos, u8len);
+    const char* s = cstr_str(self); csview span = utf8_subview(s, u8pos, u8len);
     cstr_replace_at(self, span.buf - s, span.size, repl);
 }
 
@@ -2763,7 +2776,7 @@ _regexec(const _Reprog *progp,    /* program to run */
     j.starts = bol;
     j.eol = NULL;
 
-    if (mp && mp[0].size) {
+    if (mp && mp[0].buf) {
         if (mflags & CREG_STARTEND)
             j.starts = mp[0].buf, j.eol = mp[0].buf + mp[0].size;
         else if (mflags & CREG_NEXT)
@@ -2835,7 +2848,7 @@ _build_subst(const char* replace, int nmatch, const csview match[],
 
 
 int
-cregex_compile_ex(cregex *self, const char* pattern, int cflags) {
+cregex_compile_3(cregex *self, const char* pattern, int cflags) {
     _Parser par;
     self->prog = _regcomp1(self->prog, &par, pattern, cflags);
     return self->error = par.error;
@@ -2847,7 +2860,7 @@ cregex_captures(const cregex* self) {
 }
 
 int
-cregex_find_ex(const cregex* re, const char* input, csview match[], int mflags) {
+cregex_match_4(const cregex* re, const char* input, csview match[], int mflags) {
     int res = _regexec(re->prog, input, cregex_captures(re) + 1, match, mflags);
     switch (res) {
         case 1: return CREG_OK;
@@ -2857,18 +2870,16 @@ cregex_find_ex(const cregex* re, const char* input, csview match[], int mflags) 
 }
 
 int
-cregex_find_pattern_ex(const char* pattern, const char* input,
-                       csview match[], int cmflags) {
-    cregex re = {0};
-    int res = cregex_compile_ex(&re, pattern, cmflags);
-    if (res != CREG_OK) return res;
-    res = cregex_find_ex(&re, input, match, cmflags);
+cregex_match_pattern(const char* pattern, const char* input, csview match[]) {
+    cregex re = cregex_from_2(pattern, CREG_DEFAULT);
+    if (re.error != CREG_OK) return re.error;
+    int res = cregex_match_4(&re, input, match, CREG_DEFAULT);
     cregex_drop(&re);
     return res;
 }
 
 cstr
-cregex_replace_ex(const cregex* re, csview input, const char* replace,
+cregex_replace_sv(const cregex* re, csview input, const char* replace,
                   int count, bool(*transform)(int, csview, cstr*), int rflags) {
     cstr out = {0};
     cstr subst = {0};
@@ -2876,7 +2887,7 @@ cregex_replace_ex(const cregex* re, csview input, const char* replace,
     int nmatch = cregex_captures(re) + 1;
     bool copy = !(rflags & CREG_STRIP);
 
-    while (count-- && cregex_find_sv(re, input, match) == CREG_OK) {
+    while (count-- && cregex_match_sv(re, input, match) == CREG_OK) {
         _build_subst(replace, nmatch, match, transform, &subst);
         const isize mpos = (match[0].buf - input.buf);
         if (copy & (mpos > 0)) cstr_append_n(&out, input.buf, mpos);
@@ -2890,12 +2901,12 @@ cregex_replace_ex(const cregex* re, csview input, const char* replace,
 }
 
 cstr
-cregex_replace_pattern_ex(const char* pattern, csview input, const char* replace,
+cregex_replace_pattern_sv(const char* pattern, csview input, const char* replace,
                           int count, bool(*transform)(int, csview, cstr*), int crflags) {
     cregex re = {0};
-    if (cregex_compile_ex(&re, pattern, crflags) != CREG_OK)
+    if (cregex_compile_3(&re, pattern, crflags) != CREG_OK)
         assert(0);
-    cstr out = cregex_replace_ex(&re, input, replace, count, transform, crflags);
+    cstr out = cregex_replace_sv(&re, input, replace, count, transform, crflags);
     cregex_drop(&re);
     return out;
 }
@@ -3487,7 +3498,7 @@ isize cstr_printf(cstr* self, const char* fmt, ...) {
 
 void cstr_u8_erase(cstr* self, const isize u8pos, const isize u8len) {
     csview r = cstr_sv(self);
-    csview span = utf8_span(r.buf, u8pos, u8len);
+    csview span = utf8_subview(r.buf, u8pos, u8len);
     c_memmove((void *)&span.buf[0], &span.buf[span.size], r.size - span.size - (span.buf - r.buf));
     _cstr_set_size(self, r.size - span.size);
 }

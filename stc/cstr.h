@@ -430,8 +430,8 @@ typedef union cstr {
 } cstr;
 
 typedef union {
-    const cstr_value* ref;
     csview chr; // utf8 character/codepoint
+    const cstr_value* ref;
 } cstr_iter;
 
 #define c_true(...) __VA_ARGS__
@@ -606,7 +606,7 @@ STC_INLINE const char* utf8_offset(const char* s, isize u8pos) {
 STC_INLINE isize utf8_to_index(const char* s, isize u8pos)
     { return utf8_at(s, u8pos) - s; }
 
-STC_INLINE csview utf8_span(const char *s, isize u8pos, isize u8len) {
+STC_INLINE csview utf8_subview(const char *s, isize u8pos, isize u8len) {
     csview span;
     span.buf = utf8_at(s, u8pos);
     span.size = utf8_to_index(span.buf, u8len);
@@ -870,13 +870,14 @@ STC_INLINE zsview cstr_u8_tail(const cstr* self, isize u8len) {
 }
 
 STC_INLINE csview cstr_u8_subview(const cstr* self, isize u8pos, isize u8len)
-    { return utf8_span(cstr_str(self), u8pos, u8len); }
+    { return utf8_subview(cstr_str(self), u8pos, u8len); }
 
-STC_INLINE csview cstr_u8_chr(const cstr* self, isize u8pos) {
+STC_INLINE cstr_iter cstr_u8_at(const cstr* self, isize u8pos) {
     csview sv;
     sv.buf = utf8_at(cstr_str(self), u8pos);
     sv.size = utf8_chr_size(sv.buf);
-    return sv;
+    c_assert(sv.size);
+    return c_literal(cstr_iter){.chr = sv};
 }
 
 // utf8 iterator
@@ -1032,11 +1033,11 @@ STC_INLINE char* cstr_append_s(cstr* self, cstr s)
 STC_INLINE void cstr_replace_sv(cstr* self, csview search, csview repl, int32_t count)
     { cstr_take(self, cstr_from_replace(cstr_sv(self), search, repl, count)); }
 
-STC_INLINE void cstr_replace_count(cstr* self, const char* search, const char* repl, int32_t count)
+STC_INLINE void cstr_replace_nfirst(cstr* self, const char* search, const char* repl, int32_t count)
     { cstr_replace_sv(self, c_sv(search, c_strlen(search)), c_sv(repl, c_strlen(repl)), count); }
 
 STC_INLINE void cstr_replace(cstr* self, const char* search, const char* repl)
-    { cstr_replace_count(self, search, repl, INT32_MAX); }
+    { cstr_replace_nfirst(self, search, repl, INT32_MAX); }
 
 
 STC_INLINE void cstr_replace_at_sv(cstr* self, isize pos, isize len, const csview repl) {
@@ -1047,7 +1048,7 @@ STC_INLINE void cstr_replace_at(cstr* self, isize pos, isize len, const char* re
     { cstr_replace_at_sv(self, pos, len, c_sv(repl, c_strlen(repl))); }
 
 STC_INLINE void cstr_u8_replace(cstr* self, isize u8pos, isize u8len, const char* repl) {
-    const char* s = cstr_str(self); csview span = utf8_span(s, u8pos, u8len);
+    const char* s = cstr_str(self); csview span = utf8_subview(s, u8pos, u8len);
     cstr_replace_at(self, span.buf - s, span.size, repl);
 }
 
@@ -1290,7 +1291,7 @@ isize cstr_printf(cstr* self, const char* fmt, ...) {
 
 void cstr_u8_erase(cstr* self, const isize u8pos, const isize u8len) {
     csview r = cstr_sv(self);
-    csview span = utf8_span(r.buf, u8pos, u8len);
+    csview span = utf8_subview(r.buf, u8pos, u8len);
     c_memmove((void *)&span.buf[0], &span.buf[span.size], r.size - span.size - (span.buf - r.buf));
     _cstr_set_size(self, r.size - span.size);
 }
