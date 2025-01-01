@@ -711,9 +711,9 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
 
 #endif // STC_UTILITY_H_INCLUDED
 // ### END_FILE_INCLUDE: utility.h
-// ### BEGIN_FILE_INCLUDE: variant.h
-#ifndef STC_VARIANT_H_INCLUDED
-#define STC_VARIANT_H_INCLUDED
+// ### BEGIN_FILE_INCLUDE: sumtype.h
+#ifndef STC_SUMTYPE_H_INCLUDED
+#define STC_SUMTYPE_H_INCLUDED
 
 
 #define _c_EMPTY()
@@ -787,14 +787,17 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
 #define c_variant(Tag, ...) \
     (c_literal(Tag##_sumtype){.Tag={.tag=Tag, .var=__VA_ARGS__}})
 
-#define c_tag_index(var) \
-    ((var)->_any_.tag)
+#define c_get(Tag, var_ptr) \
+    (c_assert((var_ptr)->Tag.tag == Tag), &(var_ptr)->Tag.var)
 
-#define c_holds(var, Tag) \
-    (c_tag_index(var) == Tag)
+#define c_tag_index(var_ptr) \
+    ((var_ptr)->_any_.tag)
 
-#endif // STC_VARIANT_H_INCLUDED
-// ### END_FILE_INCLUDE: variant.h
+#define c_holds(var_ptr, Tag) \
+    (c_tag_index(var_ptr) == Tag)
+
+#endif // STC_SUMTYPE_H_INCLUDED
+// ### END_FILE_INCLUDE: sumtype.h
 // IWYU pragma: end_exports
 
 #endif // STC_ALGORITHM_H_INCLUDED
