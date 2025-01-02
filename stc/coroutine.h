@@ -26,6 +26,10 @@ typedef ptrdiff_t       isize;
     typedef int64_t     int64;
     typedef uint64_t    uint64;
 #endif
+#if !defined STC_HAS_TYPEOF && (_MSC_FULL_VER >= 193933428 || \
+    defined __GNUC__ || defined __clang__ || defined __TINYC__)
+    #define STC_HAS_TYPEOF 1
+#endif
 #if defined __GNUC__ || defined __clang__
     #define STC_INLINE static inline __attribute((unused))
 #else
@@ -167,13 +171,13 @@ typedef const char* cstr_raw;
 #define c_forrange_t(...) c_MACRO_OVERLOAD(c_forrange_t, __VA_ARGS__)
 #define c_forrange_t_3(T, i, stop) c_forrange_t_4(T, i, 0, stop)
 #define c_forrange_t_4(T, i, start, stop) \
-    for (T i=start, _c_end=stop; i < _c_end; ++i)
+    for (T i=start, _c_end_##i=stop; i < _c_end_##i; ++i)
 #define c_forrange_t_5(T, i, start, stop, step) \
-    for (T i=start, _c_inc=step, _c_end=(stop) - (_c_inc > 0) \
-         ; (_c_inc > 0) == (i <= _c_end); i += _c_inc)
+    for (T i=start, _c_inc_##i=step, _c_end_##i=(stop) - (_c_inc_##i > 0) \
+         ; (_c_inc_##i > 0) == (i <= _c_end_##i); i += _c_inc_##i)
 
 #define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
-#define c_forrange_1(stop) c_forrange_t_4(isize, _c_i, 0, stop)
+#define c_forrange_1(stop) c_forrange_t_4(isize, _c_i1, 0, stop)
 #define c_forrange_2(i, stop) c_forrange_t_4(isize, i, 0, stop)
 #define c_forrange_3(i, start, stop) c_forrange_t_4(isize, i, start, stop)
 #define c_forrange_4(i, start, stop, step) c_forrange_t_5(isize, i, start, stop, step)
@@ -198,7 +202,7 @@ typedef const char* cstr_raw;
 
 // drop multiple containers of same type
 #define c_drop(C, ...) \
-    do { c_foritems (_c_i, C*, {__VA_ARGS__}) C##_drop(*_c_i.ref); } while(0)
+    do { c_foritems (_c_i2, C*, {__VA_ARGS__}) C##_drop(*_c_i2.ref); } while(0)
 
 // define function with "on-the-fly" defined return type (e.g. variant, optional)
 #define c_func(name, args, RIGHTARROW, ...) \
@@ -206,13 +210,13 @@ typedef const char* cstr_raw;
 
 // RAII scopes
 #define c_defer(...) \
-    for (int _c_i = 0; _c_i++ == 0; __VA_ARGS__)
+    for (int _c_i3 = 0; _c_i3++ == 0; __VA_ARGS__)
 
 #define c_with(...) c_MACRO_OVERLOAD(c_with, __VA_ARGS__)
 #define c_with_2(init, deinit) \
-    for (int _c_i = 0; _c_i == 0; ) for (init; _c_i++ == 0; deinit)
+    for (int _c_i4 = 0; _c_i4 == 0; ) for (init; _c_i4++ == 0; deinit)
 #define c_with_3(init, condition, deinit) \
-    for (int _c_i = 0; _c_i == 0; ) for (init; _c_i++ == 0 && (condition); deinit)
+    for (int _c_i5 = 0; _c_i5 == 0; ) for (init; _c_i5++ == 0 && (condition); deinit)
 
 // General functions
 
@@ -317,13 +321,13 @@ typedef struct {
 #define cco_done(co) ((co)->cco.state == CCO_STATE_DONE)
 #define cco_active(co) ((co)->cco.state != CCO_STATE_DONE)
 
-#if defined __GNUC__ || defined __clang__ || defined __TINYC__ || _MSC_VER >= 1939
-  #define _cco_check_task_struct(co) \
+#if defined STC_HAS_TYPEOF && STC_HAS_TYPEOF
+    #define _cco_check_task_struct(co) \
     c_static_assert(/* error: co->cco not first member in task struct */ \
                     sizeof((co)->cco) == sizeof(cco_state) || \
                     offsetof(__typeof__(*(co)), cco) == 0)
 #else
-  #define _cco_check_task_struct(co) 0
+    #define _cco_check_task_struct(co) 0
 #endif
 
 #define cco_routine(co) \
@@ -339,13 +343,19 @@ typedef struct {
         cco_return; \
     } while (0)
 
+#define cco_recover_error(rt) \
+    do { \
+        c_assert(*_state == CCO_STATE_FINALLY); \
+        *_state = (rt)->recover_state; \
+        (rt)->error = 0; \
+        goto _resume; \
+    } while (0)
+
 #define cco_finally \
     *_state = CCO_STATE_FINALLY; /* FALLTHRU */ \
     case CCO_STATE_FINALLY
 
-#define cco_scope cco_routine   // [deprecated]
 #define cco_final cco_finally   // [deprecated]
-#define cco_cleanup cco_finally // [deprecated]
 
 #define cco_return \
     do { \
@@ -391,8 +401,8 @@ typedef struct {
 
 #define cco_stop(co) \
     do { \
-        int* _state = &(co)->cco.state; \
-        *_state = *_state >= CCO_STATE_INIT ? CCO_STATE_FINALLY : CCO_STATE_DONE; \
+        int* _st = &(co)->cco.state; \
+        *_st = *_st >= CCO_STATE_INIT ? CCO_STATE_FINALLY : CCO_STATE_DONE; \
     } while (0)
 
 #define cco_reset(co) \
@@ -401,8 +411,9 @@ typedef struct {
 
 
 typedef struct {
-    struct cco_task *current, *parent;
-    void* context;
+    struct cco_task *current;
+    void* env;
+    struct cco_task *parent;
     int recover_state, awaitbits, result;
     uint16_t error, error_line;
 } cco_runtime;
@@ -430,15 +441,6 @@ typedef struct cco_task cco_task;
 /* Stop and immediate cleanup */
 #define cco_cancel_task(task, rt) \
     _cco_cancel_task(cco_cast_task(task), rt)
-
-#define cco_recover_task(task, rt) \
-    do { \
-        int* _state = &(task)->cco.state; \
-        c_assert(*_state == CCO_STATE_FINALLY); \
-        *_state = (rt)->recover_state; \
-        (rt)->error = 0; \
-        goto _resume; \
-    } while (0)
 
 static inline int _cco_resume_task(cco_task* task, cco_runtime* rt)
     { return task->cco.func(task, rt); }
@@ -476,15 +478,15 @@ struct cco_taskrunner {
 
 extern int cco_taskrunner(struct cco_taskrunner* co);
 
-#define cco_make_taskrunner(task, ctx) \
+#define cco_make_taskrunner(task, environment) \
     (c_literal(struct cco_taskrunner){.runtime = { \
-        .current = cco_cast_task(task), .context = ctx \
+        .current = cco_cast_task(task), .env = environment \
     }})
 
 #define cco_run_task(...) c_MACRO_OVERLOAD(cco_run_task, __VA_ARGS__)
 #define cco_run_task_1(task) cco_run_task_2(task, NULL)
-#define cco_run_task_2(task, ctx) \
-    for (struct cco_taskrunner _runner = cco_make_taskrunner(task, ctx) \
+#define cco_run_task_2(task, environment) \
+    for (struct cco_taskrunner _runner = cco_make_taskrunner(task, environment) \
          ; cco_taskrunner(&_runner) != CCO_DONE ; )
 
 /* -------------------------- IMPLEMENTATION ------------------------- */
@@ -515,7 +517,7 @@ int cco_taskrunner(struct cco_taskrunner* co) {
         if (rt->error != 0) {
             fprintf(stderr, __FILE__ ":%d: error: unhandled error '%d' in a coroutine task at line %d.\n",
                             __LINE__, rt->error, rt->error_line);
-            abort();
+            exit(rt->error);
         }
     }
     return 0;
