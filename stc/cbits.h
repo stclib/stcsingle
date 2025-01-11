@@ -9,7 +9,7 @@
   #define STC_DEF
 #else
   #define i_implement
-  #if defined __GNUC__ || defined __clang__
+  #if defined __GNUC__ || defined __clang__ || defined __INTEL_LLVM_COMPILER
     #define STC_API static __attribute__((unused))
   #else
     #define STC_API static inline
@@ -526,7 +526,7 @@ STC_INLINE isize    _i_MEMB(_size)(const Self* self) { (void)self; return _i_len
 STC_INLINE Self     _i_MEMB(_move)(Self* self) { return *self; }
 STC_INLINE Self*    _i_MEMB(_take)(Self* self, Self other) { *self = other; return self; }
 STC_INLINE Self     _i_MEMB(_clone)(Self other) { return other; }
-STC_INLINE Self*    _i_MEMB(_copy)(Self* self, const Self* other) { *self = *other; return self; }
+STC_INLINE void     _i_MEMB(_copy)(Self* self, const Self other) { *self = other; }
 STC_INLINE void     _i_MEMB(_set_all)(Self *self, const bool value);
 STC_INLINE void     _i_MEMB(_set_pattern)(Self *self, const uintptr_t pattern);
 

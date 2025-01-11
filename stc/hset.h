@@ -17,7 +17,7 @@
   #define STC_DEF
 #else
   #define i_implement
-  #if defined __GNUC__ || defined __clang__
+  #if defined __GNUC__ || defined __clang__ || defined __INTEL_LLVM_COMPILER
     #define STC_API static __attribute__((unused))
   #else
     #define STC_API static inline
@@ -906,11 +906,11 @@ _c_MEMB(_insert_entry_)(Self* self, _m_keyraw rkey) {
 #endif // _i_is_map
 
 #if !defined i_no_clone
-    STC_INLINE void _c_MEMB(_copy)(Self *self, const Self* other) {
-        if (self->table == other->table)
+    STC_INLINE void _c_MEMB(_copy)(Self *self, const Self other) {
+        if (self->table == other.table)
             return;
         _c_MEMB(_drop)(self);
-        *self = _c_MEMB(_clone)(*other);
+        *self = _c_MEMB(_clone)(other);
     }
 
     STC_INLINE _m_value _c_MEMB(_value_clone)(_m_value _val) {

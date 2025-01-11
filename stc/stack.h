@@ -9,7 +9,7 @@
   #define STC_DEF
 #else
   #define i_implement
-  #if defined __GNUC__ || defined __clang__
+  #if defined __GNUC__ || defined __clang__ || defined __INTEL_LLVM_COMPILER
     #define STC_API static __attribute__((unused))
   #else
     #define STC_API static inline
@@ -969,10 +969,10 @@ STC_INLINE Self _c_MEMB(_clone)(Self s) {
     return s;
 }
 
-STC_INLINE void _c_MEMB(_copy)(Self *self, const Self* other) {
-    if (self->data == other->data) return;
+STC_INLINE void _c_MEMB(_copy)(Self *self, const Self other) {
+    if (self->data == other.data) return;
     _c_MEMB(_drop)(self);
-    *self = _c_MEMB(_clone)(*other);
+    *self = _c_MEMB(_clone)(other);
 }
 
 STC_INLINE _m_value _c_MEMB(_value_clone)(_m_value val)
