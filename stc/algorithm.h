@@ -655,7 +655,7 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
 #define c_append_if_4(C, outcnt_ptr, cnt, pred) \
     _c_append_if(C, outcnt_ptr, _, C, cnt, pred)
 
-#define c_append_if_5(C, cnt, C_out, outcnt_ptr, pred) \
+#define c_append_if_5(C_out, outcnt_ptr, C, cnt, pred) \
     _c_append_if(C_out, outcnt_ptr, _, C, cnt, pred)
 
 // private
