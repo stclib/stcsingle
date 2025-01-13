@@ -192,68 +192,84 @@ typedef const char* cstr_raw;
 
 // Control block macros
 
+// [deprecated]:
+#define c_init(C, ...) c_make(C, __VA_ARGS__)
+#define c_forlist(...) for (c_items(_VA_ARGS__))
+#define c_foritems(...) for (c_items(__VA_ARGS__))
 #define c_foreach(...) c_MACRO_OVERLOAD(c_foreach, __VA_ARGS__)
-#define c_foreach_3(it, C, cnt) \
-    for (C##_iter it = C##_begin(&cnt); it.ref; C##_next(&it))
-#define c_foreach_4(it, C, start, end) \
-    _c_foreach(it, C, start, (end).ref, _)
-
-#define c_foreach_n(it, C, cnt, n) \
-    for (isize it##_index=0, _c_n=n; _c_n; _c_n=0) \
-    for (C##_iter it = C##_begin(&cnt); it.ref && it##_index < _c_n; C##_next(&it), ++it##_index)
-
-#define c_foreach_reverse(...) c_MACRO_OVERLOAD(c_foreach_reverse, __VA_ARGS__)
-#define c_foreach_reverse_3(it, C, cnt) /* works for stack, vec, queue, deque */ \
-    for (C##_iter it = C##_rbegin(&cnt); it.ref; C##_rnext(&it))
-#define c_foreach_reverse_4(it, C, start, end) \
-    _c_foreach(it, C, start, (end).ref, _r)
-
-#define _c_foreach(it, C, start, endref, rev) /* private */ \
-    for (C##_iter it = (start), *_endref = c_safe_cast(C##_iter*, C##_value*, endref) \
-         ; it.ref != (C##_value*)_endref; C##rev##next(&it))
-
+#define c_foreach_3(i, C, cnt) for (c_each_3(i, C, cnt))
+#define c_foreach_4(i, C, beg, end) for (c_each_4(i, C, beg, end))
+#define c_foreach_n(...) for (c_each_n(...))
 #define c_foreach_kv(...) c_MACRO_OVERLOAD(c_foreach_kv, __VA_ARGS__)
-#define c_foreach_kv_4(key, val, C, cnt) /* structured binding for maps */ \
-    _c_foreach_kv(key, val, C, C##_begin(&cnt), NULL)
-#define c_foreach_kv_5(key, val, C, start, end) \
-    _c_foreach_kv(key, val, C, start, (end).ref)
+#define c_foreach_kv_4(k, v, C, cnt) for (c_each_kv_4(k, v, C, cnt))
+#define c_foreach_kv_5(k, v, C, beg, end) for (c_each_kv_5(k, v, C, beg, end))
+#define c_foreach_reverse(...) c_MACRO_OVERLOAD(c_foreach_reverse, __VA_ARGS__)
+#define c_foreach_reverse_3(i, C, cnt) for (c_each_reverse_3(i, C, cnt))
+#define c_foreach_reverse_4(i, C, beg, end) for (c_each_reverse_4(i, C, beg, end))
+#define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
+#define c_forrange_1(stop) for (c_range_1(stop))
+#define c_forrange_2(i, stop) for (c_range_2(i, stop))
+#define c_forrange_3(i, start, stop) for (c_range_3(i, start, stop))
+#define c_forrange_4(i, start, stop, step) for (c_range_4(i, start, stop, step))
 
-#define _c_foreach_kv(key, val, C, start, endref) /* private */ \
-    for (const C##_key *key, **_c_k = &key; _c_k; ) \
+// New:
+#define c_each(...) c_MACRO_OVERLOAD(c_each, __VA_ARGS__)
+#define c_each_3(it, C, cnt) \
+    C##_iter it = C##_begin(&cnt); it.ref; C##_next(&it)
+#define c_each_4(it, C, start, end) \
+    _c_each(it, C, start, (end).ref, _)
+
+#define c_each_n(it, C, cnt, n) \
+    isize it##_index=0, _c_n=n; _c_n; _c_n=0 \
+    for (C##_iter it = C##_begin(&cnt); it.ref && it##_index < _c_n; C##_next(&it), ++it##_index
+
+#define c_each_reverse(...) c_MACRO_OVERLOAD(c_each_reverse, __VA_ARGS__)
+#define c_each_reverse_3(it, C, cnt) /* works for stack, vec, queue, deque */ \
+    C##_iter it = C##_rbegin(&cnt); it.ref; C##_rnext(&it)
+#define c_each_reverse_4(it, C, start, end) \
+    _c_each(it, C, start, (end).ref, _r)
+
+#define _c_each(it, C, start, endref, rev) /* private */ \
+    C##_iter it = (start), *_endref = c_safe_cast(C##_iter*, C##_value*, endref) \
+         ; it.ref != (C##_value*)_endref; C##rev##next(&it)
+
+#define c_each_kv(...) c_MACRO_OVERLOAD(c_each_kv, __VA_ARGS__)
+#define c_each_kv_4(key, val, C, cnt) /* structured binding for maps */ \
+    _c_each_kv(key, val, C, C##_begin(&cnt), NULL)
+#define c_each_kv_5(key, val, C, start, end) \
+    _c_each_kv(key, val, C, start, (end).ref)
+
+#define _c_each_kv(key, val, C, start, endref) /* private */ \
+    const C##_key *key, **_c_k = &key; _c_k; ) \
     for (C##_mapped *val; _c_k; _c_k = NULL) \
     for (C##_iter _it = start, *_endref = c_safe_cast(C##_iter*, C##_value*, endref) ; \
          _it.ref != (C##_value*)_endref && (key = &_it.ref->first, val = &_it.ref->second); \
-         C##_next(&_it))
+         C##_next(&_it)
 
-#define c_foritems(it, T, ...) \
-    for (struct {T* ref; int size, index;} \
-         it = {.ref=c_make_array(T, __VA_ARGS__), .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
-         ; it.index < it.size; ++it.ref, ++it.index)
+#define c_items(it, T, ...) \
+    struct {T* ref; int size, index;} \
+    it = {.ref=c_make_array(T, __VA_ARGS__), .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
+    ; it.index < it.size ; ++it.ref, ++it.index
 
-// c_forrange, c_forrange32: python-like int range iteration
-#define c_forrange_t(...) c_MACRO_OVERLOAD(c_forrange_t, __VA_ARGS__)
-#define c_forrange_t_3(T, i, stop) c_forrange_t_4(T, i, 0, stop)
-#define c_forrange_t_4(T, i, start, stop) \
-    for (T i=start, _c_end_##i=stop; i < _c_end_##i; ++i)
-#define c_forrange_t_5(T, i, start, stop, step) \
-    for (T i=start, _c_inc_##i=step, _c_end_##i=(stop) - (_c_inc_##i > 0) \
-         ; (_c_inc_##i > 0) == (i <= _c_end_##i); i += _c_inc_##i)
+// c_range, c_range32: python-like int range iteration
+#define c_range_t(...) c_MACRO_OVERLOAD(c_range_t, __VA_ARGS__)
+#define c_range_t_3(T, i, stop) c_range_t_4(T, i, 0, stop)
+#define c_range_t_4(T, i, start, stop) \
+    T i=start, _c_end_##i=stop; i < _c_end_##i; ++i
+#define c_range_t_5(T, i, start, stop, step) \
+    T i=start, _c_inc_##i=step, _c_end_##i=(stop) - (_c_inc_##i > 0) \
+    ; (_c_inc_##i > 0) == (i <= _c_end_##i) ; i += _c_inc_##i
 
-#define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
-#define c_forrange_1(stop) c_forrange_t_4(isize, _c_i1, 0, stop)
-#define c_forrange_2(i, stop) c_forrange_t_4(isize, i, 0, stop)
-#define c_forrange_3(i, start, stop) c_forrange_t_4(isize, i, start, stop)
-#define c_forrange_4(i, start, stop, step) c_forrange_t_5(isize, i, start, stop, step)
+#define c_range(...) c_MACRO_OVERLOAD(c_range, __VA_ARGS__)
+#define c_range_1(stop) c_range_t_4(isize, _c_i1, 0, stop)
+#define c_range_2(i, stop) c_range_t_4(isize, i, 0, stop)
+#define c_range_3(i, start, stop) c_range_t_4(isize, i, start, stop)
+#define c_range_4(i, start, stop, step) c_range_t_5(isize, i, start, stop, step)
 
-#define c_forrange32(...) c_MACRO_OVERLOAD(c_forrange32, __VA_ARGS__)
-#define c_forrange32_2(i, stop) c_forrange_t_4(int32_t, i, 0, stop)
-#define c_forrange32_3(i, start, stop) c_forrange_t_4(int32_t, i, start, stop)
-#define c_forrange32_4(i, start, stop, step) c_forrange_t_5(int32_t, i, start, stop, step)
-
-// deprecated/removed:
-#define c_init(C, ...) c_make(C, __VA_ARGS__)                      // [deprecated]
-#define c_forlist(...) c_foritems(_VA_ARGS__)                      // [deprecated]
-#define c_forpair(...) 'c_forpair not_supported. Use c_foreach_kv' // [removed]
+#define c_range32(...) c_MACRO_OVERLOAD(c_range32, __VA_ARGS__)
+#define c_range32_2(i, stop) c_range_t_4(int32_t, i, 0, stop)
+#define c_range32_3(i, start, stop) c_range_t_4(int32_t, i, start, stop)
+#define c_range32_4(i, start, stop, step) c_range_t_5(int32_t, i, start, stop, step)
 
 // make container from a literal list, and drop multiple containers of same type
 #define c_make(C, ...) \
@@ -265,7 +281,7 @@ typedef const char* cstr_raw;
 
 // drop multiple containers of same type
 #define c_drop(C, ...) \
-    do { c_foritems (_c_i2, C*, {__VA_ARGS__}) C##_drop(*_c_i2.ref); } while(0)
+    do { for (c_items(_c_i2, C*, {__VA_ARGS__})) C##_drop(*_c_i2.ref); } while(0)
 
 // define function with "on-the-fly" defined return type (e.g. variant, optional)
 #define c_func(name, args, RIGHTARROW, ...) \
@@ -286,7 +302,7 @@ typedef const char* cstr_raw;
 STC_INLINE size_t c_basehash_n(const void* key, isize len) {
     size_t block = 0, hash = 0x811c9dc5;
     const uint8_t* msg = (const uint8_t*)key;
-    while (len >= c_sizeof(size_t)) {
+    while (len > c_sizeof(size_t)) {
         memcpy(&block, msg, sizeof(size_t));
         hash = (hash ^ block) * (size_t)0x89bb179901000193;
         msg += c_sizeof(size_t);
@@ -532,19 +548,10 @@ typedef union {
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value data[CAP]; ptrdiff_t size; } SELF
 
-#define _c_stack_types(SELF, VAL) \
-    typedef VAL SELF##_value; \
-    typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
-    typedef struct SELF { SELF##_value* data; ptrdiff_t size, capacity; _i_aux_struct } SELF
-
 #define _c_vec_types(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value *data; ptrdiff_t size, capacity; _i_aux_struct } SELF
-
-#define _c_pqueue_types(SELF, VAL) \
-    typedef VAL SELF##_value; \
-    typedef struct SELF { SELF##_value* data; ptrdiff_t size, capacity; _i_aux_struct } SELF
 
 #endif // STC_TYPES_H_INCLUDED
 // ### END_FILE_INCLUDE: types.h
@@ -977,7 +984,7 @@ STC_INLINE bool _c_MEMB(_eq)(const Self* self, const Self* other) {
 STC_DEF Self
 _c_MEMB(_clone)(Self lst) {
     Self tmp = {0};
-    c_foreach (it, Self, lst)
+    for (c_each(it, Self, lst))
         _c_MEMB(_push_back)(&tmp, i_keyclone((*it.ref)));
     lst.last = tmp.last;
     return lst;
@@ -1111,7 +1118,7 @@ _c_MEMB(_split_off)(Self* self, _m_iter it1, _m_iter it2) {
 #if defined _i_has_eq
 STC_DEF _m_iter
 _c_MEMB(_find_in)(_m_iter it1, _m_iter it2, _m_raw val) {
-    c_foreach (it, Self, it1, it2) {
+    for (c_each(it, Self, it1, it2)) {
         _m_raw r = i_keytoraw(it.ref);
         if (i_eq((&r), (&val)))
             return it;
@@ -1258,7 +1265,7 @@ STC_DEF bool _c_MEMB(_sort)(Self* self) {
     isize len = 0, cap = 0;
     _m_value *arr = NULL, *p = NULL;
     _m_node* keep;
-    c_foreach (i, Self, *self) {
+    for (c_each(i, Self, *self)) {
         if (len == cap) {
             isize cap_n = cap + cap/2 + 8;
             if ((p = (_m_value *)i_realloc(arr, cap*c_sizeof *p, cap_n*c_sizeof *p)) == NULL)
@@ -1271,7 +1278,7 @@ STC_DEF bool _c_MEMB(_sort)(Self* self) {
     self->last = (_m_node *)arr;
     _c_MEMB(_sort_lowhigh)(self, 0, len - 1);
     self->last = keep;
-    c_foreach (i, Self, *self)
+    for (c_each(i, Self, *self))
         *i.ref = *p++;
     done: i_free(arr, cap*c_sizeof *arr);
     return p != NULL;
