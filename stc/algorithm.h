@@ -198,24 +198,15 @@ typedef const char* cstr_raw;
 // Control block macros
 
 // [deprecated]:
-#define c_init(C, ...) c_make(C, __VA_ARGS__)
+#define c_init(...) c_make(__VA_ARGS__)
 #define c_forlist(...) for (c_items(_VA_ARGS__))
 #define c_foritems(...) for (c_items(__VA_ARGS__))
-#define c_foreach(...) c_MACRO_OVERLOAD(c_foreach, __VA_ARGS__)
-#define c_foreach_3(i, C, cnt) for (c_each_3(i, C, cnt))
-#define c_foreach_4(i, C, beg, end) for (c_each_4(i, C, beg, end))
-#define c_foreach_n(...) for (c_each_n(...))
-#define c_foreach_kv(...) c_MACRO_OVERLOAD(c_foreach_kv, __VA_ARGS__)
-#define c_foreach_kv_4(k, v, C, cnt) for (c_each_kv_4(k, v, C, cnt))
-#define c_foreach_kv_5(k, v, C, beg, end) for (c_each_kv_5(k, v, C, beg, end))
-#define c_foreach_reverse(...) c_MACRO_OVERLOAD(c_foreach_reverse, __VA_ARGS__)
-#define c_foreach_reverse_3(i, C, cnt) for (c_each_reverse_3(i, C, cnt))
-#define c_foreach_reverse_4(i, C, beg, end) for (c_each_reverse_4(i, C, beg, end))
-#define c_forrange(...) c_MACRO_OVERLOAD(c_forrange, __VA_ARGS__)
-#define c_forrange_1(stop) for (c_range_1(stop))
-#define c_forrange_2(i, stop) for (c_range_2(i, stop))
-#define c_forrange_3(i, start, stop) for (c_range_3(i, start, stop))
-#define c_forrange_4(i, start, stop, step) for (c_range_4(i, start, stop, step))
+#define c_foreach(...) for (c_each(__VA_ARGS__))
+#define c_foreach_n(...) for (c_each_n(__VA_ARGS__))
+#define c_foreach_kv(...) for (c_each_kv(__VA_ARGS__))
+#define c_foreach_reverse(...) for (c_each_reverse(__VA_ARGS__))
+#define c_forrange(...) for (c_range(__VA_ARGS__))
+#define c_forrange32(...) for (c_range32(__VA_ARGS__))
 
 // New:
 #define c_each(...) c_MACRO_OVERLOAD(c_each, __VA_ARGS__)
@@ -535,9 +526,9 @@ STC_INLINE crange32_iter crange32_advance(crange32_iter it, uint32_t n) {
       (void)(pred); \
 } while (0)
 
-// ------- c_forfilter --------
-// c_forfilter allows to execute imperative statements for each element
-// as it is a for-loop, e.g., calling nested generic statements instead
+// ------- c_ffilter --------
+// c_ffilter allows to execute imperative statements for each element
+// in a for-loop, e.g., calling nested generic statements instead
 // of defining a function/expression for it:
 #define c_fflt_take(i, n) _flt_take(&i.base, n)
 #define c_fflt_skip(i, n) (c_fflt_counter(i) > (n))
@@ -755,7 +746,7 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
         for (__typeof__(_vp1->Tag.var)* x = &_vp1->Tag.var; x; x = NULL)
 
     #define c_is_3(varptr, Tag, x) \
-        true) for (__typeof__(varptr) _vp2 = (varptr); _vp2; _vp2 = NULL) \
+        false) ; else for (__typeof__(varptr) _vp2 = (varptr); _vp2; _vp2 = NULL) \
             if (c_holds(_vp2, Tag)) \
                 for (__typeof__(_vp2->Tag.var) *x = &_vp2->Tag.var; x; x = NULL
 #else
@@ -770,7 +761,7 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
         for (Tag##_type *x = &((Tag##_sumtype *)_vp1)->Tag.var; x; x = NULL)
 
     #define c_is_3(varptr, Tag, x) \
-        true) for (Tag##_sumtype* _vp2 = c_const_cast(Tag##_sumtype*, varptr); _vp2; _vp2 = NULL) \
+        false) ; else for (Tag##_sumtype* _vp2 = c_const_cast(Tag##_sumtype*, varptr); _vp2; _vp2 = NULL) \
             if (c_holds(_vp2, Tag)) \
                 for (Tag##_type *x = &_vp2->Tag.var; x; x = NULL
 #endif
