@@ -193,6 +193,7 @@ typedef const char* cstr_raw;
 
 // [deprecated]:
 #define c_init(...) c_make(__VA_ARGS__)
+#define c_push(...) c_push_items(__VA_ARGS__)
 #define c_forlist(...) for (c_items(_VA_ARGS__))
 #define c_foritems(...) for (c_items(__VA_ARGS__))
 #define c_foreach(...) for (c_each(__VA_ARGS__))
@@ -210,8 +211,8 @@ typedef const char* cstr_raw;
     _c_each(it, C, start, (end).ref, _)
 
 #define c_each_n(it, C, cnt, n) \
-    isize it##_index=0, _c_n=n; _c_n; _c_n=0 \
-    for (C##_iter it = C##_begin(&cnt); it.ref && it##_index < _c_n; C##_next(&it), ++it##_index
+    isize it##_index = 0, _n_##it = n; _n_##it; _n_##it = 0) \
+    for (C##_iter it = C##_begin(&cnt); it.ref && it##_index < _n_##it; C##_next(&it), ++it##_index
 
 #define c_each_reverse(...) c_MACRO_OVERLOAD(c_each_reverse, __VA_ARGS__)
 #define c_each_reverse_3(it, C, cnt) /* works for stack, vec, queue, deque */ \
@@ -220,8 +221,8 @@ typedef const char* cstr_raw;
     _c_each(it, C, start, (end).ref, _r)
 
 #define _c_each(it, C, start, endref, rev) /* private */ \
-    C##_iter it = (start), *_endref = c_safe_cast(C##_iter*, C##_value*, endref) \
-         ; it.ref != (C##_value*)_endref; C##rev##next(&it)
+    C##_iter it = (start), *_endref_##it = c_safe_cast(C##_iter*, C##_value*, endref) \
+         ; it.ref != (C##_value*)_endref_##it; C##rev##next(&it)
 
 #define c_each_kv(...) c_MACRO_OVERLOAD(c_each_kv, __VA_ARGS__)
 #define c_each_kv_4(key, val, C, cnt) /* structured binding for maps */ \
@@ -230,11 +231,11 @@ typedef const char* cstr_raw;
     _c_each_kv(key, val, C, start, (end).ref)
 
 #define _c_each_kv(key, val, C, start, endref) /* private */ \
-    const C##_key *key, **_c_k = &key; _c_k; ) \
-    for (C##_mapped *val; _c_k; _c_k = NULL) \
-    for (C##_iter _it = start, *_endref = c_safe_cast(C##_iter*, C##_value*, endref) ; \
-         _it.ref != (C##_value*)_endref && (key = &_it.ref->first, val = &_it.ref->second); \
-         C##_next(&_it)
+    const C##_key *key = (const C##_key*)&key; key; ) \
+    for (C##_mapped *val; key; key = NULL) \
+    for (C##_iter _it_##key = start, *_endref_##key = c_safe_cast(C##_iter*, C##_value*, endref); \
+         _it_##key.ref != (C##_value*)_endref_##key && (key = &_it_##key.ref->first, val = &_it_##key.ref->second); \
+         C##_next(&_it_##key)
 
 #define c_items(it, T, ...) \
     struct {T* ref; int size, index;} \
@@ -266,7 +267,7 @@ typedef const char* cstr_raw;
     C##_with_n(c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
 
 // push multiple elements from a literal list into a container
-#define c_push(C, cnt, ...) \
+#define c_push_items(C, cnt, ...) \
     C##_put_n(cnt, c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
 
 // drop multiple containers of same type
