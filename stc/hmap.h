@@ -115,8 +115,8 @@ typedef ptrdiff_t       isize;
 #define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
 #define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,N,...) N
 
-// Select arg, e.g. for #define i_type A,B then c_SELECT(c_ARG_2, i_type) is B
-#define c_SELECT(X, ...) c_EXPAND(X(__VA_ARGS__,,)) // need c_EXPAND for MSVC
+// Select arg, e.g. for #define i_type A,B then c_GETARG(2, i_type) is B
+#define c_GETARG(N, ...) c_EXPAND(c_ARG_##N(__VA_ARGS__,)) // need c_EXPAND for MSVC
 #define c_ARG_1(a, ...) a
 #define c_ARG_2(a, b, ...) b
 #define c_ARG_3(a, b, c, ...) c
@@ -150,7 +150,7 @@ typedef ptrdiff_t       isize;
 
 #define c_static_assert(expr)   (1 ? 0 : (int)sizeof(int[(expr) ? 1 : -1]))
 #if defined STC_NDEBUG || defined NDEBUG
-    #define c_assert(expr)      ((void)0)
+    #define c_assert(expr)      (void)sizeof(expr)
 #else
     #define c_assert(expr)      assert(expr)
 #endif
@@ -575,7 +575,7 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
 
 #ifndef STC_TEMPLATE_H_INCLUDED
 #define STC_TEMPLATE_H_INCLUDED
-  #define c_option(flag)  ((i_opt) & (flag))
+  #define c_OPTION(flag)  ((i_opt) & (flag))
   #define c_declared      (1<<0)
   #define c_no_atomic     (1<<1)
   #define c_no_clone      (1<<2)
@@ -618,10 +618,14 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
 
 #if defined i_type && !(defined i_key || defined i_keyclass || \
                         defined i_keypro || defined i_rawclass)
-  #define Self c_SELECT(c_ARG_1, i_type)
-  #define i_key c_SELECT(c_ARG_2, i_type)
-  #if defined _i_is_map && !defined i_val
-    #define i_val c_SELECT(c_ARG_3, i_type)
+  #define Self c_GETARG(1, i_type)
+  #define i_key c_GETARG(2, i_type)
+  #if c_NUMARGS(i_type) == 3
+    #if defined _i_is_map
+      #define i_val c_GETARG(3, i_type)
+    #else
+      #define i_opt c_GETARG(3, i_type)
+    #endif
   #endif
 #elif !defined Self && defined i_type
   #define Self i_type
@@ -642,19 +646,19 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
 
 #define i_no_emplace
 
-#if c_option(c_declared)
+#if c_OPTION(c_declared)
   #define i_declared
 #endif
-#if c_option(c_no_hash)
+#if c_OPTION(c_no_hash)
   #define i_no_hash
 #endif
-#if c_option(c_use_cmp)
+#if c_OPTION(c_use_cmp)
   #define i_use_cmp
 #endif
-#if c_option(c_use_eq)
+#if c_OPTION(c_use_eq)
   #define i_use_eq
 #endif
-#if c_option(c_no_clone) || defined _i_is_arc
+#if c_OPTION(c_no_clone) || defined _i_is_arc
   #define i_no_clone
 #endif
 
