@@ -300,6 +300,7 @@ typedef ptrdiff_t       isize;
 #define c_ARG_1(a, ...) a
 #define c_ARG_2(a, b, ...) b
 #define c_ARG_3(a, b, c, ...) c
+#define c_ARG_4(a, b, c, d, ...) d
 
 #define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
 #define _i_calloc(T, n)     ((T*)i_calloc((n), c_sizeof(T)))
@@ -446,7 +447,7 @@ typedef const char* cstr_raw;
 
 // make container from a literal list, and drop multiple containers of same type
 #define c_make(C, ...) \
-    C##_with_n(c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
+    C##_from_n(c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
 
 // push multiple elements from a literal list into a container
 #define c_push_items(C, cnt, ...) \
@@ -619,6 +620,9 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
     #else
       #define i_opt c_GETARG(3, i_type)
     #endif
+  #elif c_NUMARGS(i_type) == 4
+    #define i_val c_GETARG(3, i_type)
+    #define i_opt c_GETARG(4, i_type)
   #endif
 #elif !defined Self && defined i_type
   #define Self i_type
@@ -983,7 +987,7 @@ STC_INLINE void _c_MEMB(_put_n)(Self* self, const _m_raw* raw, isize n) {
         #endif
 }
 
-STC_INLINE Self _c_MEMB(_with_n)(const _m_raw* raw, isize n)
+STC_INLINE Self _c_MEMB(_from_n)(const _m_raw* raw, isize n)
     { Self cx = {0}; _c_MEMB(_put_n)(&cx, raw, n); return cx; }
 
 STC_API _m_iter _c_MEMB(_begin)(const Self* self);
@@ -1154,26 +1158,25 @@ _c_MEMB(_bucket_insert_)(const Self* self, const _m_keyraw* rkeyptr) {
         return res;
     res.ref = &self->table[res.idx];
     res.inserted = true;
-    struct hmap_meta snew = {.hashx=(uint16_t)(res.hashx & _hashmask),
+    struct hmap_meta mnew = {.hashx=(uint16_t)(res.hashx & _hashmask),
                              .dist=(uint16_t)(res.dist & _distmask)};
-    struct hmap_meta scur = self->meta[res.idx];
-    self->meta[res.idx] = snew;
+    struct hmap_meta mcur = self->meta[res.idx];
+    self->meta[res.idx] = mnew;
 
-    if (scur.dist != 0) { // collision, reorder buckets
-        struct hmap_meta *meta = self->meta;
+    if (mcur.dist != 0) { // collision, reorder buckets
         size_t mask = (size_t)self->bucket_count - 1;
         _m_value dcur = *res.ref;
         for (;;) {
             res.idx = (res.idx + 1) & mask;
-            ++scur.dist;
-            if (meta[res.idx].dist == 0)
+            ++mcur.dist;
+            if (self->meta[res.idx].dist == 0)
                 break;
-            if (meta[res.idx].dist < scur.dist) {
-                c_swap(&scur, &meta[res.idx]);
+            if (self->meta[res.idx].dist < mcur.dist) {
+                c_swap(&mcur, &self->meta[res.idx]);
                 c_swap(&dcur, &self->table[res.idx]);
             }
         }
-        meta[res.idx] = scur;
+        self->meta[res.idx] = mcur;
         self->table[res.idx] = dcur;
     }
     return res;

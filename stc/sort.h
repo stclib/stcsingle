@@ -109,6 +109,7 @@ typedef ptrdiff_t       isize;
 #define c_ARG_1(a, ...) a
 #define c_ARG_2(a, b, ...) b
 #define c_ARG_3(a, b, c, ...) c
+#define c_ARG_4(a, b, c, d, ...) d
 
 #define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
 #define _i_calloc(T, n)     ((T*)i_calloc((n), c_sizeof(T)))
@@ -255,7 +256,7 @@ typedef const char* cstr_raw;
 
 // make container from a literal list, and drop multiple containers of same type
 #define c_make(C, ...) \
-    C##_with_n(c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
+    C##_from_n(c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
 
 // push multiple elements from a literal list into a container
 #define c_push_items(C, cnt, ...) \
@@ -423,6 +424,9 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
     #else
       #define i_opt c_GETARG(3, i_type)
     #endif
+  #elif c_NUMARGS(i_type) == 4
+    #define i_val c_GETARG(3, i_type)
+    #define i_opt c_GETARG(4, i_type)
   #endif
 #elif !defined Self && defined i_type
   #define Self i_type
