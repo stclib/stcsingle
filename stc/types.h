@@ -16,14 +16,19 @@
 #define declare_box(C, VAL) _c_box_types(C, VAL)
 #define declare_deq(C, VAL) _c_deque_types(C, VAL)
 #define declare_list(C, VAL) _c_list_types(C, VAL)
-#define declare_hmap(C, KEY, VAL) _c_htable_types(C, KEY, VAL, c_true, c_false)
-#define declare_hset(C, KEY) _c_htable_types(C, cset, KEY, KEY, c_false, c_true)
-#define declare_smap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
-#define declare_sset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
-#define declare_stack(C, VAL) _c_stack_types(C, VAL)
+#define declare_hashmap(C, KEY, VAL) _c_htable_types(C, KEY, VAL, c_true, c_false)
+#define declare_hashset(C, KEY) _c_htable_types(C, cset, KEY, KEY, c_false, c_true)
+#define declare_sortedmap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
+#define declare_sortedset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
 #define declare_pqueue(C, VAL) _c_pqueue_types(C, VAL)
 #define declare_queue(C, VAL) _c_deque_types(C, VAL)
 #define declare_vec(C, VAL) _c_vec_types(C, VAL)
+#define declare_stack(C, VAL) _c_vec_types(C, VAL)
+
+#define declare_hmap(...) declare_hashmap(__VA_ARGS__) // [deprecated]
+#define declare_hset(...) declare_hashset(__VA_ARGS__) // [deprecated]
+#define declare_smap(...) declare_sortedmap(__VA_ARGS__) // [deprecated]
+#define declare_sset(...) declare_sortedset(__VA_ARGS__) // [deprecated]
 
 // csview : non-null terminated string view
 typedef const char csview_value;
@@ -62,9 +67,9 @@ typedef union {
 
 // cstr : zero-terminated owning string (short string optimized - sso)
 typedef char cstr_value;
-typedef struct { cstr_value* data; intptr_t size, cap; } cstr_view;
+typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {
-    struct { cstr_value data[ sizeof(cstr_view) ]; } sml;
+    struct { cstr_value data[ sizeof(cstr_buf) ]; } sml;
     struct { cstr_value* data; uintptr_t size, ncap; } lon;
 } cstr;
 
