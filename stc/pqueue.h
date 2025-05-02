@@ -559,7 +559,7 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 #ifndef _i_prefix
   #define _i_prefix pqueue_
 #endif
-#define _i_is_pqueue
+#define _i_sorted
 // ### BEGIN_FILE_INCLUDE: template.h
 // IWYU pragma: private
 #ifndef _i_template
@@ -654,7 +654,7 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 #endif
 #if c_OPTION(c_cmpclass)
   #define i_cmpclass i_key
-  #define _i_cmpclass_is_key
+  #define i_use_cmp
 #endif
 #if c_OPTION(c_keypro)
   #define i_keypro i_key
@@ -672,16 +672,11 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
   #define i_keyraw i_cmpclass
   #if !(defined i_key || defined i_keyclass)
     #define i_key i_cmpclass
-    #define _i_cmpclass_is_key
-    #ifndef i_keytoraw
-      #define i_keytoraw c_default_toraw
-    #endif
   #endif
 #elif defined i_keyclass && !defined i_keyraw
   // Special: When only i_keyclass is defined, also define i_cmpclass to the same.
-  // Do not define i_keyraw here, otherwise _from() is expected to exist
+  // Do not define i_keyraw here, otherwise _from() / _toraw() is expected to exist.
   #define i_cmpclass i_key
-  #define _i_cmpclass_is_key
 #endif
 
 // Bind to i_key "class members": _clone, _drop, _from and _toraw (when conditions are met).
@@ -713,9 +708,9 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
   #define _i_has_eq
 #endif
 
-// Bind to i_keyraw "class members": _cmp, _eq and _hash (when conditions are met).
-#if defined i_cmpclass // => i_keyraw
-  #if !(defined i_cmp || defined i_less) && (defined i_use_cmp || defined _i_sorted || defined _i_is_pqueue)
+// Bind to i_cmpclass "class members": _cmp, _eq and _hash (when conditions are met).
+#if defined i_cmpclass
+  #if !(defined i_cmp || defined i_less) && (defined i_use_cmp || defined _i_sorted)
     #define i_cmp c_JOIN(i_cmpclass, _cmp)
   #endif
   #if !defined i_eq && (defined i_use_eq || defined i_hash || defined _i_is_hash)
@@ -728,16 +723,16 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 
 #if !defined i_key
   #error "No i_key defined"
-#elif defined i_keyraw && !defined _i_cmpclass_is_key && !defined i_keytoraw
-  #error "If i_keyraw/i_valraw is defined, i_keytoraw/i_valtoraw must be defined too"
+#elif defined i_keyraw && !(c_OPTION(c_cmpclass) || defined i_keytoraw)
+  #error "If i_cmpclass / i_keyraw is defined, i_keytoraw must be defined too"
 #elif !defined i_no_clone && (defined i_keyclone ^ defined i_keydrop)
-  #error "Both i_keyclone/i_valclone and i_keydrop/i_valdrop must be defined, if any (unless i_no_clone defined)."
+  #error "Both i_keyclone and i_keydrop must be defined, if any (unless i_no_clone defined)."
 #elif defined i_from || defined i_drop
-  #error "i_from / i_drop not supported. Use i_keyfrom/i_keydrop ; i_valfrom/i_valdrop"
+  #error "i_from / i_drop not supported. Use i_keyfrom/i_keydrop"
 #elif defined i_keyto || defined i_valto
-  #error i_keyto/i_valto not supported. Use i_keytoraw/i_valtoraw
+  #error i_keyto / i_valto not supported. Use i_keytoraw / i_valtoraw
 #elif defined i_keyraw && defined i_use_cmp && !defined _i_has_cmp
-  #error "For smap/sset/pqueue, i_cmp or i_less must be defined when i_keyraw is defined."
+  #error "For smap / sset / pqueue, i_cmp or i_less must be defined when i_keyraw is defined."
 #endif
 
 // Fill in missing i_eq, i_less, i_cmp functions with defaults.
@@ -846,7 +841,6 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 #ifndef i_valraw
   #define i_valraw i_keyraw
 #endif
-#undef _i_cmpclass_is_key
 #endif // STC_TEMPLATE_H_INCLUDED
 // ### END_FILE_INCLUDE: template.h
 #ifndef i_declared
@@ -930,13 +924,13 @@ STC_INLINE _m_value _c_MEMB(_pull)(Self* self)
 #if !defined i_no_clone
 STC_API Self _c_MEMB(_clone)(Self q);
 
-STC_INLINE void _c_MEMB(_copy)(Self *self, const Self other) {
-    if (self->data == other.data) return;
+STC_INLINE void _c_MEMB(_copy)(Self *self, const Self* other) {
+    if (self == other) return;
     _c_MEMB(_drop)(self);
-    *self = _c_MEMB(_clone)(other);
+    *self = _c_MEMB(_clone)(*other);
 }
-STC_INLINE _m_value _c_MEMB(_value_clone)(_m_value val)
-    { return i_keyclone(val); }
+STC_INLINE _m_value _c_MEMB(_value_clone)(const Self* self, _m_value val)
+    { (void)self; return i_keyclone(val); }
 #endif // !i_no_clone
 
 #if !defined i_no_emplace
@@ -966,12 +960,13 @@ _c_MEMB(_make_heap)(Self* self) {
 
 #if !defined i_no_clone
 STC_DEF Self _c_MEMB(_clone)(Self q) {
-    Self tmp = _c_MEMB(_with_capacity)(q.size);
-    for (; tmp.size < q.size; ++q.data)
-        tmp.data[tmp.size++] = i_keyclone((*q.data));
-    q.data = tmp.data;
-    q.capacity = tmp.capacity;
-    return q;
+    Self out = q, *self = &out; (void)self;
+    out.capacity = out.size = 0; out.data = NULL;
+    _c_MEMB(_reserve)(&out, q.size);
+    out.size = q.size;
+    for (c_range(i, q.size))
+        out.data[i] = i_keyclone(q.data[i]);
+    return out;
 }
 #endif
 
@@ -994,9 +989,9 @@ _c_MEMB(_push)(Self* self, _m_value value) {
     arr[c] = value;
     return arr + c;
 }
-
 #endif
-#undef _i_is_pqueue
+
+#undef _i_sorted
 // ### BEGIN_FILE_INCLUDE: linkage2.h
 
 #undef i_allocator

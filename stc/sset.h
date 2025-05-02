@@ -672,7 +672,7 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 #endif
 #if c_OPTION(c_cmpclass)
   #define i_cmpclass i_key
-  #define _i_cmpclass_is_key
+  #define i_use_cmp
 #endif
 #if c_OPTION(c_keypro)
   #define i_keypro i_key
@@ -690,16 +690,11 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
   #define i_keyraw i_cmpclass
   #if !(defined i_key || defined i_keyclass)
     #define i_key i_cmpclass
-    #define _i_cmpclass_is_key
-    #ifndef i_keytoraw
-      #define i_keytoraw c_default_toraw
-    #endif
   #endif
 #elif defined i_keyclass && !defined i_keyraw
   // Special: When only i_keyclass is defined, also define i_cmpclass to the same.
-  // Do not define i_keyraw here, otherwise _from() is expected to exist
+  // Do not define i_keyraw here, otherwise _from() / _toraw() is expected to exist.
   #define i_cmpclass i_key
-  #define _i_cmpclass_is_key
 #endif
 
 // Bind to i_key "class members": _clone, _drop, _from and _toraw (when conditions are met).
@@ -731,9 +726,9 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
   #define _i_has_eq
 #endif
 
-// Bind to i_keyraw "class members": _cmp, _eq and _hash (when conditions are met).
-#if defined i_cmpclass // => i_keyraw
-  #if !(defined i_cmp || defined i_less) && (defined i_use_cmp || defined _i_sorted || defined _i_is_pqueue)
+// Bind to i_cmpclass "class members": _cmp, _eq and _hash (when conditions are met).
+#if defined i_cmpclass
+  #if !(defined i_cmp || defined i_less) && (defined i_use_cmp || defined _i_sorted)
     #define i_cmp c_JOIN(i_cmpclass, _cmp)
   #endif
   #if !defined i_eq && (defined i_use_eq || defined i_hash || defined _i_is_hash)
@@ -746,16 +741,16 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 
 #if !defined i_key
   #error "No i_key defined"
-#elif defined i_keyraw && !defined _i_cmpclass_is_key && !defined i_keytoraw
-  #error "If i_keyraw/i_valraw is defined, i_keytoraw/i_valtoraw must be defined too"
+#elif defined i_keyraw && !(c_OPTION(c_cmpclass) || defined i_keytoraw)
+  #error "If i_cmpclass / i_keyraw is defined, i_keytoraw must be defined too"
 #elif !defined i_no_clone && (defined i_keyclone ^ defined i_keydrop)
-  #error "Both i_keyclone/i_valclone and i_keydrop/i_valdrop must be defined, if any (unless i_no_clone defined)."
+  #error "Both i_keyclone and i_keydrop must be defined, if any (unless i_no_clone defined)."
 #elif defined i_from || defined i_drop
-  #error "i_from / i_drop not supported. Use i_keyfrom/i_keydrop ; i_valfrom/i_valdrop"
+  #error "i_from / i_drop not supported. Use i_keyfrom/i_keydrop"
 #elif defined i_keyto || defined i_valto
-  #error i_keyto/i_valto not supported. Use i_keytoraw/i_valtoraw
+  #error i_keyto / i_valto not supported. Use i_keytoraw / i_valtoraw
 #elif defined i_keyraw && defined i_use_cmp && !defined _i_has_cmp
-  #error "For smap/sset/pqueue, i_cmp or i_less must be defined when i_keyraw is defined."
+  #error "For smap / sset / pqueue, i_cmp or i_less must be defined when i_keyraw is defined."
 #endif
 
 // Fill in missing i_eq, i_less, i_cmp functions with defaults.
@@ -864,7 +859,6 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 #ifndef i_valraw
   #define i_valraw i_keyraw
 #endif
-#undef _i_cmpclass_is_key
 #endif // STC_TEMPLATE_H_INCLUDED
 // ### END_FILE_INCLUDE: template.h
 #ifndef i_declared
@@ -906,9 +900,9 @@ STC_API _m_iter         _c_MEMB(_begin)(const Self* self);
 STC_API void            _c_MEMB(_next)(_m_iter* it);
 
 STC_INLINE Self         _c_MEMB(_init)(void) { Self tree = {0}; return tree; }
-STC_INLINE bool         _c_MEMB(_is_empty)(const Self* cx) { return cx->size == 0; }
-STC_INLINE isize        _c_MEMB(_size)(const Self* cx) { return cx->size; }
-STC_INLINE isize        _c_MEMB(_capacity)(const Self* cx) { return cx->capacity; }
+STC_INLINE bool         _c_MEMB(_is_empty)(const Self* self) { return self->size == 0; }
+STC_INLINE isize        _c_MEMB(_size)(const Self* self) { return self->size; }
+STC_INLINE isize        _c_MEMB(_capacity)(const Self* self) { return self->capacity; }
 STC_INLINE _m_iter      _c_MEMB(_find)(const Self* self, _m_keyraw rkey)
                             { _m_iter it; _c_MEMB(_find_it)(self, rkey, &it); return it; }
 STC_INLINE bool         _c_MEMB(_contains)(const Self* self, _m_keyraw rkey)
@@ -933,7 +927,8 @@ STC_INLINE _m_raw _c_MEMB(_value_toraw)(const _m_value* val) {
                                           i_valtoraw((&val->second))} );
 }
 
-STC_INLINE void _c_MEMB(_value_drop)(_m_value* val) {
+STC_INLINE void _c_MEMB(_value_drop)(const Self* self, _m_value* val) {
+    (void)self;
     i_keydrop(_i_keyref(val));
     _i_MAP_ONLY( i_valdrop((&val->second)); )
 }
@@ -950,17 +945,18 @@ STC_INLINE void _c_MEMB(_take)(Self *self, Self unowned) {
 }
 
 #if !defined i_no_clone
-STC_INLINE _m_value _c_MEMB(_value_clone)(_m_value _val) {
+STC_INLINE _m_value _c_MEMB(_value_clone)(const Self* self, _m_value _val) {
+    (void)self;
     *_i_keyref(&_val) = i_keyclone((*_i_keyref(&_val)));
     _i_MAP_ONLY( _val.second = i_valclone(_val.second); )
     return _val;
 }
 
-STC_INLINE void _c_MEMB(_copy)(Self *self, const Self other) {
-    if (self->nodes == other.nodes)
+STC_INLINE void _c_MEMB(_copy)(Self *self, const Self* other) {
+    if (self == other)
         return;
     _c_MEMB(_drop)(self);
-    *self = _c_MEMB(_clone)(other);
+    *self = _c_MEMB(_clone)(*other);
 }
 
 STC_INLINE void _c_MEMB(_shrink_to_fit)(Self *self) {
@@ -1024,7 +1020,7 @@ STC_INLINE _m_value* _c_MEMB(_push)(Self* self, _m_value _val) {
     if (_res.inserted)
         *_res.ref = _val;
     else
-        _c_MEMB(_value_drop)(&_val);
+        _c_MEMB(_value_drop)(self, &_val);
     return _res.ref;
 }
 
@@ -1263,7 +1259,7 @@ _c_MEMB(_erase_r_)(Self *self, int32_t tn, const _m_keyraw* rkey, int *erased) {
         d[tn].link[c < 0] = _c_MEMB(_erase_r_)(self, d[tn].link[c < 0], rkey, erased);
     else {
         if ((*erased)++ == 0)
-            _c_MEMB(_value_drop)(&d[tn].value); // drop first time, not second.
+            _c_MEMB(_value_drop)(self, &d[tn].value); // drop first time, not second.
         if (d[tn].link[0] && d[tn].link[1]) {
             tx = d[tn].link[0];
             while (d[tx].link[1])
@@ -1342,7 +1338,7 @@ _c_MEMB(_clone_r_)(Self* self, _m_node* src, int32_t sn) {
     if (sn == 0)
         return 0;
     int32_t tx, tn = _c_MEMB(_new_node_)(self, src[sn].level);
-    self->nodes[tn].value = _c_MEMB(_value_clone)(src[sn].value);
+    self->nodes[tn].value = _c_MEMB(_value_clone)(self, src[sn].value);
     tx = _c_MEMB(_clone_r_)(self, src, src[sn].link[0]); self->nodes[tn].link[0] = tx;
     tx = _c_MEMB(_clone_r_)(self, src, src[sn].link[1]); self->nodes[tn].link[1] = tx;
     return tn;
@@ -1350,12 +1346,11 @@ _c_MEMB(_clone_r_)(Self* self, _m_node* src, int32_t sn) {
 
 STC_DEF Self
 _c_MEMB(_clone)(Self tree) {
-    Self clone = _c_MEMB(_with_capacity)(tree.size);
-    tree.root = _c_MEMB(_clone_r_)(&clone, tree.nodes, tree.root);
-    tree.nodes = clone.nodes;
-    tree.disp = clone.disp;
-    tree.capacity = clone.capacity;
-    return tree;
+    Self out = tree;
+    out.root = out.disp = out.head = out.size = out.capacity = 0;
+    out.nodes = NULL; _c_MEMB(_reserve)(&out, tree.size);
+    out.root = _c_MEMB(_clone_r_)(&out, tree.nodes, tree.root);
+    return out;
 }
 #endif // !i_no_clone
 
@@ -1372,11 +1367,11 @@ _c_MEMB(_emplace)(Self* self, _m_keyraw rkey _i_MAP_ONLY(, _m_rmapped rmapped)) 
 #endif // i_no_emplace
 
 static void
-_c_MEMB(_drop_r_)(_m_node* d, int32_t tn) {
+_c_MEMB(_drop_r_)(Self* s, int32_t tn) {
     if (tn != 0) {
-        _c_MEMB(_drop_r_)(d, d[tn].link[0]);
-        _c_MEMB(_drop_r_)(d, d[tn].link[1]);
-        _c_MEMB(_value_drop)(&d[tn].value);
+        _c_MEMB(_drop_r_)(s, s->nodes[tn].link[0]);
+        _c_MEMB(_drop_r_)(s, s->nodes[tn].link[1]);
+        _c_MEMB(_value_drop)(s, &s->nodes[tn].value);
     }
 }
 
@@ -1384,7 +1379,7 @@ STC_DEF void
 _c_MEMB(_drop)(const Self* cself) {
     Self* self = (Self*)cself;
     if (self->capacity != 0) {
-        _c_MEMB(_drop_r_)(self->nodes, self->root);
+        _c_MEMB(_drop_r_)(self, self->root);
         i_free(self->nodes, (self->capacity + 1)*c_sizeof(_m_node));
     }
 }

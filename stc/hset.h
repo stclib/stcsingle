@@ -675,7 +675,7 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
 #endif
 #if c_OPTION(c_cmpclass)
   #define i_cmpclass i_key
-  #define _i_cmpclass_is_key
+  #define i_use_cmp
 #endif
 #if c_OPTION(c_keypro)
   #define i_keypro i_key
@@ -693,16 +693,11 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
   #define i_keyraw i_cmpclass
   #if !(defined i_key || defined i_keyclass)
     #define i_key i_cmpclass
-    #define _i_cmpclass_is_key
-    #ifndef i_keytoraw
-      #define i_keytoraw c_default_toraw
-    #endif
   #endif
 #elif defined i_keyclass && !defined i_keyraw
   // Special: When only i_keyclass is defined, also define i_cmpclass to the same.
-  // Do not define i_keyraw here, otherwise _from() is expected to exist
+  // Do not define i_keyraw here, otherwise _from() / _toraw() is expected to exist.
   #define i_cmpclass i_key
-  #define _i_cmpclass_is_key
 #endif
 
 // Bind to i_key "class members": _clone, _drop, _from and _toraw (when conditions are met).
@@ -734,9 +729,9 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
   #define _i_has_eq
 #endif
 
-// Bind to i_keyraw "class members": _cmp, _eq and _hash (when conditions are met).
-#if defined i_cmpclass // => i_keyraw
-  #if !(defined i_cmp || defined i_less) && (defined i_use_cmp || defined _i_sorted || defined _i_is_pqueue)
+// Bind to i_cmpclass "class members": _cmp, _eq and _hash (when conditions are met).
+#if defined i_cmpclass
+  #if !(defined i_cmp || defined i_less) && (defined i_use_cmp || defined _i_sorted)
     #define i_cmp c_JOIN(i_cmpclass, _cmp)
   #endif
   #if !defined i_eq && (defined i_use_eq || defined i_hash || defined _i_is_hash)
@@ -749,16 +744,16 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
 
 #if !defined i_key
   #error "No i_key defined"
-#elif defined i_keyraw && !defined _i_cmpclass_is_key && !defined i_keytoraw
-  #error "If i_keyraw/i_valraw is defined, i_keytoraw/i_valtoraw must be defined too"
+#elif defined i_keyraw && !(c_OPTION(c_cmpclass) || defined i_keytoraw)
+  #error "If i_cmpclass / i_keyraw is defined, i_keytoraw must be defined too"
 #elif !defined i_no_clone && (defined i_keyclone ^ defined i_keydrop)
-  #error "Both i_keyclone/i_valclone and i_keydrop/i_valdrop must be defined, if any (unless i_no_clone defined)."
+  #error "Both i_keyclone and i_keydrop must be defined, if any (unless i_no_clone defined)."
 #elif defined i_from || defined i_drop
-  #error "i_from / i_drop not supported. Use i_keyfrom/i_keydrop ; i_valfrom/i_valdrop"
+  #error "i_from / i_drop not supported. Use i_keyfrom/i_keydrop"
 #elif defined i_keyto || defined i_valto
-  #error i_keyto/i_valto not supported. Use i_keytoraw/i_valtoraw
+  #error i_keyto / i_valto not supported. Use i_keytoraw / i_valtoraw
 #elif defined i_keyraw && defined i_use_cmp && !defined _i_has_cmp
-  #error "For smap/sset/pqueue, i_cmp or i_less must be defined when i_keyraw is defined."
+  #error "For smap / sset / pqueue, i_cmp or i_less must be defined when i_keyraw is defined."
 #endif
 
 // Fill in missing i_eq, i_less, i_cmp functions with defaults.
@@ -867,7 +862,6 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
 #ifndef i_valraw
   #define i_valraw i_keyraw
 #endif
-#undef _i_cmpclass_is_key
 #endif // STC_TEMPLATE_H_INCLUDED
 // ### END_FILE_INCLUDE: template.h
 #ifndef i_declared
@@ -939,14 +933,15 @@ _c_MEMB(_insert_entry_)(Self* self, _m_keyraw rkey) {
 #endif // _i_is_map
 
 #if !defined i_no_clone
-    STC_INLINE void _c_MEMB(_copy)(Self *self, const Self other) {
-        if (self->table == other.table)
+    STC_INLINE void _c_MEMB(_copy)(Self *self, const Self* other) {
+        if (self == other)
             return;
         _c_MEMB(_drop)(self);
-        *self = _c_MEMB(_clone)(other);
+        *self = _c_MEMB(_clone)(*other);
     }
 
-    STC_INLINE _m_value _c_MEMB(_value_clone)(_m_value _val) {
+    STC_INLINE _m_value _c_MEMB(_value_clone)(const Self* self, _m_value _val) {
+        (void)self;
         *_i_keyref(&_val) = i_keyclone((*_i_keyref(&_val)));
         _i_MAP_ONLY( _val.second = i_valclone(_val.second); )
         return _val;
@@ -970,7 +965,8 @@ STC_INLINE _m_raw _c_MEMB(_value_toraw)(const _m_value* val) {
            _i_MAP_ONLY( c_literal(_m_raw){i_keytoraw((&val->first)), i_valtoraw((&val->second))} );
 }
 
-STC_INLINE void _c_MEMB(_value_drop)(_m_value* _val) {
+STC_INLINE void _c_MEMB(_value_drop)(const Self* self, _m_value* _val) {
+    (void)self;
     i_keydrop(_i_keyref(_val));
     _i_MAP_ONLY( i_valdrop((&_val->second)); )
 }
@@ -1001,7 +997,7 @@ STC_INLINE _m_value* _c_MEMB(_push)(Self* self, _m_value _val) {
     if (_res.inserted)
         *_res.ref = _val;
     else
-        _c_MEMB(_value_drop)(&_val);
+        _c_MEMB(_value_drop)(self, &_val);
     return _res.ref;
 }
 
@@ -1123,7 +1119,7 @@ static void _c_MEMB(_wipe_)(Self* self) {
     struct hmap_meta* m = self->meta;
     for (; d != _end; ++d)
         if ((m++)->dist)
-            _c_MEMB(_value_drop)(d);
+            _c_MEMB(_value_drop)(self, d);
 }
 
 STC_DEF void _c_MEMB(_drop)(const Self* cself) {
@@ -1225,53 +1221,50 @@ _c_MEMB(_bucket_insert_)(const Self* self, const _m_keyraw* rkeyptr) {
 #if !defined i_no_clone
     STC_DEF Self
     _c_MEMB(_clone)(Self map) {
-        if (map.bucket_count != 0) {
-            _m_value *d = _i_malloc(_m_value, map.bucket_count);
-            const isize _mbytes = (map.bucket_count + 1)*c_sizeof *map.meta;
-            struct hmap_meta *m = (struct hmap_meta *)i_malloc(_mbytes);
-            if (d != NULL && m != NULL) {
-                c_memcpy(m, map.meta, _mbytes);
-                _m_value *_dst = d, *_end = map.table + map.bucket_count;
-                for (; map.table != _end; ++map.table, ++map.meta, ++_dst)
-                    if (map.meta->dist)
-                        *_dst = _c_MEMB(_value_clone)(*map.table);
-            } else {
-                if (d != NULL) i_free(d, map.bucket_count*c_sizeof *d);
-                if (m != NULL) i_free(m, _mbytes);
-                d = 0, m = 0, map.bucket_count = 0;
-            }
-            map.table = d, map.meta = m;
+        if (map.bucket_count == 0)
+            return (Self){0};
+        Self out = map, *self = &out; // _i_malloc may refer self via i_aux
+        const isize _mbytes = (map.bucket_count + 1)*c_sizeof *map.meta;
+        out.table = (_m_value *)i_malloc(map.bucket_count*c_sizeof *out.table);
+        out.meta = (struct hmap_meta *)i_malloc(_mbytes);
+
+        if (out.table && out.meta) {
+            c_memcpy(out.meta, map.meta, _mbytes);
+            for (isize i = 0; i < map.bucket_count; ++i)
+                if (map.meta[i].dist)
+                    out.table[i] = _c_MEMB(_value_clone)(self, map.table[i]);
+            return out;
+        } else {
+            if (out.meta) i_free(out.meta, _mbytes);
+            if (out.table) i_free(out.table, map.bucket_count*c_sizeof *out.table);
+            return (Self){0};
         }
-        return map;
     }
 #endif
 
 STC_DEF bool
-_c_MEMB(_reserve)(Self* self, const isize _newcap) {
-    const isize _oldbucks = self->bucket_count;
+_c_MEMB(_reserve)(Self* _self, const isize _newcap) {
     isize _newbucks = (isize)((float)_newcap / (i_max_load_factor)) + 4;
     _newbucks = c_next_pow2(_newbucks);
 
-    if (_newcap < self->size || _newbucks == _oldbucks)
+    if (_newcap < _self->size || _newbucks == _self->bucket_count)
         return true;
-    Self map = {
-        _i_malloc(_m_value, _newbucks),
-        _i_calloc(struct hmap_meta, _newbucks + 1),
-        self->size, _newbucks
-    };
+    Self map = *_self, *self = &map; (void)self;
+    map.table = _i_malloc(_m_value, _newbucks);
+    map.meta = _i_calloc(struct hmap_meta, _newbucks + 1);
+    map.bucket_count = _newbucks;
 
     bool ok = map.table && map.meta;
     if (ok) {  // Rehash:
         map.meta[_newbucks].dist = _distmask; // end-mark for iter
-        const _m_value* d = self->table;
-        const struct hmap_meta* m = self->meta;
+        const _m_value* d = _self->table;
+        const struct hmap_meta* m = _self->meta;
 
-        for (isize i = 0; i < _oldbucks; ++i, ++d) if ((m++)->dist != 0) {
+        for (isize i = 0; i < _self->bucket_count; ++i, ++d) if (m[i].dist != 0) {
             _m_keyraw r = i_keytoraw(_i_keyref(d));
-            _m_result _res = _c_MEMB(_bucket_insert_)(&map, &r);
-            *_res.ref = *d; // move
+            *_c_MEMB(_bucket_insert_)(&map, &r).ref = *d; // move element
         }
-        c_swap(self, &map);
+        c_swap(_self, &map);
     }
     i_free(map.meta, (map.bucket_count + (int)(map.meta != NULL))*c_sizeof *map.meta);
     i_free(map.table, map.bucket_count*c_sizeof *map.table);
@@ -1285,7 +1278,7 @@ _c_MEMB(_erase_entry)(Self* self, _m_value* _val) {
     size_t i = (size_t)(_val - d), j = i;
     size_t mask = (size_t)self->bucket_count - 1;
 
-    _c_MEMB(_value_drop)(_val);
+    _c_MEMB(_value_drop)(self, _val);
     for (;;) {
         j = (j + 1) & mask;
         if (m[j].dist < 2) // 0 => empty, 1 => PSL 0
