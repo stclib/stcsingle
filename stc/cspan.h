@@ -101,9 +101,8 @@ typedef ptrdiff_t       isize;
 #define c_JOIN0(a, b) a ## b
 #define c_JOIN(a, b) c_JOIN0(a, b)
 #define c_EXPAND(...) __VA_ARGS__
-// This is the way to make c_NUMARGS work also for MSVC++ and MSVC pre -std:c11
 #define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
-#define _c_APPLY_ARG_N(args) c_EXPAND(_c_ARG_N args)
+#define _c_APPLY_ARG_N(args) _c_ARG_N args  // wrap c_EXPAND(..) for MSVC without /std:c11
 #define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
 #define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,N,...) N
 
@@ -114,7 +113,7 @@ typedef ptrdiff_t       isize;
 #define c_COMMA_N(x) ,x
 
 // Select arg, e.g. for #define i_type A,B then c_GETARG(2, i_type) is B
-#define c_GETARG(N, ...) c_EXPAND(c_ARG_##N(__VA_ARGS__,)) // need c_EXPAND for MSVC
+#define c_GETARG(N, ...) c_ARG_##N(__VA_ARGS__,) // wrap c_EXPAND(..) for MSVC without /std:c11
 #define c_ARG_1(a, ...) a
 #define c_ARG_2(a, b, ...) b
 #define c_ARG_3(a, b, c, ...) c
@@ -156,7 +155,8 @@ typedef ptrdiff_t       isize;
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
 #define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
 #define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
-#define c_arraylen(a)           (isize)(sizeof(a)/sizeof 0[a])
+#define c_countof(a)            (isize)(sizeof(a)/sizeof 0[a])
+#define c_arraylen(a)           c_countof(a)
 
 // expect signed ints to/from these (use with gcc -Wconversion)
 #define c_sizeof                (isize)sizeof
@@ -363,7 +363,6 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 #endif // STC_COMMON_H_INCLUDED
 // ### END_FILE_INCLUDE: common.h
 typedef int32_t cspan_istride, _istride;
-typedef isize _isize_triple[3];
 
 #define using_cspan use_cspan                   // [deprecated]
 #define using_cspan2 use_cspan2                 // [deprecated]
@@ -425,8 +424,10 @@ typedef isize _isize_triple[3];
     } \
     STC_INLINE isize Self##_size(const Self* self) \
         { return cspan_size(self); } \
-    STC_INLINE Self Self##_transpose(Self sp) \
+    STC_INLINE Self Self##_transposed(Self sp) \
         { _cspan_transpose(sp.shape, sp.stride.d, cspan_rank(&sp)); return sp; } \
+    STC_INLINE Self Self##_swapped_axes(Self sp, int ax1, int ax2) \
+        { _cspan_swap_axes(sp.shape, sp.stride.d, cspan_rank(&sp), ax1, ax2); return sp; } \
     struct stc_nostruct
 
 #define use_cspan_with_eq_4(Self, T, i_eq, RANK) \
@@ -540,7 +541,7 @@ typedef enum {c_ROWMAJOR, c_COLMAJOR, c_STRIDED} cspan_layout;
 
 // Swap two matrix axes
 #define cspan_swap_axes(self, ax1, ax2) \
-    _cspan_swap_axes((self)->shape, (self)->stride.d, ax1, ax2, cspan_rank(self))
+    _cspan_swap_axes((self)->shape, (self)->stride.d, cspan_rank(self), ax1, ax2)
 
 // Set all span elements to value.
 #define cspan_set_all(Span, self, value) do { \
@@ -610,15 +611,15 @@ typedef enum {c_ROWMAJOR, c_COLMAJOR, c_STRIDED} cspan_layout;
     const char *_f = fmt, *_b = brackets; \
     FILE* _fp = fp; \
     int _w, _max = 0; \
-    char _res[2][16], _fld[128]; \
+    char _res[2][20], _fld[64]; \
     for (c_each_3(_it, Span, _s)) { \
         _w = snprintf(NULL, 0ULL, _f, field(_it.ref[0])); \
         if (_w > _max) _max = _w; \
     } \
     for (c_each_3(_it, Span, _s)) { \
-        _cspan_print_assist(_it.pos, _s.shape, cspan_rank(&_s), _res, _b); \
+        _cspan_print_assist(_it.pos, _s.shape, cspan_rank(&_s), _b, _res); \
         _w = _max + (_it.pos[cspan_rank(&_s) - 1] > 0); \
-        sprintf(_fld, _f, field(_it.ref[0])); \
+        snprintf(_fld, sizeof _fld, _f, field(_it.ref[0])); \
         fprintf(_fp, "%s%*s%s", _res[0], _w, _fld, _res[1]); \
     } \
 } while (0)
@@ -631,11 +632,12 @@ STC_INLINE isize _cspan_size(const _istride shape[], int rank) {
     return size;
 }
 
-STC_INLINE void _cspan_swap_axes(_istride shape[], _istride stride[], int i, int j, int rank) {
+STC_INLINE void _cspan_swap_axes(_istride shape[], _istride stride[],
+                                 int rank, int ax1, int ax2) {
     (void)rank;
-    c_assert(c_uless(i, rank) & c_uless(j, rank));
-    c_swap(shape + i, shape + j);
-    c_swap(stride + i, stride + j);
+    c_assert(c_uless(ax1, rank) & c_uless(ax2, rank));
+    c_swap(shape + ax1, shape + ax2);
+    c_swap(stride + ax1, stride + ax2);
 }
 
 STC_INLINE void _cspan_transpose(_istride shape[], _istride stride[], int rank) {
@@ -657,7 +659,7 @@ STC_INLINE isize _cspan_index(const _istride shape[], const _istride stride[],
 }
 
 STC_API void _cspan_print_assist(_istride pos[], const _istride shape[], const int rank,
-                                 char result[2][16], const char* brackets);
+                                 const char* brackets, char result[2][20]);
 
 STC_API bool _cspan_nextN(_istride pos[], const _istride shape[], const _istride stride[],
                            int rank, isize* off);
@@ -685,26 +687,33 @@ STC_API bool _cspan_is_layout(cspan_layout layout, const _istride shape[], const
 #if defined i_implement
 
 STC_DEF bool _cspan_is_layout(cspan_layout layout, const _istride shape[], const _istride strides[], int rank) {
-    _istride tmpshape[8]; // 8 = "max" rank
+    _istride tmpshape[16]; // 16 = "max" rank
     size_t sz = (size_t)rank*sizeof(_istride);
     memcpy(tmpshape, shape, sz);
     return memcmp(strides, _cspan_shape2stride(layout, tmpshape, rank), sz) == 0;
 }
 
 STC_DEF void _cspan_print_assist(_istride pos[], const _istride shape[], const int rank,
-                                 char result[2][16], const char* brackets) {
+                                 const char* brackets, char result[2][20]) {
     int n = 0, j = 0, r = rank - 1;
     memset(result, 0, 32);
 
-    while (n <= r && pos[r - n] == 0) ++n;
+    // left braces:
+    while (n <= r && pos[r - n] == 0)
+        ++n;
     if (n) for (; j < rank; ++j)
         result[0][j] = j < rank - n ? ' ' : brackets[0];
+
+    // right braces:
     for (j = 0; r >= 0 && pos[r] + 1 == shape[r]; --r, ++j)
         result[1][j] = brackets[1];
 
-    n = (j > 0) + ((j > 1) & (j < rank)); // newlines
-    if (brackets[2] && j < rank) result[1][j++] = brackets[2]; // comma
-    while (n--) result[1][j++] = '\n';
+    // comma and newlines:
+    n = (j > 0) + ((j > 1) & (j < rank));
+    if (brackets[2] && j < rank)
+        result[1][j++] = brackets[2]; // comma
+    while (n--)
+        result[1][j++] = '\n';
 }
 
 STC_DEF bool _cspan_nextN(_istride pos[], const _istride shape[], const _istride stride[],

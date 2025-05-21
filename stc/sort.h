@@ -98,9 +98,8 @@ typedef ptrdiff_t       isize;
 #define c_JOIN0(a, b) a ## b
 #define c_JOIN(a, b) c_JOIN0(a, b)
 #define c_EXPAND(...) __VA_ARGS__
-// This is the way to make c_NUMARGS work also for MSVC++ and MSVC pre -std:c11
 #define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
-#define _c_APPLY_ARG_N(args) c_EXPAND(_c_ARG_N args)
+#define _c_APPLY_ARG_N(args) _c_ARG_N args  // wrap c_EXPAND(..) for MSVC without /std:c11
 #define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
 #define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,N,...) N
 
@@ -111,7 +110,7 @@ typedef ptrdiff_t       isize;
 #define c_COMMA_N(x) ,x
 
 // Select arg, e.g. for #define i_type A,B then c_GETARG(2, i_type) is B
-#define c_GETARG(N, ...) c_EXPAND(c_ARG_##N(__VA_ARGS__,)) // need c_EXPAND for MSVC
+#define c_GETARG(N, ...) c_ARG_##N(__VA_ARGS__,) // wrap c_EXPAND(..) for MSVC without /std:c11
 #define c_ARG_1(a, ...) a
 #define c_ARG_2(a, b, ...) b
 #define c_ARG_3(a, b, c, ...) c
@@ -153,7 +152,8 @@ typedef ptrdiff_t       isize;
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
 #define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
 #define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
-#define c_arraylen(a)           (isize)(sizeof(a)/sizeof 0[a])
+#define c_countof(a)            (isize)(sizeof(a)/sizeof 0[a])
+#define c_arraylen(a)           c_countof(a)
 
 // expect signed ints to/from these (use with gcc -Wconversion)
 #define c_sizeof                (isize)sizeof
@@ -361,6 +361,9 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 // ### END_FILE_INCLUDE: common.h
 
   #define _i_is_array
+  #if defined T && !defined i_type
+    #define i_type T
+  #endif
   #if defined i_type && !defined i_key
     #define Self c_GETARG(1, i_type)
     #define i_key c_GETARG(2, i_type)
@@ -422,10 +425,10 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
   #define i_valpro cstr
   #define i_tag str
 #endif
-#ifdef i_TYPE            // [deprecated]
-  #define i_type i_TYPE
-#endif
 
+#if defined T && !defined i_type
+  #define i_type T
+#endif
 #if defined i_type && c_NUMARGS(i_type) > 1
   #define Self c_GETARG(1, i_type)
   #define i_key c_GETARG(2, i_type)
@@ -801,7 +804,7 @@ _c_MEMB(_binary_search_range)(const Self* self, const _m_raw raw, isize start, i
 // ### END_FILE_INCLUDE: linkage2.h
 // ### BEGIN_FILE_INCLUDE: template2.h
 // IWYU pragma: private
-#undef i_TYPE       // [deprecated]
+#undef T            // alias for i_type
 #undef i_type
 #undef i_class
 #undef i_tag

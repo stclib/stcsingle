@@ -103,9 +103,8 @@ typedef ptrdiff_t       isize;
 #define c_JOIN0(a, b) a ## b
 #define c_JOIN(a, b) c_JOIN0(a, b)
 #define c_EXPAND(...) __VA_ARGS__
-// This is the way to make c_NUMARGS work also for MSVC++ and MSVC pre -std:c11
 #define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
-#define _c_APPLY_ARG_N(args) c_EXPAND(_c_ARG_N args)
+#define _c_APPLY_ARG_N(args) _c_ARG_N args  // wrap c_EXPAND(..) for MSVC without /std:c11
 #define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
 #define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,N,...) N
 
@@ -116,7 +115,7 @@ typedef ptrdiff_t       isize;
 #define c_COMMA_N(x) ,x
 
 // Select arg, e.g. for #define i_type A,B then c_GETARG(2, i_type) is B
-#define c_GETARG(N, ...) c_EXPAND(c_ARG_##N(__VA_ARGS__,)) // need c_EXPAND for MSVC
+#define c_GETARG(N, ...) c_ARG_##N(__VA_ARGS__,) // wrap c_EXPAND(..) for MSVC without /std:c11
 #define c_ARG_1(a, ...) a
 #define c_ARG_2(a, b, ...) b
 #define c_ARG_3(a, b, c, ...) c
@@ -158,7 +157,8 @@ typedef ptrdiff_t       isize;
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
 #define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
 #define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
-#define c_arraylen(a)           (isize)(sizeof(a)/sizeof 0[a])
+#define c_countof(a)            (isize)(sizeof(a)/sizeof 0[a])
+#define c_arraylen(a)           c_countof(a)
 
 // expect signed ints to/from these (use with gcc -Wconversion)
 #define c_sizeof                (isize)sizeof
@@ -435,7 +435,7 @@ typedef union {
 typedef char cstr_value;
 typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {
-    struct { cstr_value data[ sizeof(cstr_buf) ]; } sml;
+    struct { cstr_value data[ sizeof(cstr_buf) - 1 ]; uint8_t size; } sml;
     struct { cstr_value* data; uintptr_t size, ncap; } lon;
 } cstr;
 
@@ -679,26 +679,25 @@ STC_INLINE int utf8_icmp(const char* s1, const char* s2) {
   #pragma GCC diagnostic ignored "-Warray-bounds"
 #endif
 
-enum  { cstr_s_last = sizeof(cstr_buf) - 1,
-        cstr_s_cap = cstr_s_last - 1 };
-#define cstr_s_size(s)          ((isize)(s)->sml.data[cstr_s_last])
-#define cstr_s_set_size(s, len) ((s)->sml.data[len] = 0, (s)->sml.data[cstr_s_last] = (char)(len))
+enum  { cstr_s_cap = sizeof(cstr_buf) - 2 };
+#define cstr_s_size(s)          ((isize)(s)->sml.size)
+#define cstr_s_set_size(s, len) ((s)->sml.data[(s)->sml.size = (uint8_t)(len)] = 0)
 #define cstr_s_data(s)          (s)->sml.data
 
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
     #define byte_rotl_(x, b)       ((x) << (b)*8 | (x) >> (sizeof(x) - (b))*8)
     #define cstr_l_cap(s)          (isize)(~byte_rotl_((s)->lon.ncap, sizeof((s)->lon.ncap) - 1))
-    #define cstr_l_set_cap(s, cap) ((s)->lon.ncap = ~byte_rotl_((size_t)(cap), 1))
+    #define cstr_l_set_cap(s, cap) ((s)->lon.ncap = ~byte_rotl_((uintptr_t)(cap), 1))
 #else
     #define cstr_l_cap(s)          (isize)(~(s)->lon.ncap)
-    #define cstr_l_set_cap(s, cap) ((s)->lon.ncap = ~(size_t)(cap))
+    #define cstr_l_set_cap(s, cap) ((s)->lon.ncap = ~(uintptr_t)(cap))
 #endif
 #define cstr_l_size(s)          (isize)((s)->lon.size)
-#define cstr_l_set_size(s, len) ((s)->lon.data[(s)->lon.size = (size_t)(len)] = 0)
+#define cstr_l_set_size(s, len) ((s)->lon.data[(s)->lon.size = (uintptr_t)(len)] = 0)
 #define cstr_l_data(s)          (s)->lon.data
 #define cstr_l_drop(s)          i_free((s)->lon.data, cstr_l_cap(s) + 1)
 
-#define cstr_is_long(s)         (((s)->sml.data[cstr_s_last] & 128) != 0)
+#define cstr_is_long(s)         ((s)->sml.size >= 128)
 extern  char* _cstr_init(cstr* self, isize len, isize cap);
 extern  char* _cstr_internal_move(cstr* self, isize pos1, isize pos2);
 
@@ -815,7 +814,7 @@ STC_INLINE bool cstr_is_empty(const cstr* self)
     { return cstr_size(self) == 0; }
 
 STC_INLINE isize cstr_capacity(const cstr* self)
-    { return cstr_is_long(self) ? cstr_l_cap(self) : (isize)cstr_s_cap; }
+    { return cstr_is_long(self) ? cstr_l_cap(self) : cstr_s_cap; }
 
 STC_INLINE isize cstr_to_index(const cstr* self, cstr_iter it)
     { return it.ref - cstr_str(self); }

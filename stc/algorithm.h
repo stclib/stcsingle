@@ -106,9 +106,8 @@ typedef ptrdiff_t       isize;
 #define c_JOIN0(a, b) a ## b
 #define c_JOIN(a, b) c_JOIN0(a, b)
 #define c_EXPAND(...) __VA_ARGS__
-// This is the way to make c_NUMARGS work also for MSVC++ and MSVC pre -std:c11
 #define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
-#define _c_APPLY_ARG_N(args) c_EXPAND(_c_ARG_N args)
+#define _c_APPLY_ARG_N(args) _c_ARG_N args  // wrap c_EXPAND(..) for MSVC without /std:c11
 #define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
 #define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,N,...) N
 
@@ -119,7 +118,7 @@ typedef ptrdiff_t       isize;
 #define c_COMMA_N(x) ,x
 
 // Select arg, e.g. for #define i_type A,B then c_GETARG(2, i_type) is B
-#define c_GETARG(N, ...) c_EXPAND(c_ARG_##N(__VA_ARGS__,)) // need c_EXPAND for MSVC
+#define c_GETARG(N, ...) c_ARG_##N(__VA_ARGS__,) // wrap c_EXPAND(..) for MSVC without /std:c11
 #define c_ARG_1(a, ...) a
 #define c_ARG_2(a, b, ...) b
 #define c_ARG_3(a, b, c, ...) c
@@ -161,7 +160,8 @@ typedef ptrdiff_t       isize;
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
 #define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
 #define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
-#define c_arraylen(a)           (isize)(sizeof(a)/sizeof 0[a])
+#define c_countof(a)            (isize)(sizeof(a)/sizeof 0[a])
+#define c_arraylen(a)           c_countof(a)
 
 // expect signed ints to/from these (use with gcc -Wconversion)
 #define c_sizeof                (isize)sizeof
@@ -722,6 +722,38 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
     *(outbool_ptr) = _it.ref == NULL; \
 } while (0)
 
+// --------------------------------
+// c_min, c_max, c_min_n, c_max_n
+// --------------------------------
+
+#define c_min32(...) c_min32_n(c_make_array(int32_t, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
+#define c_min(...) c_min_n(c_make_array(isize, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
+#define c_umin(...) c_umin_n(c_make_array(size_t, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
+#define c_fmin(...) c_fmin_n(c_make_array(float, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
+#define c_dmin(...) c_dmin_n(c_make_array(double, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
+#define c_max32(...) c_max32_n(c_make_array(int32_t, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
+#define c_max(...) c_max_n(c_make_array(isize, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
+#define c_umax(...) c_umax_n(c_make_array(size_t, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
+#define c_fmax(...) c_fmax_n(c_make_array(float, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
+#define c_dmax(...) c_dmax_n(c_make_array(double, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
+
+#define _c_minmax(T, fn, opr) \
+    STC_INLINE T fn(const T a[], int n) { \
+        T x = a[0]; \
+        for (int i = 1; i < n; ++i) if (a[i] opr x) x = a[i]; \
+        return x; \
+    }
+_c_minmax(int32_t, c_min32_n, <)
+_c_minmax(isize, c_min_n, <)
+_c_minmax(size_t, c_umin_n, <)
+_c_minmax(float, c_fmin_n, <)
+_c_minmax(double, c_dmin_n, <)
+_c_minmax(int32_t, c_max32_n, >)
+_c_minmax(isize, c_max_n, >)
+_c_minmax(size_t, c_umax_n, >)
+_c_minmax(float, c_fmax_n, >)
+_c_minmax(double, c_dmax_n, >)
+
 #endif // STC_UTILITY_H_INCLUDED
 // ### END_FILE_INCLUDE: utility.h
 // ### BEGIN_FILE_INCLUDE: sumtype.h
@@ -736,9 +768,9 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
 #define _c_LOOP1(...)
 #define _c_CHECK(x,...) c_TUPLE_AT_1(__VA_ARGS__,x,)
 #define _c_E0(...) __VA_ARGS__
-#define _c_E1(...) _c_E0(_c_E0(_c_E0(_c_E0(_c_E0(_c_E0(_c_E0(__VA_ARGS__)))))))
-#define _c_E2(...) _c_E1(_c_E1(_c_E1(_c_E1(_c_E1(_c_E1(_c_E1(__VA_ARGS__)))))))
-#define c_EVAL(...) _c_E2(_c_E2(_c_E2(_c_E2(_c_E2(__VA_ARGS__)))))
+#define _c_E1(...) _c_E0(_c_E0(_c_E0(_c_E0(_c_E0(_c_E0(__VA_ARGS__))))))
+#define _c_E2(...) _c_E1(_c_E1(_c_E1(_c_E1(_c_E1(_c_E1(__VA_ARGS__))))))
+#define c_EVAL(...) _c_E2(_c_E2(_c_E2(__VA_ARGS__))) // support up to 130 variants
 #define c_LOOP(f,T,x,...) _c_CHECK(_c_LOOP0, c_JOIN(_c_LOOP_END_, c_NUMARGS(c_EXPAND x)))(f,T,x,__VA_ARGS__)
 
 
@@ -749,11 +781,11 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
 
 #define c_sumtype(T, ...) \
     typedef union T T; \
-    enum enum_##T { c_EVAL(c_LOOP(_c_vartuple_tag, T, _c_enum_1 __VA_ARGS__, (0),)) }; \
-    c_EVAL(c_LOOP(_c_vartuple_type, T,  __VA_ARGS__, (0),)) \
+    enum enum_##T { c_EVAL(c_LOOP(_c_vartuple_tag, T, _c_enum_1 __VA_ARGS__, (0))) }; \
+    c_EVAL(c_LOOP(_c_vartuple_type, T,  __VA_ARGS__, (0))) \
     union T { \
         struct { enum enum_##T tag; } _any_; \
-        c_EVAL(c_LOOP(_c_vartuple_var, T, __VA_ARGS__, (0),)) \
+        c_EVAL(c_LOOP(_c_vartuple_var, T, __VA_ARGS__, (0))) \
     }
 
 #if defined STC_HAS_TYPEOF && STC_HAS_TYPEOF
@@ -767,13 +799,13 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
 
     #define c_is_3(varptr, Tag, x) \
         false) ; else for (__typeof__(varptr) _vp2 = (varptr); _vp2; _vp2 = NULL) \
-            if (c_holds(_vp2, Tag)) \
+            if (c_holds_tag(_vp2, Tag)) \
                 for (__typeof__(_vp2->Tag.var) *x = &_vp2->Tag.var; x; x = NULL
 #else
     typedef union { struct { int tag; } _any_; } _c_any_variant;
     #define c_when(varptr) \
-        for (_c_any_variant* _vp1 = (_c_any_variant *)(varptr) + 0*sizeof((varptr)->_any_.tag); \
-             _vp1; _vp1 = NULL) \
+        for (_c_any_variant* _vp1 = (_c_any_variant *)(varptr); \
+             _vp1; _vp1 = NULL, (void)sizeof((varptr)->_any_.tag)) \
             switch (_vp1->_any_.tag)
 
     #define c_is_2(Tag, x) \
@@ -782,18 +814,28 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
 
     #define c_is_3(varptr, Tag, x) \
         false) ; else for (Tag##_sumtype* _vp2 = c_const_cast(Tag##_sumtype*, varptr); _vp2; _vp2 = NULL) \
-            if (c_holds(_vp2, Tag)) \
+            if (c_holds_tag(_vp2, Tag)) \
                 for (Tag##_type *x = &_vp2->Tag.var; x; x = NULL
 #endif
 
-#define c_if_is(...) if (c_is_3(__VA_ARGS__)) // [deprecated]
-
+// Handling multiple tags with different payloads:
 #define c_is(...) c_MACRO_OVERLOAD(c_is, __VA_ARGS__)
 #define c_is_1(Tag) \
     break; case Tag:
 
 #define c_or_is(Tag) \
     ; case Tag:
+
+// Type checked multiple tags with same payload:
+#define c_is_same(...) c_MACRO_OVERLOAD(c_is_same, __VA_ARGS__)
+#define _c_chk(Tag1, Tag2) \
+    case 1 ? Tag1 : sizeof((Tag1##_type*)0 == (Tag2##_type*)0):
+#define c_is_same_2(Tag1, Tag2) \
+    break; _c_chk(Tag1, Tag2) case Tag2:
+#define c_is_same_3(Tag1, Tag2, Tag3) \
+    break; _c_chk(Tag1, Tag2) _c_chk(Tag2, Tag3) case Tag3:
+#define c_is_same_4(Tag1, Tag2, Tag3, Tag4) \
+    break; _c_chk(Tag1, Tag2) _c_chk(Tag2, Tag3) _c_chk(Tag3, Tag4) case Tag4:
 
 #define c_otherwise \
     break; default:
@@ -804,8 +846,11 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
 #define c_tag_index(varptr) \
     ((int)(varptr)->_any_.tag)
 
-#define c_holds(varptr, Tag) \
-    ((varptr)->_any_.tag == Tag)
+#define c_holds_tag(varptr, Tag) \
+    ((varptr)->Tag.tag == Tag)
+
+#define c_get(varptr, Tag) \
+    (c_holds_tag(varptr, Tag) ? &(varptr)->Tag.var : NULL)
 
 #endif // STC_SUMTYPE_H_INCLUDED
 // ### END_FILE_INCLUDE: sumtype.h
