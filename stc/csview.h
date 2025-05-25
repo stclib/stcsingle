@@ -322,18 +322,13 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 #include <stdint.h>
 #include <stddef.h>
 
-#define declare_arc(C, VAL) _c_arc_types(C, VAL)
-#define declare_box(C, VAL) _c_box_types(C, VAL)
-#define declare_deq(C, VAL) _c_deque_types(C, VAL)
-#define declare_list(C, VAL) _c_list_types(C, VAL)
-#define declare_hashmap(C, KEY, VAL) _c_htable_types(C, KEY, VAL, c_true, c_false)
-#define declare_hashset(C, KEY) _c_htable_types(C, cset, KEY, KEY, c_false, c_true)
-#define declare_sortedmap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
-#define declare_sortedset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
-#define declare_pqueue(C, VAL) _c_pqueue_types(C, VAL)
-#define declare_queue(C, VAL) _c_deque_types(C, VAL)
-#define declare_vec(C, VAL) _c_vec_types(C, VAL)
-#define declare_stack(C, VAL) _c_vec_types(C, VAL)
+#define declare_vec(C, KEY) declare_stack(C, KEY)
+#define declare_pqueue(C, KEY) declare_stack(C, KEY)
+#define declare_deque(C, KEY) declare_queue(C, KEY)
+#define declare_hashmap(C, KEY, VAL) declare_htable(C, KEY, VAL, c_true, c_false)
+#define declare_hashset(C, KEY) declare_htable(C, cset, KEY, KEY, c_false, c_true)
+#define declare_sortedmap(C, KEY, VAL) declare_aatree(C, KEY, VAL, c_true, c_false)
+#define declare_sortedset(C, KEY) declare_aatree(C, KEY, KEY, c_false, c_true)
 
 #define declare_hmap(...) declare_hashmap(__VA_ARGS__) // [deprecated]
 #define declare_hset(...) declare_hashset(__VA_ARGS__) // [deprecated]
@@ -358,8 +353,6 @@ typedef union {
 #define c_sv_2(str, n) (c_literal(csview){str, n})
 #define c_svfmt "%.*s"
 #define c_svarg(sv) (int)(sv).size, (sv).buf // printf(c_svfmt "\n", c_svarg(sv));
-#define c_SVARG(sv) c_svarg(sv) // [deprecated]
-#define c_SV(sv) c_svarg(sv) // [deprecated]
 
 // zsview : zero-terminated string view
 typedef csview_value zsview_value;
@@ -391,20 +384,40 @@ typedef union {
 #define c_true(...) __VA_ARGS__
 #define c_false(...)
 
-#define _c_arc_types(SELF, VAL) \
+#define declare_arc1(SELF, VAL) \
     typedef VAL SELF##_value; \
-    typedef struct SELF { \
+\
+    typedef struct { \
+        SELF##_value value; \
+        catomic_long counter; \
+    } SELF##_ctrl; \
+\
+    typedef union SELF { \
         SELF##_value* get; \
-        catomic_long* use_count; \
+        SELF##_ctrl* ctrl1; \
     } SELF
 
-#define _c_box_types(SELF, VAL) \
+#define declare_arc2(SELF, VAL) \
     typedef VAL SELF##_value; \
+    \
+    typedef struct { \
+        catomic_long counter; \
+        SELF##_value value; \
+    } SELF##_ctrl; \
+    \
+    typedef struct SELF { \
+        SELF##_value* get; \
+        SELF##_ctrl* ctrl2; \
+    } SELF
+
+#define declare_box(SELF, VAL) \
+    typedef VAL SELF##_value; \
+\
     typedef struct SELF { \
         SELF##_value* get; \
     } SELF
 
-#define _c_deque_types(SELF, VAL) \
+#define declare_queue(SELF, VAL) \
     typedef VAL SELF##_value; \
 \
     typedef struct SELF { \
@@ -419,7 +432,7 @@ typedef union {
         const SELF* _s; \
     } SELF##_iter
 
-#define _c_list_types(SELF, VAL) \
+#define declare_list(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct SELF##_node SELF##_node; \
 \
@@ -433,7 +446,7 @@ typedef union {
         _i_aux_struct \
     } SELF
 
-#define _c_htable_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
+#define declare_htable(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
 \
@@ -461,7 +474,7 @@ typedef union {
         _i_aux_struct \
     } SELF
 
-#define _c_aatree_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
+#define declare_aatree(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
     typedef struct SELF##_node SELF##_node; \
@@ -488,12 +501,12 @@ typedef union {
         _i_aux_struct \
     } SELF
 
-#define _c_stack_fixed(SELF, VAL, CAP) \
+#define declare_stack_fixed(SELF, VAL, CAP) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value data[CAP]; ptrdiff_t size; } SELF
 
-#define _c_vec_types(SELF, VAL) \
+#define declare_stack(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value *data; ptrdiff_t size, capacity; _i_aux_struct } SELF

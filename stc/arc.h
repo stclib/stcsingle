@@ -1,5 +1,4 @@
 // ### BEGIN_FILE_INCLUDE: arc.h
-
 // ### BEGIN_FILE_INCLUDE: linkage.h
 #undef STC_API
 #undef STC_DEF
@@ -69,18 +68,13 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define declare_arc(C, VAL) _c_arc_types(C, VAL)
-#define declare_box(C, VAL) _c_box_types(C, VAL)
-#define declare_deq(C, VAL) _c_deque_types(C, VAL)
-#define declare_list(C, VAL) _c_list_types(C, VAL)
-#define declare_hashmap(C, KEY, VAL) _c_htable_types(C, KEY, VAL, c_true, c_false)
-#define declare_hashset(C, KEY) _c_htable_types(C, cset, KEY, KEY, c_false, c_true)
-#define declare_sortedmap(C, KEY, VAL) _c_aatree_types(C, KEY, VAL, c_true, c_false)
-#define declare_sortedset(C, KEY) _c_aatree_types(C, KEY, KEY, c_false, c_true)
-#define declare_pqueue(C, VAL) _c_pqueue_types(C, VAL)
-#define declare_queue(C, VAL) _c_deque_types(C, VAL)
-#define declare_vec(C, VAL) _c_vec_types(C, VAL)
-#define declare_stack(C, VAL) _c_vec_types(C, VAL)
+#define declare_vec(C, KEY) declare_stack(C, KEY)
+#define declare_pqueue(C, KEY) declare_stack(C, KEY)
+#define declare_deque(C, KEY) declare_queue(C, KEY)
+#define declare_hashmap(C, KEY, VAL) declare_htable(C, KEY, VAL, c_true, c_false)
+#define declare_hashset(C, KEY) declare_htable(C, cset, KEY, KEY, c_false, c_true)
+#define declare_sortedmap(C, KEY, VAL) declare_aatree(C, KEY, VAL, c_true, c_false)
+#define declare_sortedset(C, KEY) declare_aatree(C, KEY, KEY, c_false, c_true)
 
 #define declare_hmap(...) declare_hashmap(__VA_ARGS__) // [deprecated]
 #define declare_hset(...) declare_hashset(__VA_ARGS__) // [deprecated]
@@ -105,8 +99,6 @@ typedef union {
 #define c_sv_2(str, n) (c_literal(csview){str, n})
 #define c_svfmt "%.*s"
 #define c_svarg(sv) (int)(sv).size, (sv).buf // printf(c_svfmt "\n", c_svarg(sv));
-#define c_SVARG(sv) c_svarg(sv) // [deprecated]
-#define c_SV(sv) c_svarg(sv) // [deprecated]
 
 // zsview : zero-terminated string view
 typedef csview_value zsview_value;
@@ -138,20 +130,40 @@ typedef union {
 #define c_true(...) __VA_ARGS__
 #define c_false(...)
 
-#define _c_arc_types(SELF, VAL) \
+#define declare_arc1(SELF, VAL) \
     typedef VAL SELF##_value; \
-    typedef struct SELF { \
+\
+    typedef struct { \
+        SELF##_value value; \
+        catomic_long counter; \
+    } SELF##_ctrl; \
+\
+    typedef union SELF { \
         SELF##_value* get; \
-        catomic_long* use_count; \
+        SELF##_ctrl* ctrl1; \
     } SELF
 
-#define _c_box_types(SELF, VAL) \
+#define declare_arc2(SELF, VAL) \
     typedef VAL SELF##_value; \
+    \
+    typedef struct { \
+        catomic_long counter; \
+        SELF##_value value; \
+    } SELF##_ctrl; \
+    \
+    typedef struct SELF { \
+        SELF##_value* get; \
+        SELF##_ctrl* ctrl2; \
+    } SELF
+
+#define declare_box(SELF, VAL) \
+    typedef VAL SELF##_value; \
+\
     typedef struct SELF { \
         SELF##_value* get; \
     } SELF
 
-#define _c_deque_types(SELF, VAL) \
+#define declare_queue(SELF, VAL) \
     typedef VAL SELF##_value; \
 \
     typedef struct SELF { \
@@ -166,7 +178,7 @@ typedef union {
         const SELF* _s; \
     } SELF##_iter
 
-#define _c_list_types(SELF, VAL) \
+#define declare_list(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct SELF##_node SELF##_node; \
 \
@@ -180,7 +192,7 @@ typedef union {
         _i_aux_struct \
     } SELF
 
-#define _c_htable_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
+#define declare_htable(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
 \
@@ -208,7 +220,7 @@ typedef union {
         _i_aux_struct \
     } SELF
 
-#define _c_aatree_types(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
+#define declare_aatree(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
     typedef struct SELF##_node SELF##_node; \
@@ -235,12 +247,12 @@ typedef union {
         _i_aux_struct \
     } SELF
 
-#define _c_stack_fixed(SELF, VAL, CAP) \
+#define declare_stack_fixed(SELF, VAL, CAP) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value data[CAP]; ptrdiff_t size; } SELF
 
-#define _c_vec_types(SELF, VAL) \
+#define declare_stack(SELF, VAL) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value *data; ptrdiff_t size, capacity; _i_aux_struct } SELF
@@ -573,9 +585,6 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
     #define c_atomic_inc(v) (void)atomic_fetch_add(v, 1)
     #define c_atomic_dec_and_test(v) (atomic_fetch_sub(v, 1) == 1)
 #endif
-
-// @wmww: Now fixed rare memleak by adding 4 bytes when allocating the counter alone.
-struct _arc_metadata { catomic_long counter; };
 #endif // STC_ARC_H_INCLUDED
 
 #ifndef _i_prefix
@@ -591,7 +600,7 @@ struct _arc_metadata { catomic_long counter; };
 #define STC_TEMPLATE_H_INCLUDED
 
   #define _c_MEMB(name) c_JOIN(Self, name)
-  #define _c_DEFTYPES(macro, SELF, ...) c_EXPAND(macro(SELF, __VA_ARGS__))
+  #define _c_DEFTYPES(macro, SELF, ...) macro(SELF, __VA_ARGS__)
   #define _m_value _c_MEMB(_value)
   #define _m_key _c_MEMB(_key)
   #define _m_mapped _c_MEMB(_mapped)
@@ -605,7 +614,8 @@ struct _arc_metadata { catomic_long counter; };
   #define c_OPTION(flag)  ((i_opt) & (flag))
   #define c_declared      (1<<0)
   #define c_no_atomic     (1<<1)
-  #define c_no_clone      (1<<2)
+  #define c_arc2          (1<<2)
+  #define c_no_clone      (1<<3)
   #define c_no_hash       (1<<4)
   #define c_use_cmp       (1<<5)
   #define c_use_eq        (1<<6)
@@ -877,64 +887,78 @@ typedef i_keyraw _m_raw;
   #define _i_atomic_inc(v)          (void)(++*(v))
   #define _i_atomic_dec_and_test(v) !(--*(v))
 #endif
-#ifndef i_declared
-_c_DEFTYPES(_c_arc_types, Self, i_key);
+
+#if c_OPTION(c_arc2)
+  #define i_arc2
 #endif
-struct _c_MEMB(_rep_) { struct _arc_metadata metadata; i_key value; };
+#if !(defined i_arc2 || defined STC_USE_ARC2)
+// ------------ Arc1 size of one pointer (union) -------------
 
-STC_INLINE Self _c_MEMB(_init)(void)
-    { return c_literal(Self){NULL, NULL}; }
-
-STC_INLINE long _c_MEMB(_use_count)(const Self* self)
-    { return self->use_count ? *self->use_count : 0; }
-
+#ifndef i_declared
+_c_DEFTYPES(declare_arc1, Self, i_key);
+#endif
+#define ctrl ctrl1
 
 // c++: std::make_shared<_m_value>(val)
 STC_INLINE Self _c_MEMB(_make)(_m_value val) {
-    Self unowned;
-    struct _c_MEMB(_rep_)* rep = _i_malloc(struct _c_MEMB(_rep_), 1);
-    *(unowned.use_count = &rep->metadata.counter) = 1;
-    *(unowned.get = &rep->value) = val; // (.use_count, .get) are OFFSET bytes apart.
-    return unowned;
+    Self arc = {.ctrl1=_i_malloc(_c_MEMB(_ctrl), 1)};
+    arc.ctrl1->value = val;
+    arc.ctrl1->counter = 1;
+    return arc;
 }
 
-STC_INLINE Self _c_MEMB(_from_ptr)(_m_value* ptr) {
-    enum {OFFSET = offsetof(struct _c_MEMB(_rep_), value)};
-    Self unowned = {ptr};
-    if (ptr) {
-        // Adds 4 dummy bytes to ensure that the if-test in _drop() is safe.
-        struct _arc_metadata* meta = (struct _arc_metadata*)i_malloc(OFFSET + 4);
-        *(unowned.use_count = &meta->counter) = 1;
-    }
-    return unowned;
-}
-
-STC_INLINE Self _c_MEMB(_from)(_m_raw raw)
-    { return _c_MEMB(_make)(i_keyfrom(raw)); }
-
-STC_INLINE _m_raw _c_MEMB(_toraw)(const Self* self)
-    { return i_keytoraw(self->get); }
+STC_INLINE Self _c_MEMB(_toarc)(_m_value* arc_raw)
+    { Self arc = {.ctrl1=(_c_MEMB(_ctrl) *)arc_raw}; return arc; }
 
 // destructor
 STC_INLINE void _c_MEMB(_drop)(const Self* self) {
-    if (self->use_count && _i_atomic_dec_and_test(self->use_count)) {
-        enum {OFFSET = offsetof(struct _c_MEMB(_rep_), value)};
+    if (self->ctrl1 && _i_atomic_dec_and_test(&self->ctrl1->counter)) {
         i_keydrop(self->get);
-
-        if ((char*)self->use_count + OFFSET == (char*)self->get) {
-            i_free((void*)self->use_count, c_sizeof(struct _c_MEMB(_rep_))); // _make()
-        } else {
-            i_free((void*)self->use_count, OFFSET + 4); // _from_ptr()
-            i_free(self->get, c_sizeof *self->get);
-        }
+        i_free(self->ctrl1, c_sizeof *self->ctrl1);
     }
 }
 
-// move ownership to receiving arc
-STC_INLINE Self _c_MEMB(_move)(Self* self) {
-    Self arc = *self;
-    memset(self, 0, sizeof *self);
-    return arc; // now unowned
+#else // ------------ Arc2 size of two pointers -------------
+
+#ifndef i_declared
+_c_DEFTYPES(declare_arc2, Self, i_key);
+#endif
+#define ctrl ctrl2
+
+// c++: std::make_shared<_m_value>(val)
+STC_INLINE Self _c_MEMB(_make)(_m_value val) {
+    Self out = {.ctrl2=_i_malloc(_c_MEMB(_ctrl), 1)};
+    out.ctrl2->counter = 1;
+    out.get = &out.ctrl2->value;
+    *out.get = val;
+    return out;
+}
+
+STC_INLINE Self _c_MEMB(_from_ptr)(_m_value* ptr) {
+    Self out = {.get=ptr};
+    if (ptr) {
+        enum {OFFSET = offsetof(_c_MEMB(_ctrl), value)};
+        // Adds 2 dummy bytes to ensure that the second if-test in _drop() is safe.
+        catomic_long* _rc = (catomic_long*)i_malloc(OFFSET + 2);
+        out.ctrl2 = (_c_MEMB(_ctrl)*) _rc;
+        out.ctrl2->counter = 1;
+    }
+    return out;
+}
+
+// destructor
+STC_INLINE void _c_MEMB(_drop)(const Self* self) {
+    if (self->ctrl2 && _i_atomic_dec_and_test(&self->ctrl2->counter)) {
+        enum {OFFSET = offsetof(_c_MEMB(_ctrl), value)};
+        i_keydrop(self->get);
+
+        if ((char*)self->ctrl2 + OFFSET == (char*)self->get) {
+            i_free((void*)self->ctrl2, c_sizeof *self->ctrl2); // _make()
+        } else {
+            i_free((void*)self->ctrl2, OFFSET + 2); // _from_ptr()
+            i_free(self->get, c_sizeof *self->get);
+        }
+    }
 }
 
 // take ownership of pointer p
@@ -943,22 +967,45 @@ STC_INLINE void _c_MEMB(_reset_to)(Self* self, _m_value* ptr) {
     *self = _c_MEMB(_from_ptr)(ptr);
 }
 
+#endif // ---------- end Arc2 with two pointers ------------
+
+STC_INLINE long _c_MEMB(_use_count)(Self arc)
+    { return arc.ctrl ? arc.ctrl->counter : 0; }
+
+STC_INLINE Self _c_MEMB(_init)(void)
+    { return c_literal(Self){0}; }
+
+STC_INLINE Self _c_MEMB(_from)(_m_raw raw)
+    { return _c_MEMB(_make)(i_keyfrom(raw)); }
+
+STC_INLINE _m_raw _c_MEMB(_toraw)(const Self* self)
+    { return i_keytoraw(self->get); }
+
+// move ownership to receiving arc
+STC_INLINE Self _c_MEMB(_move)(Self* self) {
+    Self arc = *self;
+    *self = (Self){0};
+    return arc; // now unowned
+}
+
 // take ownership of unowned arc
 STC_INLINE void _c_MEMB(_take)(Self* self, Self unowned) {
     _c_MEMB(_drop)(self);
-    *self = unowned;
+    *self = unowned; // now owned
 }
 
 // make shared ownership with owned arc
 STC_INLINE void _c_MEMB(_assign)(Self* self, const Self* owned) {
-    if (owned->use_count) _i_atomic_inc(owned->use_count);
+    if (owned->ctrl)
+        _i_atomic_inc(&owned->ctrl->counter);
     _c_MEMB(_drop)(self);
     *self = *owned;
 }
 
 // clone by sharing. Does not use i_keyclone, so OK to always define.
 STC_INLINE Self _c_MEMB(_clone)(Self owned) {
-    if (owned.use_count) _i_atomic_inc(owned.use_count);
+    if (owned.ctrl)
+        _i_atomic_inc(&owned.ctrl->counter);
     return owned;
 }
 
@@ -977,7 +1024,9 @@ STC_INLINE Self _c_MEMB(_clone)(Self owned) {
         { return i_hash(rx); }
 #endif // i_no_hash
 
+#undef ctrl
 #undef i_no_atomic
+#undef i_arc2
 #undef _i_atomic_inc
 #undef _i_atomic_dec_and_test
 #undef _i_is_arc
