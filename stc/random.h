@@ -4,8 +4,8 @@
 #undef STC_API
 #undef STC_DEF
 
-#if !defined i_static && !defined STC_STATIC  && (defined i_header || defined STC_HEADER  || \
-                                                  defined i_implement || defined STC_IMPLEMENT)
+#if !defined i_static && !defined STC_STATIC && (defined i_header || defined STC_HEADER  || \
+                                                 defined i_implement || defined STC_IMPLEMENT)
   #define STC_API extern
   #define STC_DEF
 #else
@@ -21,17 +21,19 @@
   #define i_implement
 #endif
 
-#if defined STC_ALLOCATOR && !defined i_allocator
-  #define i_allocator STC_ALLOCATOR
-#elif !defined i_allocator
+#if defined i_aux && defined i_allocator
+  #define _i_aux_alloc
+#endif
+#ifndef i_allocator
   #define i_allocator c
 #endif
-#ifndef i_malloc
+#ifndef i_free
   #define i_malloc c_JOIN(i_allocator, _malloc)
   #define i_calloc c_JOIN(i_allocator, _calloc)
   #define i_realloc c_JOIN(i_allocator, _realloc)
   #define i_free c_JOIN(i_allocator, _free)
 #endif
+
 #if defined __clang__ && !defined __cplusplus
   #pragma clang diagnostic push
   #pragma clang diagnostic warning "-Wall"
@@ -87,11 +89,12 @@ typedef ptrdiff_t       isize;
     defined __GNUC__ || defined __clang__ || defined __TINYC__)
     #define STC_HAS_TYPEOF 1
 #endif
-#if defined __GNUC__ || defined __clang__
-    #define STC_INLINE static inline __attribute((unused))
+#if defined __GNUC__
+  #define c_GNUATTR(...) __attribute__((__VA_ARGS__))
 #else
-    #define STC_INLINE static inline
+  #define c_GNUATTR(...)
 #endif
+#define STC_INLINE static inline c_GNUATTR(unused)
 #define c_ZI PRIiPTR
 #define c_ZU PRIuPTR
 #define c_NPOS INTPTR_MAX
@@ -120,32 +123,45 @@ typedef ptrdiff_t       isize;
 #define c_ARG_3(a, b, c, ...) c
 #define c_ARG_4(a, b, c, d, ...) d
 
-#define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
-#define _i_calloc(T, n)     ((T*)i_calloc((n), c_sizeof(T)))
+#define _i_new_n(T, n) ((T*)i_malloc((n)*c_sizeof(T)))
+#define _i_new_zeros(T, n) ((T*)i_calloc(n, c_sizeof(T)))
+#define _i_realloc_n(ptr, old_n, n) i_realloc(ptr, (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
+#define _i_free_n(ptr, n) i_free(ptr, (n)*c_sizeof *(ptr))
+
 #ifndef __cplusplus
-    #define c_new(T, ...)   ((T*)c_safe_memcpy(malloc(sizeof(T)), ((T[]){__VA_ARGS__}), c_sizeof(T)))
-    #define c_literal(T)    (T)
+    #define c_new(T, ...) ((T*)c_safe_memcpy(c_malloc(c_sizeof(T)), ((T[]){__VA_ARGS__}), c_sizeof(T)))
+    #define c_literal(T) (T)
     #define c_make_array(T, ...) ((T[])__VA_ARGS__)
     #define c_make_array2d(T, N, ...) ((T[][N])__VA_ARGS__)
 #else
     #include <new>
-    #define c_new(T, ...)       new (malloc(sizeof(T))) T(__VA_ARGS__)
-    #define c_literal(T)        T
+    #define c_new(T, ...) new (c_malloc(c_sizeof(T))) T(__VA_ARGS__)
+    #define c_literal(T) T
     template<typename T, int M, int N> struct _c_Array { T data[M][N]; };
     #define c_make_array(T, ...) (_c_Array<T, 1, sizeof((T[])__VA_ARGS__)/sizeof(T)>{{__VA_ARGS__}}.data[0])
     #define c_make_array2d(T, N, ...) (_c_Array<T, sizeof((T[][N])__VA_ARGS__)/sizeof(T[N]), N>{__VA_ARGS__}.data)
 #endif
-#ifndef c_malloc
-    #define c_malloc(sz)        malloc(c_i2u_size(sz))
-    #define c_calloc(n, sz)     calloc(c_i2u_size(n), c_i2u_size(sz))
+
+#ifdef STC_ALLOCATOR
+    #define c_malloc c_JOIN(STC_ALLOCATOR, _malloc)
+    #define c_calloc c_JOIN(STC_ALLOCATOR, _calloc)
+    #define c_realloc c_JOIN(STC_ALLOCATOR, _realloc)
+    #define c_free c_JOIN(STC_ALLOCATOR, _free)
+#else
+    #define c_malloc(sz) malloc(c_i2u_size(sz))
+    #define c_calloc(n, sz) calloc(c_i2u_size(n), c_i2u_size(sz))
     #define c_realloc(ptr, old_sz, sz) realloc(ptr, c_i2u_size(1 ? (sz) : (old_sz)))
-    #define c_free(ptr, sz)     do { (void)(sz); free(ptr); } while(0)
+    #define c_free(ptr, sz) ((void)(sz), free(ptr))
 #endif
-#define c_new_n(T, n)           ((T*)c_calloc(n, c_sizeof(T)))
-#define c_delete(T, ptr)        do { T* _tp = ptr; T##_drop(_tp); c_free(_tp, c_sizeof(T)); } while (0)
-#define c_delete_n(T, ptr, n)   do { T* _tp = ptr; isize _n = n, _m = _n; \
-                                     while (_n--) T##_drop((_tp + _n)); \
-                                     c_free(_tp, _m*c_sizeof(T)); } while (0)
+
+#define c_new_n(T, n) ((T*)c_malloc((n)*c_sizeof(T)))
+#define c_free_n(ptr, n) c_free(ptr, (n)*c_sizeof *(ptr))
+#define c_realloc_n(ptr, old_n, n) c_realloc(ptr, (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
+#define c_delete_n(T, ptr, n) do { \
+    T* _tp = ptr; isize _n = n, _i = _n; \
+    while (_i--) T##_drop((_tp + _i)); \
+    c_free(_tp, _n*c_sizeof(T)); \
+} while (0)
 
 #define c_static_assert(expr)   (void)sizeof(int[(expr) ? 1 : -1])
 #if defined STC_NDEBUG || defined NDEBUG
@@ -157,7 +173,7 @@ typedef ptrdiff_t       isize;
 #define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
 #define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
 #define c_countof(a)            (isize)(sizeof(a)/sizeof 0[a])
-#define c_arraylen(a)           c_countof(a)
+#define c_arraylen(a)           c_countof(a) // [deprecated]?
 
 // expect signed ints to/from these (use with gcc -Wconversion)
 #define c_sizeof                (isize)sizeof
@@ -274,10 +290,6 @@ typedef const char* cstr_raw;
 // drop multiple containers of same type
 #define c_drop(C, ...) \
     do { for (c_items(_c_i2, C*, {__VA_ARGS__})) C##_drop(*_c_i2.ref); } while(0)
-
-// define function with "on-the-fly" defined return type (e.g. variant, optional)
-#define c_func(name, args, RIGHTARROW, ...) \
-    typedef __VA_ARGS__ name##_result; name##_result name args
 
 // RAII scopes
 #define c_defer(...) \
@@ -586,13 +598,14 @@ STC_DEF double crand64_normal(crand64_normal_dist* d)
 #endif // i_implement
 // ### BEGIN_FILE_INCLUDE: linkage2.h
 
+#undef i_aux
+#undef _i_aux_alloc
+
 #undef i_allocator
 #undef i_malloc
 #undef i_calloc
 #undef i_realloc
 #undef i_free
-#undef i_aux
-#undef _i_aux_struct
 
 #undef i_static
 #undef i_header

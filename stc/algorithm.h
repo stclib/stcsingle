@@ -12,8 +12,8 @@
 #undef STC_API
 #undef STC_DEF
 
-#if !defined i_static && !defined STC_STATIC  && (defined i_header || defined STC_HEADER  || \
-                                                  defined i_implement || defined STC_IMPLEMENT)
+#if !defined i_static && !defined STC_STATIC && (defined i_header || defined STC_HEADER  || \
+                                                 defined i_implement || defined STC_IMPLEMENT)
   #define STC_API extern
   #define STC_DEF
 #else
@@ -29,17 +29,19 @@
   #define i_implement
 #endif
 
-#if defined STC_ALLOCATOR && !defined i_allocator
-  #define i_allocator STC_ALLOCATOR
-#elif !defined i_allocator
+#if defined i_aux && defined i_allocator
+  #define _i_aux_alloc
+#endif
+#ifndef i_allocator
   #define i_allocator c
 #endif
-#ifndef i_malloc
+#ifndef i_free
   #define i_malloc c_JOIN(i_allocator, _malloc)
   #define i_calloc c_JOIN(i_allocator, _calloc)
   #define i_realloc c_JOIN(i_allocator, _realloc)
   #define i_free c_JOIN(i_allocator, _free)
 #endif
+
 #if defined __clang__ && !defined __cplusplus
   #pragma clang diagnostic push
   #pragma clang diagnostic warning "-Wall"
@@ -91,11 +93,12 @@ typedef ptrdiff_t       isize;
     defined __GNUC__ || defined __clang__ || defined __TINYC__)
     #define STC_HAS_TYPEOF 1
 #endif
-#if defined __GNUC__ || defined __clang__
-    #define STC_INLINE static inline __attribute((unused))
+#if defined __GNUC__
+  #define c_GNUATTR(...) __attribute__((__VA_ARGS__))
 #else
-    #define STC_INLINE static inline
+  #define c_GNUATTR(...)
 #endif
+#define STC_INLINE static inline c_GNUATTR(unused)
 #define c_ZI PRIiPTR
 #define c_ZU PRIuPTR
 #define c_NPOS INTPTR_MAX
@@ -124,32 +127,45 @@ typedef ptrdiff_t       isize;
 #define c_ARG_3(a, b, c, ...) c
 #define c_ARG_4(a, b, c, d, ...) d
 
-#define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
-#define _i_calloc(T, n)     ((T*)i_calloc((n), c_sizeof(T)))
+#define _i_new_n(T, n) ((T*)i_malloc((n)*c_sizeof(T)))
+#define _i_new_zeros(T, n) ((T*)i_calloc(n, c_sizeof(T)))
+#define _i_realloc_n(ptr, old_n, n) i_realloc(ptr, (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
+#define _i_free_n(ptr, n) i_free(ptr, (n)*c_sizeof *(ptr))
+
 #ifndef __cplusplus
-    #define c_new(T, ...)   ((T*)c_safe_memcpy(malloc(sizeof(T)), ((T[]){__VA_ARGS__}), c_sizeof(T)))
-    #define c_literal(T)    (T)
+    #define c_new(T, ...) ((T*)c_safe_memcpy(c_malloc(c_sizeof(T)), ((T[]){__VA_ARGS__}), c_sizeof(T)))
+    #define c_literal(T) (T)
     #define c_make_array(T, ...) ((T[])__VA_ARGS__)
     #define c_make_array2d(T, N, ...) ((T[][N])__VA_ARGS__)
 #else
     #include <new>
-    #define c_new(T, ...)       new (malloc(sizeof(T))) T(__VA_ARGS__)
-    #define c_literal(T)        T
+    #define c_new(T, ...) new (c_malloc(c_sizeof(T))) T(__VA_ARGS__)
+    #define c_literal(T) T
     template<typename T, int M, int N> struct _c_Array { T data[M][N]; };
     #define c_make_array(T, ...) (_c_Array<T, 1, sizeof((T[])__VA_ARGS__)/sizeof(T)>{{__VA_ARGS__}}.data[0])
     #define c_make_array2d(T, N, ...) (_c_Array<T, sizeof((T[][N])__VA_ARGS__)/sizeof(T[N]), N>{__VA_ARGS__}.data)
 #endif
-#ifndef c_malloc
-    #define c_malloc(sz)        malloc(c_i2u_size(sz))
-    #define c_calloc(n, sz)     calloc(c_i2u_size(n), c_i2u_size(sz))
+
+#ifdef STC_ALLOCATOR
+    #define c_malloc c_JOIN(STC_ALLOCATOR, _malloc)
+    #define c_calloc c_JOIN(STC_ALLOCATOR, _calloc)
+    #define c_realloc c_JOIN(STC_ALLOCATOR, _realloc)
+    #define c_free c_JOIN(STC_ALLOCATOR, _free)
+#else
+    #define c_malloc(sz) malloc(c_i2u_size(sz))
+    #define c_calloc(n, sz) calloc(c_i2u_size(n), c_i2u_size(sz))
     #define c_realloc(ptr, old_sz, sz) realloc(ptr, c_i2u_size(1 ? (sz) : (old_sz)))
-    #define c_free(ptr, sz)     do { (void)(sz); free(ptr); } while(0)
+    #define c_free(ptr, sz) ((void)(sz), free(ptr))
 #endif
-#define c_new_n(T, n)           ((T*)c_calloc(n, c_sizeof(T)))
-#define c_delete(T, ptr)        do { T* _tp = ptr; T##_drop(_tp); c_free(_tp, c_sizeof(T)); } while (0)
-#define c_delete_n(T, ptr, n)   do { T* _tp = ptr; isize _n = n, _m = _n; \
-                                     while (_n--) T##_drop((_tp + _n)); \
-                                     c_free(_tp, _m*c_sizeof(T)); } while (0)
+
+#define c_new_n(T, n) ((T*)c_malloc((n)*c_sizeof(T)))
+#define c_free_n(ptr, n) c_free(ptr, (n)*c_sizeof *(ptr))
+#define c_realloc_n(ptr, old_n, n) c_realloc(ptr, (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
+#define c_delete_n(T, ptr, n) do { \
+    T* _tp = ptr; isize _n = n, _i = _n; \
+    while (_i--) T##_drop((_tp + _i)); \
+    c_free(_tp, _n*c_sizeof(T)); \
+} while (0)
 
 #define c_static_assert(expr)   (void)sizeof(int[(expr) ? 1 : -1])
 #if defined STC_NDEBUG || defined NDEBUG
@@ -161,7 +177,7 @@ typedef ptrdiff_t       isize;
 #define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
 #define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
 #define c_countof(a)            (isize)(sizeof(a)/sizeof 0[a])
-#define c_arraylen(a)           c_countof(a)
+#define c_arraylen(a)           c_countof(a) // [deprecated]?
 
 // expect signed ints to/from these (use with gcc -Wconversion)
 #define c_sizeof                (isize)sizeof
@@ -278,10 +294,6 @@ typedef const char* cstr_raw;
 // drop multiple containers of same type
 #define c_drop(C, ...) \
     do { for (c_items(_c_i2, C*, {__VA_ARGS__})) C##_drop(*_c_i2.ref); } while(0)
-
-// define function with "on-the-fly" defined return type (e.g. variant, optional)
-#define c_func(name, args, RIGHTARROW, ...) \
-    typedef __VA_ARGS__ name##_result; name##_result name args
 
 // RAII scopes
 #define c_defer(...) \
@@ -438,13 +450,14 @@ STC_INLINE crange32_iter crange32_advance(crange32_iter it, uint32_t n) {
 
 // ### BEGIN_FILE_INCLUDE: linkage2.h
 
+#undef i_aux
+#undef _i_aux_alloc
+
 #undef i_allocator
 #undef i_malloc
 #undef i_calloc
 #undef i_realloc
 #undef i_free
-#undef i_aux
-#undef _i_aux_struct
 
 #undef i_static
 #undef i_header
@@ -466,12 +479,12 @@ STC_INLINE crange32_iter crange32_advance(crange32_iter it, uint32_t n) {
 
 
 // ------- c_filter --------
-#define c_flt_take(n) _flt_take(&_base, n)
+#define c_flt_take(n) _flt_take(&fltbase, n)
 #define c_flt_skip(n) (c_flt_counter() > (n))
-#define c_flt_takewhile(pred) _flt_takewhile(&_base, pred)
-#define c_flt_skipwhile(pred) (_base.sb[_base.sb_top++] |= !(pred))
-#define c_flt_counter() (++_base.sn[++_base.sn_top])
-#define c_flt_getcount() (_base.sn[_base.sn_top])
+#define c_flt_takewhile(pred) _flt_takewhile(&fltbase, pred)
+#define c_flt_skipwhile(pred) (fltbase.sb[fltbase.sb_top++] |= !(pred))
+#define c_flt_counter() (++fltbase.sn[++fltbase.sn_top])
+#define c_flt_getcount() (fltbase.sn[fltbase.sn_top])
 #define c_flt_map(expr) (_mapped = (expr), value = &_mapped)
 #define c_flt_src _it.ref
 
@@ -488,11 +501,11 @@ STC_INLINE crange32_iter crange32_advance(crange32_iter it, uint32_t n) {
     _c_filter(C, start, _r, pred)
 
 #define _c_filter(C, start, rev, pred) do { \
-    struct _flt_base _base = {0}; \
+    struct _flt_base fltbase = {0}; \
     C##_iter _it = start; \
     C##_value *value = _it.ref, _mapped = {0}; \
-    for ((void)_mapped ; !_base.done & (_it.ref != NULL) ; \
-         C##rev##next(&_it), value = _it.ref, _base.sn_top=0, _base.sb_top=0) \
+    for ((void)_mapped ; !fltbase.done & (_it.ref != NULL) ; \
+         C##rev##next(&_it), value = _it.ref, fltbase.sn_top=0, fltbase.sb_top=0) \
       (void)(pred); \
 } while (0)
 
@@ -518,14 +531,14 @@ STC_INLINE crange32_iter crange32_advance(crange32_iter it, uint32_t n) {
 #define c_flt_src2 _it2.ref
 
 #define _c_filter_zip(C1, start1, C2, start2, rev, pred) do { \
-    struct _flt_base _base = {0}; \
+    struct _flt_base fltbase = {0}; \
     C1##_iter _it1 = start1; \
     C2##_iter _it2 = start2; \
     C1##_value* value1 = _it1.ref, _mapped1; (void)_mapped1; \
     C2##_value* value2 = _it2.ref, _mapped2; (void)_mapped2; \
-    for (; !_base.done & (_it1.ref != NULL) & (_it2.ref != NULL); \
+    for (; !fltbase.done & (_it1.ref != NULL) & (_it2.ref != NULL); \
          C1##rev##next(&_it1), value1 = _it1.ref, C2##rev##next(&_it2), value2 = _it2.ref, \
-         _base.sn_top=0, _base.sb_top=0) \
+         fltbase.sn_top=0, fltbase.sb_top=0) \
       (void)(pred); \
 } while (0)
 
@@ -774,18 +787,18 @@ _c_minmax(double, c_dmax_n, >)
 #define c_LOOP(f,T,x,...) _c_CHECK(_c_LOOP0, c_JOIN(_c_LOOP_END_, c_NUMARGS(c_EXPAND x)))(f,T,x,__VA_ARGS__)
 
 
-#define _c_enum_1(x,...) (x=1, __VA_ARGS__)
+#define _c_enum_1(x,...) (x=__LINE__*100, __VA_ARGS__)
 #define _c_vartuple_tag(T, Tag, ...) Tag,
 #define _c_vartuple_type(T, Tag, ...) typedef __VA_ARGS__ Tag##_type; typedef T Tag##_sumtype;
-#define _c_vartuple_var(T, Tag, ...) struct { enum enum_##T tag; Tag##_type var; } Tag;
+#define _c_vartuple_var(T, Tag, ...) struct { enum enum_##T tag; Tag##_type get; } Tag;
 
 #define c_sumtype(T, ...) \
     typedef union T T; \
-    enum enum_##T { c_EVAL(c_LOOP(_c_vartuple_tag, T, _c_enum_1 __VA_ARGS__, (0))) }; \
-    c_EVAL(c_LOOP(_c_vartuple_type, T,  __VA_ARGS__, (0))) \
+    enum enum_##T { c_EVAL(c_LOOP(_c_vartuple_tag, T, _c_enum_1 __VA_ARGS__, (0),)) }; \
+    c_EVAL(c_LOOP(_c_vartuple_type, T,  __VA_ARGS__, (0),)) \
     union T { \
         struct { enum enum_##T tag; } _any_; \
-        c_EVAL(c_LOOP(_c_vartuple_var, T, __VA_ARGS__, (0))) \
+        c_EVAL(c_LOOP(_c_vartuple_var, T, __VA_ARGS__, (0),)) \
     }
 
 #if defined STC_HAS_TYPEOF && STC_HAS_TYPEOF
@@ -795,12 +808,12 @@ _c_minmax(double, c_dmax_n, >)
 
     #define c_is_2(Tag, x) \
         break; case Tag: \
-        for (__typeof__(_vp1->Tag.var)* x = &_vp1->Tag.var; x; x = NULL)
+        for (__typeof__(_vp1->Tag.get)* x = &_vp1->Tag.get; x; x = NULL)
 
     #define c_is_3(varptr, Tag, x) \
         false) ; else for (__typeof__(varptr) _vp2 = (varptr); _vp2; _vp2 = NULL) \
-            if (c_holds_tag(_vp2, Tag)) \
-                for (__typeof__(_vp2->Tag.var) *x = &_vp2->Tag.var; x; x = NULL
+            if (c_is_variant(_vp2, Tag)) \
+                for (__typeof__(_vp2->Tag.get) *x = &_vp2->Tag.get; x; x = NULL
 #else
     typedef union { struct { int tag; } _any_; } _c_any_variant;
     #define c_when(varptr) \
@@ -810,12 +823,12 @@ _c_minmax(double, c_dmax_n, >)
 
     #define c_is_2(Tag, x) \
         break; case Tag: \
-        for (Tag##_type *x = &((Tag##_sumtype *)_vp1)->Tag.var; x; x = NULL)
+        for (Tag##_type *x = &((Tag##_sumtype *)_vp1)->Tag.get; x; x = NULL)
 
     #define c_is_3(varptr, Tag, x) \
         false) ; else for (Tag##_sumtype* _vp2 = c_const_cast(Tag##_sumtype*, varptr); _vp2; _vp2 = NULL) \
-            if (c_holds_tag(_vp2, Tag)) \
-                for (Tag##_type *x = &_vp2->Tag.var; x; x = NULL
+            if (c_is_variant(_vp2, Tag)) \
+                for (Tag##_type *x = &_vp2->Tag.get; x; x = NULL
 #endif
 
 // Handling multiple tags with different payloads:
@@ -841,16 +854,16 @@ _c_minmax(double, c_dmax_n, >)
     break; default:
 
 #define c_variant(Tag, ...) \
-    (c_literal(Tag##_sumtype){.Tag={.tag=Tag, .var=__VA_ARGS__}})
+    (c_literal(Tag##_sumtype){.Tag={.tag=Tag, .get=__VA_ARGS__}})
 
-#define c_tag_index(varptr) \
-    ((int)(varptr)->_any_.tag)
-
-#define c_holds_tag(varptr, Tag) \
+#define c_is_variant(varptr, Tag) \
     ((varptr)->Tag.tag == Tag)
 
-#define c_get(varptr, Tag) \
-    (c_holds_tag(varptr, Tag) ? &(varptr)->Tag.var : NULL)
+#define c_get_if(varptr, Tag) \
+    (c_is_variant(varptr, Tag) ? &(varptr)->Tag.get : NULL)
+
+#define c_variant_index(varptr) \
+    ((int)(varptr)->_any_.tag)
 
 #endif // STC_SUMTYPE_H_INCLUDED
 // ### END_FILE_INCLUDE: sumtype.h

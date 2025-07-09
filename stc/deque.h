@@ -5,8 +5,8 @@
 #undef STC_API
 #undef STC_DEF
 
-#if !defined i_static && !defined STC_STATIC  && (defined i_header || defined STC_HEADER  || \
-                                                  defined i_implement || defined STC_IMPLEMENT)
+#if !defined i_static && !defined STC_STATIC && (defined i_header || defined STC_HEADER  || \
+                                                 defined i_implement || defined STC_IMPLEMENT)
   #define STC_API extern
   #define STC_DEF
 #else
@@ -22,17 +22,19 @@
   #define i_implement
 #endif
 
-#if defined STC_ALLOCATOR && !defined i_allocator
-  #define i_allocator STC_ALLOCATOR
-#elif !defined i_allocator
+#if defined i_aux && defined i_allocator
+  #define _i_aux_alloc
+#endif
+#ifndef i_allocator
   #define i_allocator c
 #endif
-#ifndef i_malloc
+#ifndef i_free
   #define i_malloc c_JOIN(i_allocator, _malloc)
   #define i_calloc c_JOIN(i_allocator, _calloc)
   #define i_realloc c_JOIN(i_allocator, _realloc)
   #define i_free c_JOIN(i_allocator, _free)
 #endif
+
 #if defined __clang__ && !defined __cplusplus
   #pragma clang diagnostic push
   #pragma clang diagnostic warning "-Wall"
@@ -58,30 +60,35 @@
 // ### END_FILE_INCLUDE: linkage.h
 // ### BEGIN_FILE_INCLUDE: types.h
 
-#ifdef i_aux
-  #define _i_aux_struct struct c_JOIN(Self, _aux) i_aux aux;
-#else
-  #define _i_aux_struct
-#endif
-
 #ifndef STC_TYPES_H_INCLUDED
 #define STC_TYPES_H_INCLUDED
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
-#define declare_vec(C, KEY) declare_stack(C, KEY)
-#define declare_pqueue(C, KEY) declare_stack(C, KEY)
-#define declare_deque(C, KEY) declare_queue(C, KEY)
-#define declare_hashmap(C, KEY, VAL) declare_htable(C, KEY, VAL, c_true, c_false)
-#define declare_hashset(C, KEY) declare_htable(C, cset, KEY, KEY, c_false, c_true)
-#define declare_sortedmap(C, KEY, VAL) declare_aatree(C, KEY, VAL, c_true, c_false)
-#define declare_sortedset(C, KEY) declare_aatree(C, KEY, KEY, c_false, c_true)
+#define declare_rc(C, KEY) declare_arc(C, KEY)
+#define declare_list(C, KEY) _declare_list(C, KEY,)
+#define declare_stack(C, KEY) _declare_stack(C, KEY,)
+#define declare_vec(C, KEY) _declare_stack(C, KEY,)
+#define declare_pqueue(C, KEY) _declare_stack(C, KEY,)
+#define declare_queue(C, KEY) _declare_queue(C, KEY,)
+#define declare_deque(C, KEY) _declare_queue(C, KEY,)
+#define declare_hashmap(C, KEY, VAL) _declare_htable(C, KEY, VAL, c_true, c_false,)
+#define declare_hashset(C, KEY) _declare_htable(C, KEY, KEY, c_false, c_true,)
+#define declare_sortedmap(C, KEY, VAL) _declare_aatree(C, KEY, VAL, c_true, c_false,)
+#define declare_sortedset(C, KEY) _declare_aatree(C, KEY, KEY, c_false, c_true,)
 
-#define declare_hmap(...) declare_hashmap(__VA_ARGS__) // [deprecated]
-#define declare_hset(...) declare_hashset(__VA_ARGS__) // [deprecated]
-#define declare_smap(...) declare_sortedmap(__VA_ARGS__) // [deprecated]
-#define declare_sset(...) declare_sortedset(__VA_ARGS__) // [deprecated]
+#define declare_list_aux(C, KEY, AUX) _declare_list(C, KEY, AUX aux;)
+#define declare_stack_aux(C, KEY, AUX) _declare_stack(C, KEY, AUX aux;)
+#define declare_vec_aux(C, KEY, AUX) _declare_stack(C, KEY, AUX aux;)
+#define declare_pqueue_aux(C, KEY, AUX) _declare_stack(C, KEY, AUX aux;)
+#define declare_queue_aux(C, KEY, AUX) _declare_queue(C, KEY, AUX aux;)
+#define declare_deque_aux(C, KEY, AUX) _declare_queue(C, KEY, AUX aux;)
+#define declare_hashmap_aux(C, KEY, VAL, AUX) _declare_htable(C, KEY, VAL, c_true, c_false, AUX aux;)
+#define declare_hashset_aux(C, KEY, AUX) _declare_htable(C, KEY, KEY, c_false, c_true, AUX aux;)
+#define declare_sortedmap_aux(C, KEY, VAL, AUX) _declare_aatree(C, KEY, VAL, c_true, c_false, AUX aux;)
+#define declare_sortedset_aux(C, KEY, AUX) _declare_aatree(C, KEY, KEY, c_false, c_true, AUX aux;)
 
 // csview : non-null terminated string view
 typedef const char csview_value;
@@ -120,8 +127,8 @@ typedef union {
 typedef char cstr_value;
 typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {
+    struct { uintptr_t size; cstr_value* data; uintptr_t ncap; } lon;
     struct { cstr_value data[ sizeof(cstr_buf) - 1 ]; uint8_t size; } sml;
-    struct { cstr_value* data; uintptr_t size, ncap; } lon;
 } cstr;
 
 typedef union {
@@ -132,13 +139,9 @@ typedef union {
 #define c_true(...) __VA_ARGS__
 #define c_false(...)
 
-#define declare_arc1(SELF, VAL) \
+#define declare_arc(SELF, VAL) \
     typedef VAL SELF##_value; \
-\
-    typedef struct { \
-        SELF##_value value; \
-        catomic_long counter; \
-    } SELF##_ctrl; \
+    typedef struct SELF##_ctrl SELF##_ctrl; \
 \
     typedef union SELF { \
         SELF##_value* get; \
@@ -147,12 +150,8 @@ typedef union {
 
 #define declare_arc2(SELF, VAL) \
     typedef VAL SELF##_value; \
-    \
-    typedef struct { \
-        catomic_long counter; \
-        SELF##_value value; \
-    } SELF##_ctrl; \
-    \
+    typedef struct SELF##_ctrl SELF##_ctrl; \
+\
     typedef struct SELF { \
         SELF##_value* get; \
         SELF##_ctrl* ctrl2; \
@@ -165,13 +164,13 @@ typedef union {
         SELF##_value* get; \
     } SELF
 
-#define declare_queue(SELF, VAL) \
+#define _declare_queue(SELF, VAL, AUXDEF) \
     typedef VAL SELF##_value; \
 \
     typedef struct SELF { \
         SELF##_value *cbuf; \
         ptrdiff_t start, end, capmask; \
-        _i_aux_struct \
+        AUXDEF \
     } SELF; \
 \
     typedef struct { \
@@ -180,7 +179,7 @@ typedef union {
         const SELF* _s; \
     } SELF##_iter
 
-#define declare_list(SELF, VAL) \
+#define _declare_list(SELF, VAL, AUXDEF) \
     typedef VAL SELF##_value; \
     typedef struct SELF##_node SELF##_node; \
 \
@@ -191,10 +190,10 @@ typedef union {
 \
     typedef struct SELF { \
         SELF##_node *last; \
-        _i_aux_struct \
+        AUXDEF \
     } SELF
 
-#define declare_htable(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
+#define _declare_htable(SELF, KEY, VAL, MAP_ONLY, SET_ONLY, AUXDEF) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
 \
@@ -219,10 +218,10 @@ typedef union {
         SELF##_value* table; \
         struct hmap_meta* meta; \
         ptrdiff_t size, bucket_count; \
-        _i_aux_struct \
+        AUXDEF \
     } SELF
 
-#define declare_aatree(SELF, KEY, VAL, MAP_ONLY, SET_ONLY) \
+#define _declare_aatree(SELF, KEY, VAL, MAP_ONLY, SET_ONLY, AUXDEF) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
     typedef struct SELF##_node SELF##_node; \
@@ -246,7 +245,7 @@ typedef union {
     typedef struct SELF { \
         SELF##_node *nodes; \
         int32_t root, disp, head, size, capacity; \
-        _i_aux_struct \
+        AUXDEF \
     } SELF
 
 #define declare_stack_fixed(SELF, VAL, CAP) \
@@ -254,10 +253,10 @@ typedef union {
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value data[CAP]; ptrdiff_t size; } SELF
 
-#define declare_stack(SELF, VAL) \
+#define _declare_stack(SELF, VAL, AUXDEF) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
-    typedef struct SELF { SELF##_value *data; ptrdiff_t size, capacity; _i_aux_struct } SELF
+    typedef struct SELF { SELF##_value *data; ptrdiff_t size, capacity; AUXDEF } SELF
 
 #endif // STC_TYPES_H_INCLUDED
 // ### END_FILE_INCLUDE: types.h
@@ -292,11 +291,12 @@ typedef ptrdiff_t       isize;
     defined __GNUC__ || defined __clang__ || defined __TINYC__)
     #define STC_HAS_TYPEOF 1
 #endif
-#if defined __GNUC__ || defined __clang__
-    #define STC_INLINE static inline __attribute((unused))
+#if defined __GNUC__
+  #define c_GNUATTR(...) __attribute__((__VA_ARGS__))
 #else
-    #define STC_INLINE static inline
+  #define c_GNUATTR(...)
 #endif
+#define STC_INLINE static inline c_GNUATTR(unused)
 #define c_ZI PRIiPTR
 #define c_ZU PRIuPTR
 #define c_NPOS INTPTR_MAX
@@ -325,32 +325,45 @@ typedef ptrdiff_t       isize;
 #define c_ARG_3(a, b, c, ...) c
 #define c_ARG_4(a, b, c, d, ...) d
 
-#define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
-#define _i_calloc(T, n)     ((T*)i_calloc((n), c_sizeof(T)))
+#define _i_new_n(T, n) ((T*)i_malloc((n)*c_sizeof(T)))
+#define _i_new_zeros(T, n) ((T*)i_calloc(n, c_sizeof(T)))
+#define _i_realloc_n(ptr, old_n, n) i_realloc(ptr, (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
+#define _i_free_n(ptr, n) i_free(ptr, (n)*c_sizeof *(ptr))
+
 #ifndef __cplusplus
-    #define c_new(T, ...)   ((T*)c_safe_memcpy(malloc(sizeof(T)), ((T[]){__VA_ARGS__}), c_sizeof(T)))
-    #define c_literal(T)    (T)
+    #define c_new(T, ...) ((T*)c_safe_memcpy(c_malloc(c_sizeof(T)), ((T[]){__VA_ARGS__}), c_sizeof(T)))
+    #define c_literal(T) (T)
     #define c_make_array(T, ...) ((T[])__VA_ARGS__)
     #define c_make_array2d(T, N, ...) ((T[][N])__VA_ARGS__)
 #else
     #include <new>
-    #define c_new(T, ...)       new (malloc(sizeof(T))) T(__VA_ARGS__)
-    #define c_literal(T)        T
+    #define c_new(T, ...) new (c_malloc(c_sizeof(T))) T(__VA_ARGS__)
+    #define c_literal(T) T
     template<typename T, int M, int N> struct _c_Array { T data[M][N]; };
     #define c_make_array(T, ...) (_c_Array<T, 1, sizeof((T[])__VA_ARGS__)/sizeof(T)>{{__VA_ARGS__}}.data[0])
     #define c_make_array2d(T, N, ...) (_c_Array<T, sizeof((T[][N])__VA_ARGS__)/sizeof(T[N]), N>{__VA_ARGS__}.data)
 #endif
-#ifndef c_malloc
-    #define c_malloc(sz)        malloc(c_i2u_size(sz))
-    #define c_calloc(n, sz)     calloc(c_i2u_size(n), c_i2u_size(sz))
+
+#ifdef STC_ALLOCATOR
+    #define c_malloc c_JOIN(STC_ALLOCATOR, _malloc)
+    #define c_calloc c_JOIN(STC_ALLOCATOR, _calloc)
+    #define c_realloc c_JOIN(STC_ALLOCATOR, _realloc)
+    #define c_free c_JOIN(STC_ALLOCATOR, _free)
+#else
+    #define c_malloc(sz) malloc(c_i2u_size(sz))
+    #define c_calloc(n, sz) calloc(c_i2u_size(n), c_i2u_size(sz))
     #define c_realloc(ptr, old_sz, sz) realloc(ptr, c_i2u_size(1 ? (sz) : (old_sz)))
-    #define c_free(ptr, sz)     do { (void)(sz); free(ptr); } while(0)
+    #define c_free(ptr, sz) ((void)(sz), free(ptr))
 #endif
-#define c_new_n(T, n)           ((T*)c_calloc(n, c_sizeof(T)))
-#define c_delete(T, ptr)        do { T* _tp = ptr; T##_drop(_tp); c_free(_tp, c_sizeof(T)); } while (0)
-#define c_delete_n(T, ptr, n)   do { T* _tp = ptr; isize _n = n, _m = _n; \
-                                     while (_n--) T##_drop((_tp + _n)); \
-                                     c_free(_tp, _m*c_sizeof(T)); } while (0)
+
+#define c_new_n(T, n) ((T*)c_malloc((n)*c_sizeof(T)))
+#define c_free_n(ptr, n) c_free(ptr, (n)*c_sizeof *(ptr))
+#define c_realloc_n(ptr, old_n, n) c_realloc(ptr, (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
+#define c_delete_n(T, ptr, n) do { \
+    T* _tp = ptr; isize _n = n, _i = _n; \
+    while (_i--) T##_drop((_tp + _i)); \
+    c_free(_tp, _n*c_sizeof(T)); \
+} while (0)
 
 #define c_static_assert(expr)   (void)sizeof(int[(expr) ? 1 : -1])
 #if defined STC_NDEBUG || defined NDEBUG
@@ -362,7 +375,7 @@ typedef ptrdiff_t       isize;
 #define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
 #define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
 #define c_countof(a)            (isize)(sizeof(a)/sizeof 0[a])
-#define c_arraylen(a)           c_countof(a)
+#define c_arraylen(a)           c_countof(a) // [deprecated]?
 
 // expect signed ints to/from these (use with gcc -Wconversion)
 #define c_sizeof                (isize)sizeof
@@ -479,10 +492,6 @@ typedef const char* cstr_raw;
 // drop multiple containers of same type
 #define c_drop(C, ...) \
     do { for (c_items(_c_i2, C*, {__VA_ARGS__})) C##_drop(*_c_i2.ref); } while(0)
-
-// define function with "on-the-fly" defined return type (e.g. variant, optional)
-#define c_func(name, args, RIGHTARROW, ...) \
-    typedef __VA_ARGS__ name##_result; name##_result name args
 
 // RAII scopes
 #define c_defer(...) \
@@ -613,17 +622,6 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 
 #if defined i_rawclass   // [deprecated]
   #define i_cmpclass i_rawclass
-#elif defined i_key_arcbox // [deprecated]
-  #define i_keypro i_key_arcbox
-#elif defined i_key_str  // [deprecated]
-  #define i_keypro cstr
-  #define i_tag str
-#endif
-#if defined i_val_arcbox // [deprecated]
-  #define i_valpro i_val_arcbox
-#elif defined i_val_str  // [deprecated]
-  #define i_valpro cstr
-  #define i_tag str
 #endif
 
 #if defined T && !defined i_type
@@ -646,6 +644,16 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
   #define Self i_type
 #elif !defined Self
   #define Self c_JOIN(_i_prefix, i_tag)
+#endif
+
+#if defined i_aux && c_NUMARGS(i_aux) == 2
+  #define _i_aux_def c_GETARG(1, i_aux) aux;
+  #undef i_allocator // override:
+  #define i_allocator c_GETARG(2, i_aux)
+#elif defined i_aux
+  #define _i_aux_def i_aux aux;
+#else
+  #define _i_aux_def
 #endif
 
 #if c_OPTION(c_declared)
@@ -864,11 +872,10 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 
 // IWYU pragma: private
 #ifndef i_declared
-_c_DEFTYPES(declare_queue, Self, i_key);
+_c_DEFTYPES(_declare_queue, Self, i_key, _i_aux_def);
 #endif
 typedef i_keyraw _m_raw;
 
-STC_API Self            _c_MEMB(_with_capacity)(const isize cap);
 STC_API bool            _c_MEMB(_reserve)(Self* self, const isize cap);
 STC_API void            _c_MEMB(_clear)(Self* self);
 STC_API void            _c_MEMB(_drop)(const Self* cself);
@@ -879,16 +886,22 @@ STC_API _m_iter         _c_MEMB(_advance)(_m_iter it, isize n);
 #define _cbuf_toidx(self, pos) (((pos) - (self)->start) & (self)->capmask)
 #define _cbuf_topos(self, idx) (((self)->start + (idx)) & (self)->capmask)
 
-STC_INLINE Self         _c_MEMB(_init)(void)
-                            { Self cx = {0}; return cx; }
-
 STC_INLINE void         _c_MEMB(_put_n)(Self* self, const _m_raw* raw, isize n)
                             { while (n--) _c_MEMB(_push)(self, i_keyfrom((*raw))), ++raw; }
 
+STC_INLINE void         _c_MEMB(_value_drop)(const Self* self, _m_value* val)
+                            { (void)self; i_keydrop(val); }
+
+#ifndef _i_aux_alloc
+STC_INLINE Self         _c_MEMB(_init)(void)
+                            { Self cx = {0}; return cx; }
+
+STC_INLINE Self         _c_MEMB(_with_capacity)(const isize cap)
+                            { Self cx = {0}; _c_MEMB(_reserve)(&cx, cap); return cx; }
+
 STC_INLINE Self         _c_MEMB(_from_n)(const _m_raw* raw, isize n)
                             { Self cx = {0}; _c_MEMB(_put_n)(&cx, raw, n); return cx; }
-
-STC_INLINE void         _c_MEMB(_value_drop)(const Self* self, _m_value* val) { (void)self; i_keydrop(val); }
+#endif
 
 #if !defined i_no_emplace
 STC_INLINE _m_value*    _c_MEMB(_emplace)(Self* self, _m_raw raw)
@@ -910,6 +923,7 @@ STC_INLINE void         _c_MEMB(_copy)(Self* self, const Self* other) {
                             *self = _c_MEMB(_clone)(*other);
                         }
 #endif // !i_no_clone
+
 STC_INLINE isize        _c_MEMB(_size)(const Self* self)
                             { return _cbuf_toidx(self, self->end); }
 STC_INLINE isize        _c_MEMB(_capacity)(const Self* self)
@@ -1013,22 +1027,16 @@ STC_DEF void
 _c_MEMB(_drop)(const Self* cself) {
     Self* self = (Self*)cself;
     _c_MEMB(_clear)(self);
-    i_free(self->cbuf, (self->capmask + 1)*c_sizeof(*self->cbuf));
-}
-
-STC_DEF Self
-_c_MEMB(_with_capacity)(const isize cap) {
-    Self cx = {0};
-    _c_MEMB(_reserve)(&cx, cap);
-    return cx;
+    _i_free_n(self->cbuf, self->capmask + 1);
 }
 
 STC_DEF bool
 _c_MEMB(_reserve)(Self* self, const isize cap) {
-    isize oldpow2 = self->capmask + 1, newpow2 = c_next_pow2(cap + 1);
+    isize oldpow2 = self->capmask + (self->capmask & 1); // handle capmask = 0
+    isize newpow2 = c_next_pow2(cap + 1);
     if (newpow2 <= oldpow2)
         return self->cbuf != NULL;
-    _m_value* d = (_m_value *)i_realloc(self->cbuf, oldpow2*c_sizeof *d, newpow2*c_sizeof *d);
+    _m_value* d = (_m_value *)_i_realloc_n(self->cbuf, oldpow2, newpow2);
     if (d == NULL)
         return false;
     isize head = oldpow2 - self->start;
@@ -1062,26 +1070,29 @@ _c_MEMB(_push)(Self* self, _m_value value) { // push_back
 
 STC_DEF void
 _c_MEMB(_shrink_to_fit)(Self *self) {
-    isize sz = _c_MEMB(_size)(self), j = 0;
-    if (sz > self->capmask/2)
+    isize sz = _c_MEMB(_size)(self);
+    isize newpow2 = c_next_pow2(sz + 1);
+    if (newpow2 > self->capmask)
         return;
-    Self out = _c_MEMB(_with_capacity)(sz);
-    if (out.cbuf == NULL)
-        return;
-    for (c_each(i, Self, *self))
-        out.cbuf[j++] = *i.ref;
-    out.end = sz;
-    i_free(self->cbuf, (self->capmask + 1)*c_sizeof(*self->cbuf));
-    *self = out;
+    if (self->start <= self->end) {
+        c_memmove(self->cbuf, self->cbuf + self->start, sz*c_sizeof *self->cbuf);
+        self->start = 0, self->end = sz;
+    } else {
+        isize n = self->capmask - self->start + 1;
+        c_memmove(self->cbuf + (newpow2 - n), self->cbuf + self->start, n*c_sizeof *self->cbuf);
+        self->start = newpow2 - n;
+    }
+    self->cbuf = (_m_value *)_i_realloc_n(self->cbuf, self->capmask + 1, newpow2);
+    self->capmask = newpow2 - 1;
 }
 
 #if !defined i_no_clone
 STC_DEF Self
 _c_MEMB(_clone)(Self q) {
-    Self out = q, *self = &out; (void)self; // may be used by _i_malloc/i_keyclone via i_aux.
+    Self out = q, *self = &out; (void)self; // may be used by _i_new_n/i_keyclone via i_aux.
     out.start = 0; out.end = _c_MEMB(_size)(&q);
     out.capmask = c_next_pow2(out.end + 1) - 1;
-    out.cbuf = _i_malloc(_m_value, out.capmask + 1);
+    out.cbuf = _i_new_n(_m_value, out.capmask + 1);
     isize i = 0;
     if (out.cbuf)
         for (c_each(it, Self, q))
@@ -1386,13 +1397,14 @@ _c_MEMB(_find_in)(const Self* self, _m_iter i1, _m_iter i2, _m_raw raw) {
 #endif // IMPLEMENTATION
 // ### BEGIN_FILE_INCLUDE: linkage2.h
 
+#undef i_aux
+#undef _i_aux_alloc
+
 #undef i_allocator
 #undef i_malloc
 #undef i_calloc
 #undef i_realloc
 #undef i_free
-#undef i_aux
-#undef _i_aux_struct
 
 #undef i_static
 #undef i_header
@@ -1449,6 +1461,7 @@ _c_MEMB(_find_in)(const Self* self, _m_iter i1, _m_iter i2, _m_raw raw) {
 #undef i_no_emplace
 #undef i_declared
 
+#undef _i_aux_def
 #undef _i_has_cmp
 #undef _i_has_eq
 #undef _i_prefix

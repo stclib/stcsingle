@@ -30,11 +30,12 @@ typedef ptrdiff_t       isize;
     defined __GNUC__ || defined __clang__ || defined __TINYC__)
     #define STC_HAS_TYPEOF 1
 #endif
-#if defined __GNUC__ || defined __clang__
-    #define STC_INLINE static inline __attribute((unused))
+#if defined __GNUC__
+  #define c_GNUATTR(...) __attribute__((__VA_ARGS__))
 #else
-    #define STC_INLINE static inline
+  #define c_GNUATTR(...)
 #endif
+#define STC_INLINE static inline c_GNUATTR(unused)
 #define c_ZI PRIiPTR
 #define c_ZU PRIuPTR
 #define c_NPOS INTPTR_MAX
@@ -63,32 +64,45 @@ typedef ptrdiff_t       isize;
 #define c_ARG_3(a, b, c, ...) c
 #define c_ARG_4(a, b, c, d, ...) d
 
-#define _i_malloc(T, n)     ((T*)i_malloc((n)*c_sizeof(T)))
-#define _i_calloc(T, n)     ((T*)i_calloc((n), c_sizeof(T)))
+#define _i_new_n(T, n) ((T*)i_malloc((n)*c_sizeof(T)))
+#define _i_new_zeros(T, n) ((T*)i_calloc(n, c_sizeof(T)))
+#define _i_realloc_n(ptr, old_n, n) i_realloc(ptr, (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
+#define _i_free_n(ptr, n) i_free(ptr, (n)*c_sizeof *(ptr))
+
 #ifndef __cplusplus
-    #define c_new(T, ...)   ((T*)c_safe_memcpy(malloc(sizeof(T)), ((T[]){__VA_ARGS__}), c_sizeof(T)))
-    #define c_literal(T)    (T)
+    #define c_new(T, ...) ((T*)c_safe_memcpy(c_malloc(c_sizeof(T)), ((T[]){__VA_ARGS__}), c_sizeof(T)))
+    #define c_literal(T) (T)
     #define c_make_array(T, ...) ((T[])__VA_ARGS__)
     #define c_make_array2d(T, N, ...) ((T[][N])__VA_ARGS__)
 #else
     #include <new>
-    #define c_new(T, ...)       new (malloc(sizeof(T))) T(__VA_ARGS__)
-    #define c_literal(T)        T
+    #define c_new(T, ...) new (c_malloc(c_sizeof(T))) T(__VA_ARGS__)
+    #define c_literal(T) T
     template<typename T, int M, int N> struct _c_Array { T data[M][N]; };
     #define c_make_array(T, ...) (_c_Array<T, 1, sizeof((T[])__VA_ARGS__)/sizeof(T)>{{__VA_ARGS__}}.data[0])
     #define c_make_array2d(T, N, ...) (_c_Array<T, sizeof((T[][N])__VA_ARGS__)/sizeof(T[N]), N>{__VA_ARGS__}.data)
 #endif
-#ifndef c_malloc
-    #define c_malloc(sz)        malloc(c_i2u_size(sz))
-    #define c_calloc(n, sz)     calloc(c_i2u_size(n), c_i2u_size(sz))
+
+#ifdef STC_ALLOCATOR
+    #define c_malloc c_JOIN(STC_ALLOCATOR, _malloc)
+    #define c_calloc c_JOIN(STC_ALLOCATOR, _calloc)
+    #define c_realloc c_JOIN(STC_ALLOCATOR, _realloc)
+    #define c_free c_JOIN(STC_ALLOCATOR, _free)
+#else
+    #define c_malloc(sz) malloc(c_i2u_size(sz))
+    #define c_calloc(n, sz) calloc(c_i2u_size(n), c_i2u_size(sz))
     #define c_realloc(ptr, old_sz, sz) realloc(ptr, c_i2u_size(1 ? (sz) : (old_sz)))
-    #define c_free(ptr, sz)     do { (void)(sz); free(ptr); } while(0)
+    #define c_free(ptr, sz) ((void)(sz), free(ptr))
 #endif
-#define c_new_n(T, n)           ((T*)c_calloc(n, c_sizeof(T)))
-#define c_delete(T, ptr)        do { T* _tp = ptr; T##_drop(_tp); c_free(_tp, c_sizeof(T)); } while (0)
-#define c_delete_n(T, ptr, n)   do { T* _tp = ptr; isize _n = n, _m = _n; \
-                                     while (_n--) T##_drop((_tp + _n)); \
-                                     c_free(_tp, _m*c_sizeof(T)); } while (0)
+
+#define c_new_n(T, n) ((T*)c_malloc((n)*c_sizeof(T)))
+#define c_free_n(ptr, n) c_free(ptr, (n)*c_sizeof *(ptr))
+#define c_realloc_n(ptr, old_n, n) c_realloc(ptr, (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
+#define c_delete_n(T, ptr, n) do { \
+    T* _tp = ptr; isize _n = n, _i = _n; \
+    while (_i--) T##_drop((_tp + _i)); \
+    c_free(_tp, _n*c_sizeof(T)); \
+} while (0)
 
 #define c_static_assert(expr)   (void)sizeof(int[(expr) ? 1 : -1])
 #if defined STC_NDEBUG || defined NDEBUG
@@ -100,7 +114,7 @@ typedef ptrdiff_t       isize;
 #define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
 #define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
 #define c_countof(a)            (isize)(sizeof(a)/sizeof 0[a])
-#define c_arraylen(a)           c_countof(a)
+#define c_arraylen(a)           c_countof(a) // [deprecated]?
 
 // expect signed ints to/from these (use with gcc -Wconversion)
 #define c_sizeof                (isize)sizeof
@@ -218,10 +232,6 @@ typedef const char* cstr_raw;
 #define c_drop(C, ...) \
     do { for (c_items(_c_i2, C*, {__VA_ARGS__})) C##_drop(*_c_i2.ref); } while(0)
 
-// define function with "on-the-fly" defined return type (e.g. variant, optional)
-#define c_func(name, args, RIGHTARROW, ...) \
-    typedef __VA_ARGS__ name##_result; name##_result name args
-
 // RAII scopes
 #define c_defer(...) \
     for (int _c_i3 = 0; _c_i3++ == 0; __VA_ARGS__)
@@ -309,86 +319,95 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 
 enum {
     CCO_STATE_INIT = 0,
-    CCO_STATE_FINALLY = -1,
-    CCO_STATE_DONE = -2,
+    CCO_STATE_DONE = -1,
+    CCO_STATE_DROP = -2,
 };
 typedef enum {
     CCO_DONE = 0,
-    CCO_YIELD_FINAL = 1<<27,
-    CCO_YIELD = 1<<28,
-    CCO_AWAIT = 1<<29,
-    CCO_NOOP = 1<<30,
+    CCO_YIELD = 1<<12,
+    CCO_AWAIT = 1<<13,
+    CCO_NOOP = 1<<14,
 } cco_result;
+#define CCO_CANCEL (1U<<30)
 
 typedef struct {
-    int state;
-} cco_state;
+    int launch_count;
+} cco_group; // waitgroup
 
-#define cco_initial(co) ((co)->cco.state == CCO_STATE_INIT)
-#define cco_suspended(co) ((co)->cco.state > CCO_STATE_INIT)
-#define cco_done(co) ((co)->cco.state == CCO_STATE_DONE)
-#define cco_active(co) ((co)->cco.state != CCO_STATE_DONE)
+typedef struct {
+    struct cco_state {
+        int32_t pos:24;
+        bool drop;
+        struct cco_fiber* fb;
+        cco_group* wg;
+    } state;
+} cco_base;
+
+#define cco_is_initial(co) ((co)->base.state.pos == CCO_STATE_INIT)
+#define cco_is_done(co) ((co)->base.state.pos == CCO_STATE_DONE)
+#define cco_is_active(co) ((co)->base.state.pos != CCO_STATE_DONE)
 
 #if defined STC_HAS_TYPEOF && STC_HAS_TYPEOF
     #define _cco_validate_task_struct(co) \
-    c_static_assert(/* error: co->cco not first member in task struct */ \
-                    sizeof((co)->cco) == sizeof(cco_state) || \
-                    offsetof(__typeof__(*(co)), cco) == 0)
+        c_static_assert(/* error: co->base not first member in task struct */ \
+                        sizeof((co)->base) == sizeof(cco_base) || \
+                        offsetof(__typeof__(*(co)), base) == 0)
 #else
     #define _cco_validate_task_struct(co) (void)0
 #endif
 
-#define cco_routine(co) \
-    for (int *_state = (_cco_validate_task_struct(co), &(co)->cco.state) \
-           ; *_state != CCO_STATE_DONE ; *_state = CCO_STATE_DONE) \
-        _resume: switch (*_state) case CCO_STATE_INIT: // thanks, @liigo!
+#define cco_async(co) \
+    if (0) goto _resume; \
+    else for (struct cco_state *_state = (_cco_validate_task_struct(co), &(co)->base.state) \
+              ; _state->pos != CCO_STATE_DONE \
+              ; _state->pos = CCO_STATE_DONE, _state->wg ? --_state->wg->launch_count : 0) \
+        _resume: switch (_state->pos) case CCO_STATE_INIT: // thanks, @liigo!
 
-/* Throw an error "exception"; can be catched up in the cco_await_task call tree */
-#define cco_throw_error(error_code, fiber) \
-    do {cco_fiber* _fb = fiber; \
-        _fb->error = error_code; \
-        _fb->error_line = __LINE__; \
-        cco_return; \
+#define cco_drop /* label */ \
+    _state->drop = true; /* FALLTHRU */ \
+    case CCO_STATE_DROP
+#define cco_cleanup [fix: use cco_drop:]
+#define cco_finally [fix: use cco_drop:]
+#define cco_routine [fix: use cco_async]
+
+#define cco_stop(co) \
+    do { \
+        struct cco_state* _s = &(co)->base.state; \
+        if (!_s->drop) { _s->pos = CCO_STATE_DROP; _s->drop = true; } \
     } while (0)
 
-#define cco_recover_error(fiber) \
-    do {cco_fiber* _fb = fiber; \
-        c_assert(*_state == CCO_STATE_FINALLY); \
-        *_state = _fb->recover_state; \
-        _fb->error = 0; \
-        goto _resume; \
+#define cco_reset_state(co) \
+    do { \
+        struct cco_state* _s = &(co)->base.state; \
+        _s->pos = CCO_STATE_INIT, _s->drop = false; \
     } while (0)
-
-#define cco_finally \
-    *_state = CCO_STATE_FINALLY; /* FALLTHRU */ \
-    case CCO_STATE_FINALLY
-
-#define cco_final cco_finally   // [deprecated]
 
 #define cco_return \
     do { \
-        *_state = *_state >= CCO_STATE_INIT ? CCO_STATE_FINALLY : CCO_STATE_DONE; \
+        _state->pos = (_state->drop ? CCO_STATE_DONE : CCO_STATE_DROP); \
+        _state->drop = true; \
         goto _resume; \
     } while (0)
 
-#define cco_yield cco_yield_v(CCO_YIELD)
-#define cco_yield_v(value) \
+#define cco_exit() \
     do { \
-        *_state = __LINE__; return value; goto _resume; \
-        case __LINE__:; \
+        _state->pos = CCO_STATE_DONE; \
+        goto _resume; \
     } while (0)
 
-#define cco_yield_final cco_yield_final_v(CCO_YIELD)
-#define cco_yield_final_v(value) \
+#define cco_yield \
+    cco_yield_v(CCO_YIELD)
+
+#define cco_yield_v(value) \
     do { \
-        *_state = *_state >= CCO_STATE_INIT ? CCO_STATE_FINALLY : CCO_STATE_DONE; \
-        return value; \
+        _state->pos = __LINE__; return value; \
+        case __LINE__:; \
     } while (0)
 
 #define cco_await(until) \
     do { \
-        *_state = __LINE__; /* FALLTHRU */ \
-        case __LINE__: if (!(until)) {return CCO_AWAIT; goto _resume;} \
+        _state->pos = __LINE__; /* FALLTHRU */ \
+        case __LINE__: if (!(until)) return CCO_AWAIT; \
     } while (0)
 
 /* cco_await_coroutine(): assumes coroutine returns a cco_result value (int) */
@@ -396,10 +415,10 @@ typedef struct {
 #define cco_await_coroutine_1(corocall) cco_await_coroutine_2(corocall, CCO_DONE)
 #define cco_await_coroutine_2(corocall, awaitbits) \
     do { \
-        *_state = __LINE__; /* FALLTHRU */ \
+        _state->pos = __LINE__; /* FALLTHRU */ \
         case __LINE__: { \
             int _res = corocall; \
-            if (_res & ~(awaitbits)) { return _res; goto _resume; } \
+            if (_res & ~(awaitbits)) return _res; \
         } \
     } while (0)
 
@@ -407,108 +426,141 @@ typedef struct {
 #define cco_run_coroutine(corocall) \
     while ((1 ? (corocall) : -1) != CCO_DONE)
 
-#define cco_stop(co) \
-    do { \
-        int* _st = &(co)->cco.state; \
-        *_st = *_st >= CCO_STATE_INIT ? CCO_STATE_FINALLY : CCO_STATE_DONE; \
-    } while (0)
 
-#define cco_reset(co) \
-    (void)((co)->cco.state = CCO_STATE_INIT)
-
-
+typedef struct {
+    int32_t code, line;
+    const char* file;
+} cco_error;
 
 typedef struct cco_fiber {
     struct cco_task* task;
     void* env;
     struct cco_task* parent_task;
     struct cco_fiber* next;
-    int recover_state, awaitbits, result;
-    int error, error_line;
-    cco_state cco;
-} cco_fiber, cco_runtime; /* cco_runtime [deprecated] */
+    struct cco_state recover_state;
+    cco_error err;
+    int awaitbits, status;
+    cco_base base; /* is a coroutine object itself */
+} cco_fiber;
 
 /* Define a Task struct */
 #define cco_task_struct(Task) \
     struct Task; \
     typedef struct { \
-        int (*func)(struct Task*, cco_fiber*); \
-        int state, awaitbits; \
+        int (*func)(struct Task*); \
+        int awaitbits; \
+        struct cco_state state; \
         struct cco_task* parent_task; \
-    } Task##_state; \
+    } Task##_base; \
     struct Task
 
 /* Base cco_task type */
-cco_task_struct(cco_task) { cco_task_state cco; };
+cco_task_struct(cco_task) { cco_task_base base; };
 typedef struct cco_task cco_task;
 
+#define cco_env(Tp) ((Tp)_state->fb->env)
+#define cco_err() (*(const cco_error*)&_state->fb->err)
+#define cco_status() (_state->fb->status + 0)
+
+
 #define cco_cast_task(...) \
-    ((cco_task *)(__VA_ARGS__) + (1 ? 0 : sizeof((__VA_ARGS__)->cco.func(__VA_ARGS__, (cco_fiber*)0))))
+    ((void)sizeof((__VA_ARGS__)->base.func(__VA_ARGS__)), (cco_task *)(__VA_ARGS__))
 
-#define cco_resume_task(task, fiber) \
-    _cco_resume_task(cco_cast_task(task), fiber)
+/* Throw an "exception"; can be catched up in the cco_await_task call tree */
+#define cco_task_throw(error_code) \
+    do { \
+        cco_fiber* _fb = _state->fb; \
+        _fb->err.code = error_code; \
+        _fb->err.line = __LINE__; \
+        _fb->err.file = __FILE__; \
+        cco_return; \
+    } while (0)
 
-/* Stop and immediate cleanup */
-#define cco_cancel_task(task, fiber) \
-    _cco_cancel_task(cco_cast_task(task), fiber)
+#define cco_cancel_task(a_task) \
+    do { \
+        cco_fiber* _fb = cco_cast_task(a_task)->base.state.fb; \
+        _fb->err.code = CCO_CANCEL; \
+        _fb->err.line = __LINE__; \
+        _fb->err.file = __FILE__; \
+        cco_stop(_fb->task); \
+        if (_fb->task == _state->fb->task) goto _resume; \
+    } while (0)
 
-static inline int _cco_resume_task(cco_task* task, cco_fiber* fiber)
-    { return task->cco.func(task, fiber); }
-static inline int _cco_cancel_task(cco_task* task, cco_fiber* fiber)
-    { cco_stop(task); return task->cco.func(task, fiber); }
+#define cco_recover_task() \
+    do { \
+        cco_fiber* _fb = _state->fb; \
+        c_assert(_fb->err.code); \
+        _fb->task->base.state = _fb->recover_state; \
+        _fb->err.code = 0; \
+        goto _resume; \
+    } while (0)
 
 /* Asymmetric coroutine await/call */
 #define cco_await_task(...) c_MACRO_OVERLOAD(cco_await_task, __VA_ARGS__)
-#define cco_await_task_2(a_task, fiber) cco_await_task_3(a_task, fiber, CCO_DONE)
-#define cco_await_task_3(a_task, fiber, _awaitbits) do { \
+#define cco_await_task_1(a_task) cco_await_task_2(a_task, CCO_DONE)
+#define cco_await_task_2(a_task, _awaitbits) do { \
     {   cco_task* _await_task = cco_cast_task(a_task); \
-        cco_fiber* _fb = fiber; \
-        _await_task->cco.awaitbits = (_awaitbits); \
-        _await_task->cco.parent_task = _fb->task; \
+        cco_fiber* _fb = _state->fb; \
+        _await_task->base.awaitbits = (_awaitbits); \
+        _await_task->base.parent_task = _fb->task; \
         _fb->task = _await_task; \
+        _await_task->base.state.fb = _fb; \
     } \
     cco_yield_v(CCO_NOOP); \
 } while (0)
 
 /* Symmetric coroutine flow of control transfer */
-#define cco_yield_to(a_task, fiber) do { \
+#define cco_yield_to(a_task) do { \
     {   cco_task* _to_task = cco_cast_task(a_task); \
-        cco_fiber* _fb = fiber; \
-        _to_task->cco.awaitbits = _fb->task->cco.awaitbits; \
-        _to_task->cco.parent_task = _fb->task->cco.parent_task; \
+        cco_fiber* _fb = _state->fb; \
+        _to_task->base.awaitbits = _fb->task->base.awaitbits; \
+        _to_task->base.parent_task = NULL; \
         _fb->task = _to_task; \
+        _to_task->base.state.fb = _fb; \
     } \
     cco_yield_v(CCO_NOOP); \
 } while (0)
 
-#define cco_new_task(Task, ...) \
-    ((cco_task*)c_new(struct Task, {{.func=Task}, __VA_ARGS__}))
+#define cco_resume_task(a_task) \
+    _cco_resume_task(cco_cast_task(a_task))
+
+static inline int _cco_resume_task(cco_task* task)
+    { return task->base.func(task); }
 
 #define cco_new_fiber(...) c_MACRO_OVERLOAD(cco_new_fiber, __VA_ARGS__)
 #define cco_new_fiber_1(task) cco_new_fiber_2(task, NULL)
-#define cco_new_fiber_2(task, env) _cco_new_fiber(cco_cast_task(task), env)
+#define cco_new_fiber_2(task, env) _cco_new_fiber(cco_cast_task(task), env, NULL)
 
 #define cco_spawn(...) c_MACRO_OVERLOAD(cco_spawn, __VA_ARGS__)
-#define cco_spawn_2(task, fiber) cco_spawn_3(task, fiber, NULL)
-#define cco_spawn_3(task, fiber, env) _cco_spawn(cco_cast_task(task), fiber, env)
+#define cco_spawn_1(task) _cco_spawn(cco_cast_task(task), NULL, _state->fb, NULL)
+#define cco_spawn_2(task, env) _cco_spawn(cco_cast_task(task), env, _state->fb, NULL)
+#define cco_spawn_3(task, env, fiber) _cco_spawn(cco_cast_task(task), env, fiber, NULL)
+
+#define cco_reset_group(waitgroup) ((waitgroup)->launch_count = 0)
+#define cco_launch(...) c_MACRO_OVERLOAD(cco_launch, __VA_ARGS__)
+#define cco_launch_2(task, waitgroup) cco_launch_3(task, waitgroup, NULL)
+#define cco_launch_3(task, waitgroup, env) do { \
+    cco_group* _wg = waitgroup; _wg->launch_count += 1; \
+    _cco_spawn(cco_cast_task(task), env, _state->fb, _wg); \
+} while (0)
+#define cco_await_group(waitgroup) cco_await((waitgroup)->launch_count == 0)
 
 #define cco_run_fiber(...) c_MACRO_OVERLOAD(cco_run_fiber, __VA_ARGS__)
 #define cco_run_fiber_1(fiber_ref) \
-    cco_run_fiber_2(_it_fb, *(fiber_ref))
-#define cco_run_fiber_2(it_fiber, fiber) \
-    for (cco_fiber* it_fiber = fiber; (it_fiber = cco_resume_next(it_fiber)) != NULL; )
+    for (cco_fiber** _it_ref = fiber_ref; (*_it_ref = cco_resume_next(*_it_ref)) != NULL; )
+#define cco_run_fiber_2(it, fiber) \
+    for (cco_fiber* it = fiber; (it = cco_resume_next(it)) != NULL; )
 
 #define cco_run_task(...) c_MACRO_OVERLOAD(cco_run_task, __VA_ARGS__)
 #define cco_run_task_1(task) cco_run_task_2(task, NULL)
 #define cco_run_task_2(task, env) cco_run_fiber_2(_it_fb, cco_new_fiber_2(task, env))
-#define cco_run_task_3(it_fiber, task, env) cco_run_fiber_2(it_fiber, cco_new_fiber_2(task, env))
+#define cco_run_task_3(it, task, env) cco_run_fiber_2(it, cco_new_fiber_2(task, env))
 
-static inline bool cco_joined(const cco_fiber* fiber)
-    { return fiber == fiber->next; }
-#define cco_is_joined(fb) cco_joined(fb) // [deprecated]
+#define cco_joined() \
+    (_state->fb == _state->fb->next)
 
-extern cco_fiber* _cco_new_fiber(cco_task* task, void* env);
-extern cco_fiber* _cco_spawn(cco_task* task, cco_fiber* fb, void* env);
+extern cco_fiber* _cco_new_fiber(cco_task* task, void* env, cco_group* wg);
+extern cco_fiber* _cco_spawn(cco_task* task, void* env, cco_fiber* fb, cco_group* wg);
 extern cco_fiber* cco_resume_next(cco_fiber* prev);
 extern int        cco_resume_current(cco_fiber* co); /* coroutine */
 
@@ -517,32 +569,33 @@ extern int        cco_resume_current(cco_fiber* co); /* coroutine */
 #include <stdio.h>
 
 int cco_resume_current(cco_fiber* fb) {
-    cco_routine (fb) {
+    cco_async (fb) {
         while (1) {
-            fb->parent_task = fb->task->cco.parent_task;
-            fb->awaitbits = fb->task->cco.awaitbits;
-            fb->result = cco_resume_task(fb->task, fb);
-            if (fb->error) {
+            fb->parent_task = fb->task->base.parent_task;
+            fb->awaitbits = fb->task->base.awaitbits;
+            fb->status = fb->task->base.func(fb->task); // resume
+            // Note: if fb->status == CCO_DONE, fb->task may already be destructed.
+            if (fb->err.code && (fb->status == CCO_DONE || !fb->task->base.state.drop)) {
                 fb->task = fb->parent_task;
                 if (fb->task == NULL)
                     break;
-                fb->recover_state = fb->task->cco.state;
+                fb->recover_state = fb->task->base.state;
                 cco_stop(fb->task);
                 continue;
             }
-            if (!((fb->result & ~fb->awaitbits) || (fb->task = fb->parent_task) != NULL))
+            if (!((fb->status & ~fb->awaitbits) || (fb->task = fb->parent_task) != NULL))
                 break;
             cco_yield_v(CCO_NOOP);
         }
-
-        cco_finally:
-        if (fb->error != 0) {
-            fprintf(stderr, __FILE__ ":%d: error: unhandled error '%d' in a coroutine task at line %d.\n",
-                            __LINE__, fb->error, fb->error_line);
-            exit(fb->error);
-        }
     }
-    return 0;
+
+    if ((uint32_t)fb->err.code & ~CCO_CANCEL) { // Allow CCO_CANCEL not to trigger error.
+        fprintf(stderr, __FILE__ ": error: unhandled coroutine exception '%d'\n"
+                        "%s:%d: unhandled: cco_task_throw(%d)\n",
+                        fb->err.code, fb->err.file, fb->err.line, fb->err.code);
+        exit(fb->err.code);
+    }
+    return CCO_DONE;
 }
 
 cco_fiber* cco_resume_next(cco_fiber* prev) {
@@ -553,27 +606,30 @@ cco_fiber* cco_resume_next(cco_fiber* prev) {
         unlink = curr;
         curr = (curr == prev ? NULL : curr->next);
         prev->next = curr;
-        free(unlink);
+        c_free_n(unlink, 1);
     }
     return curr;
 }
 
-cco_fiber* _cco_new_fiber(cco_task* _task, void* env) {
+cco_fiber* _cco_new_fiber(cco_task* _task, void* env, cco_group* wg) {
     cco_fiber* new_fb = c_new(cco_fiber, {.task=_task, .env=env});
+    _task->base.state.fb = new_fb;
+    _task->base.state.wg = wg;
     return (new_fb->next = new_fb);
 }
 
-cco_fiber* _cco_spawn(cco_task* _task, cco_fiber* fb, void* env) {
+cco_fiber* _cco_spawn(cco_task* _task, void* env, cco_fiber* fb, cco_group* wg) {
     cco_fiber* new_fb;
     new_fb = fb->next = (fb->next == NULL ? fb : c_new(cco_fiber, {.next=fb->next}));
     new_fb->task = _task;
     new_fb->env = (env == NULL ? fb->env : env);
+    _task->base.state.fb = new_fb;
+    _task->base.state.wg = wg;
     return new_fb;
 }
 
 #undef i_implement
 #endif
-
 
 #define cco_each(existing_it, C, cnt) \
     existing_it = C##_begin(&cnt); (existing_it).ref; C##_next(&existing_it)
@@ -582,23 +638,23 @@ cco_fiber* _cco_spawn(cco_task* _task, cco_fiber* fb, void* env) {
     existing_it = C##_rbegin(&cnt); (existing_it).ref; C##_rnext(&existing_it)
 
 #define cco_flt_take(n) \
-    (c_flt_take(n), _base.done ? _it.cco.state = CCO_STATE_FINALLY : 1)
+    (c_flt_take(n), fltbase.done ? (_it.base.state.pos = CCO_STATE_DROP, _it.base.state.drop = 1) : 1)
 
 #define cco_flt_takewhile(pred) \
-    (c_flt_takewhile(pred), _base.done ? _it.cco.state = CCO_STATE_FINALLY : 1)
+    (c_flt_takewhile(pred), fltbase.done ? (_it.base.state.pos = CCO_STATE_DROP, _it.base.state.drop = 1) : 1)
 
 
 
-typedef struct { ptrdiff_t count; } cco_semaphore;
+typedef struct { ptrdiff_t acq_count; } cco_semaphore;
 
 #define cco_make_semaphore(value) (c_literal(cco_semaphore){value})
-#define cco_set_semaphore(sem, value) ((sem)->count = value)
-#define cco_acquire_semaphore(sem) (--(sem)->count)
-#define cco_release_semaphore(sem) (++(sem)->count)
+#define cco_set_semaphore(sem, value) ((sem)->acq_count = value)
+#define cco_acquire_semaphore(sem) (--(sem)->acq_count)
+#define cco_release_semaphore(sem) (++(sem)->acq_count)
 
 #define cco_await_semaphore(sem) \
     do { \
-        cco_await((sem)->count > 0); \
+        cco_await((sem)->acq_count > 0); \
         cco_acquire_semaphore(sem); \
     } while (0)
 
@@ -610,66 +666,85 @@ typedef struct { ptrdiff_t count; } cco_semaphore;
     #else
       #define _c_LINKC __declspec(dllimport)
     #endif
-    struct _FILETIME;
-    _c_LINKC void __stdcall GetSystemTimeAsFileTime(struct _FILETIME*);
+    struct _FILETIME; struct _LARGE_INTEGER;
+    _c_LINKC void __stdcall GetSystemTimePreciseAsFileTime(struct _FILETIME*);
     _c_LINKC void __stdcall Sleep(unsigned long);
+    _c_LINKC int __stdcall QueryPerformanceCounter(struct _LARGE_INTEGER*);
+    #define cco_timer_res 1.0E-7
 
     static inline double cco_time(void) { /* seconds since epoch */
-        unsigned long long quad;          /* 64-bit value representing 1/10th usecs since Jan 1 1601, 00:00 UTC */
-        GetSystemTimeAsFileTime((struct _FILETIME*)&quad);
-        return (double)(quad - 116444736000000000ULL)*1e-7;  /* time diff Jan 1 1601-Jan 1 1970 in 1/10th usecs */
+        unsigned long long quad;
+        /* 64-bit value representing 1/10th usecs since Jan 1 1601 */
+        GetSystemTimePreciseAsFileTime((struct _FILETIME*)&quad);
+        /* subtract time diff to Jan 1 1970 in 1/10th usecs */
+        return (double)(quad - 116444736000000000ULL)*cco_timer_res;
     }
 
-    static inline void cco_sleep_sec(double sec) {
+    static inline long long cco_ticks(void) { /* 1/10th microseconds */
+        long long quad;
+        QueryPerformanceCounter((struct _LARGE_INTEGER*)&quad);
+        return quad;
+    }
+
+    static inline void cco_sleep(double sec) {
         Sleep((unsigned long)(sec*1000.0));
     }
 #else
     #include <sys/time.h>
+    #define cco_timer_freq 1000000LL
+    #define cco_timer_res (1.0/cco_timer_freq)
+
     static inline double cco_time(void) { /* seconds since epoch */
         struct timeval tv;
         gettimeofday(&tv, NULL);
-        return (double)tv.tv_sec + (double)tv.tv_usec*1e-6;
+        return (double)tv.tv_sec + (double)tv.tv_usec*cco_timer_res;
     }
 
-    static inline void cco_sleep_sec(double sec) {
+    static inline long long cco_ticks(void) { /* microseconds */
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        return tv.tv_sec*cco_timer_freq + tv.tv_usec;
+    }
+
+    static inline void cco_sleep(double sec) {
         struct timeval tv;
         tv.tv_sec = (time_t)sec;
-        tv.tv_usec = (suseconds_t)((sec - (double)(long)sec)*1e6);
+        tv.tv_usec = (suseconds_t)((sec - (double)(long)sec)*cco_timer_freq);
         select(0, NULL, NULL, NULL, &tv);
     }
 #endif
 
-typedef struct { double duration, start_time; } cco_timer;
+typedef struct { double duration; long long start_time; } cco_timer;
 
-static inline cco_timer cco_make_timer_sec(double sec) {
-    cco_timer tm = {.duration=sec, .start_time=cco_time()};
+static inline cco_timer cco_make_timer(double sec) {
+    cco_timer tm = {.duration=sec, .start_time=cco_ticks()};
     return tm;
 }
 
-static inline void cco_start_timer_sec(cco_timer* tm, double sec) {
+static inline void cco_start_timer(cco_timer* tm, double sec) {
     tm->duration = sec;
-    tm->start_time = cco_time();
+    tm->start_time = cco_ticks();
 }
 
 static inline void cco_restart_timer(cco_timer* tm) {
-    tm->start_time = cco_time();
+    tm->start_time = cco_ticks();
+}
+
+static inline double cco_timer_elapsed(cco_timer* tm) {
+    return (double)(cco_ticks() - tm->start_time)*cco_timer_res;
 }
 
 static inline bool cco_timer_expired(cco_timer* tm) {
-    return cco_time() - tm->start_time >= tm->duration;
+    return cco_timer_elapsed(tm) >= tm->duration;
 }
 
-static inline double cco_timer_elapsed_sec(cco_timer* tm) {
-    return cco_time() - tm->start_time;
+static inline double cco_timer_remaining(cco_timer* tm) {
+    return tm->duration - cco_timer_elapsed(tm);
 }
 
-static inline double cco_timer_remaining_sec(cco_timer* tm) {
-    return tm->start_time + tm->duration - cco_time();
-}
-
-#define cco_await_timer_sec(tm, sec) \
+#define cco_await_timer(tm, sec) \
     do { \
-        cco_start_timer_sec(tm, sec); \
+        cco_start_timer(tm, sec); \
         cco_await(cco_timer_expired(tm)); \
     } while (0)
 
