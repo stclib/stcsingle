@@ -310,18 +310,30 @@ typedef const char* cstr_raw;
 STC_INLINE void* c_safe_memcpy(void* dst, const void* src, isize size)
     { return dst ? memcpy(dst, src, (size_t)size) : NULL; }
 
+#if INTPTR_MAX == INT64_MAX
+    #define FNV_BASIS 0xcbf29ce484222325
+    #define FNV_PRIME 0x00000100000001b3
+#else
+    #define FNV_BASIS 0x811c9dc5
+    #define FNV_PRIME 0x01000193
+#endif
+
 STC_INLINE size_t c_basehash_n(const void* key, isize len) {
-    size_t block = 0, hash = 0x811c9dc5;
     const uint8_t* msg = (const uint8_t*)key;
-    while (len > c_sizeof(size_t)) {
-        memcpy(&block, msg, sizeof(size_t));
-        hash = (hash ^ block) * (size_t)0x89bb179901000193;
-        msg += c_sizeof(size_t);
-        len -= c_sizeof(size_t);
+    size_t h = FNV_BASIS, block = 0;
+
+    while (len >= c_sizeof h) {
+        memcpy(&block, msg, sizeof h);
+        h ^= block;
+        h *= FNV_PRIME;
+        msg += c_sizeof h;
+        len -= c_sizeof h;
     }
-    c_memcpy(&block, msg, len);
-    hash = (hash ^ block) * (size_t)0xb0340f4501000193;
-    return hash ^ (hash >> 3);
+    while (len--) {
+        h ^= *(msg++);
+        h *= FNV_PRIME;
+    }
+    return h;
 }
 
 STC_INLINE size_t c_hash_n(const void* key, isize len) {
@@ -333,8 +345,15 @@ STC_INLINE size_t c_hash_n(const void* key, isize len) {
     }
 }
 
-STC_INLINE size_t c_hash_str(const char *str)
-    { return c_basehash_n(str, c_strlen(str)); }
+STC_INLINE size_t c_hash_str(const char *str) {
+    const uint8_t* msg = (const uint8_t*)str;
+    uint64_t h = FNV_BASIS;
+    while (*msg) {
+        h ^= *(msg++);
+        h *= FNV_PRIME;
+    }
+    return h;
+}
 
 #define c_hash_mix(...) /* non-commutative hash combine! */ \
     _chash_mix(c_make_array(size_t, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
@@ -783,11 +802,11 @@ _c_minmax(double, c_dmax_n, >)
 #define _c_E0(...) __VA_ARGS__
 #define _c_E1(...) _c_E0(_c_E0(_c_E0(_c_E0(_c_E0(_c_E0(__VA_ARGS__))))))
 #define _c_E2(...) _c_E1(_c_E1(_c_E1(_c_E1(_c_E1(_c_E1(__VA_ARGS__))))))
-#define c_EVAL(...) _c_E2(_c_E2(_c_E2(__VA_ARGS__))) // support up to 130 variants
+#define c_EVAL(...) _c_E2(_c_E2(_c_E2(__VA_ARGS__))) // currently supports up to 130 variants
 #define c_LOOP(f,T,x,...) _c_CHECK(_c_LOOP0, c_JOIN(_c_LOOP_END_, c_NUMARGS(c_EXPAND x)))(f,T,x,__VA_ARGS__)
 
 
-#define _c_enum_1(x,...) (x=__LINE__*100, __VA_ARGS__)
+#define _c_enum_1(x,...) (x=__LINE__*1000, __VA_ARGS__)
 #define _c_vartuple_tag(T, Tag, ...) Tag,
 #define _c_vartuple_type(T, Tag, ...) typedef __VA_ARGS__ Tag##_type; typedef T Tag##_sumtype;
 #define _c_vartuple_var(T, Tag, ...) struct { enum enum_##T tag; Tag##_type get; } Tag;

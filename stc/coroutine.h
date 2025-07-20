@@ -247,18 +247,30 @@ typedef const char* cstr_raw;
 STC_INLINE void* c_safe_memcpy(void* dst, const void* src, isize size)
     { return dst ? memcpy(dst, src, (size_t)size) : NULL; }
 
+#if INTPTR_MAX == INT64_MAX
+    #define FNV_BASIS 0xcbf29ce484222325
+    #define FNV_PRIME 0x00000100000001b3
+#else
+    #define FNV_BASIS 0x811c9dc5
+    #define FNV_PRIME 0x01000193
+#endif
+
 STC_INLINE size_t c_basehash_n(const void* key, isize len) {
-    size_t block = 0, hash = 0x811c9dc5;
     const uint8_t* msg = (const uint8_t*)key;
-    while (len > c_sizeof(size_t)) {
-        memcpy(&block, msg, sizeof(size_t));
-        hash = (hash ^ block) * (size_t)0x89bb179901000193;
-        msg += c_sizeof(size_t);
-        len -= c_sizeof(size_t);
+    size_t h = FNV_BASIS, block = 0;
+
+    while (len >= c_sizeof h) {
+        memcpy(&block, msg, sizeof h);
+        h ^= block;
+        h *= FNV_PRIME;
+        msg += c_sizeof h;
+        len -= c_sizeof h;
     }
-    c_memcpy(&block, msg, len);
-    hash = (hash ^ block) * (size_t)0xb0340f4501000193;
-    return hash ^ (hash >> 3);
+    while (len--) {
+        h ^= *(msg++);
+        h *= FNV_PRIME;
+    }
+    return h;
 }
 
 STC_INLINE size_t c_hash_n(const void* key, isize len) {
@@ -270,8 +282,15 @@ STC_INLINE size_t c_hash_n(const void* key, isize len) {
     }
 }
 
-STC_INLINE size_t c_hash_str(const char *str)
-    { return c_basehash_n(str, c_strlen(str)); }
+STC_INLINE size_t c_hash_str(const char *str) {
+    const uint8_t* msg = (const uint8_t*)str;
+    uint64_t h = FNV_BASIS;
+    while (*msg) {
+        h ^= *(msg++);
+        h *= FNV_PRIME;
+    }
+    return h;
+}
 
 #define c_hash_mix(...) /* non-commutative hash combine! */ \
     _chash_mix(c_make_array(size_t, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
@@ -325,13 +344,14 @@ enum {
 typedef enum {
     CCO_DONE = 0,
     CCO_YIELD = 1<<12,
-    CCO_AWAIT = 1<<13,
-    CCO_NOOP = 1<<14,
+    CCO_SUSPEND = 1<<13,
+    CCO_AWAIT = 1<<14,
 } cco_result;
 #define CCO_CANCEL (1U<<30)
 
 typedef struct {
     int launch_count;
+    int await_count;
 } cco_group; // waitgroup
 
 typedef struct {
@@ -360,7 +380,8 @@ typedef struct {
     if (0) goto _resume; \
     else for (struct cco_state *_state = (_cco_validate_task_struct(co), &(co)->base.state) \
               ; _state->pos != CCO_STATE_DONE \
-              ; _state->pos = CCO_STATE_DONE, _state->wg ? --_state->wg->launch_count : 0) \
+              ; _state->pos = CCO_STATE_DONE, \
+                (void)(sizeof((co)->base) > sizeof(cco_base) && _state->wg ? --_state->wg->launch_count : 0)) \
         _resume: switch (_state->pos) case CCO_STATE_INIT: // thanks, @liigo!
 
 #define cco_drop /* label */ \
@@ -398,9 +419,12 @@ typedef struct {
 #define cco_yield \
     cco_yield_v(CCO_YIELD)
 
-#define cco_yield_v(value) \
+#define cco_suspend \
+    cco_yield_v(CCO_SUSPEND)
+
+#define cco_yield_v(status) \
     do { \
-        _state->pos = __LINE__; return value; \
+        _state->pos = __LINE__; return status; \
         case __LINE__:; \
     } while (0)
 
@@ -476,7 +500,7 @@ typedef struct cco_task cco_task;
         cco_return; \
     } while (0)
 
-#define cco_cancel_task(a_task) \
+#define cco_cancel_fiber(a_task) \
     do { \
         cco_fiber* _fb = cco_cast_task(a_task)->base.state.fb; \
         _fb->err.code = CCO_CANCEL; \
@@ -506,7 +530,7 @@ typedef struct cco_task cco_task;
         _fb->task = _await_task; \
         _await_task->base.state.fb = _fb; \
     } \
-    cco_yield_v(CCO_NOOP); \
+    cco_suspend; \
 } while (0)
 
 /* Symmetric coroutine flow of control transfer */
@@ -518,7 +542,7 @@ typedef struct cco_task cco_task;
         _fb->task = _to_task; \
         _to_task->base.state.fb = _fb; \
     } \
-    cco_yield_v(CCO_NOOP); \
+    cco_suspend; \
 } while (0)
 
 #define cco_resume_task(a_task) \
@@ -543,7 +567,25 @@ static inline int _cco_resume_task(cco_task* task)
     cco_group* _wg = waitgroup; _wg->launch_count += 1; \
     _cco_spawn(cco_cast_task(task), env, _state->fb, _wg); \
 } while (0)
-#define cco_await_group(waitgroup) cco_await((waitgroup)->launch_count == 0)
+
+#define cco_await_all(waitgroup) cco_await((waitgroup)->launch_count == 0)
+#define cco_await_any(waitgroup) cco_await_n(waitgroup, 1)
+#define cco_await_n(waitgroup, n) do { \
+    (waitgroup)->await_count = (waitgroup)->launch_count - (n); \
+    if ((waitgroup)->await_count < 0) cco_task_throw(1); \
+    cco_await((waitgroup)->launch_count == (waitgroup)->await_count); \
+} while (0)
+
+#define cco_await_cancel(waitgroup) do { \
+    for (cco_fiber *_ifb = _state->fb->next; _ifb != _state->fb; _ifb = _ifb->next) { \
+        cco_task* _top = _ifb->task; \
+        while (_top->base.parent_task) \
+            _top = _top->base.parent_task; \
+        if (_top->base.state.wg == (waitgroup)) \
+            cco_cancel_fiber(_top); \
+    } \
+    cco_await_all(waitgroup); \
+} while (0)
 
 #define cco_run_fiber(...) c_MACRO_OVERLOAD(cco_run_fiber, __VA_ARGS__)
 #define cco_run_fiber_1(fiber_ref) \
@@ -585,7 +627,7 @@ int cco_resume_current(cco_fiber* fb) {
             }
             if (!((fb->status & ~fb->awaitbits) || (fb->task = fb->parent_task) != NULL))
                 break;
-            cco_yield_v(CCO_NOOP);
+            cco_suspend;
         }
     }
 
