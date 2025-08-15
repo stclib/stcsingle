@@ -67,7 +67,8 @@ typedef union {
 typedef char cstr_value;
 typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {
-    struct { uintptr_t size; cstr_value* data; uintptr_t ncap; } lon;
+    struct { cstr_buf *a, *b, *c; } _dummy;
+    struct { cstr_value* data; uintptr_t size; uintptr_t ncap; } lon;
     struct { cstr_value data[ sizeof(cstr_buf) - 1 ]; uint8_t size; } sml;
 } cstr;
 
@@ -85,7 +86,7 @@ typedef union {
 \
     typedef union SELF { \
         SELF##_value* get; \
-        SELF##_ctrl* ctrl1; \
+        SELF##_ctrl* ctrl; \
     } SELF
 
 #define declare_arc2(SELF, VAL) \

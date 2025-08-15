@@ -39,25 +39,25 @@ typedef ptrdiff_t       isize;
 #define c_ZU PRIuPTR
 #define c_NPOS INTPTR_MAX
 
-// Macro overloading feature support based on: https://rextester.com/ONP80107
+// Macro overloading feature support
 #define c_MACRO_OVERLOAD(name, ...) \
-    c_JOIN(c_JOIN0(name,_),c_NUMARGS(__VA_ARGS__))(__VA_ARGS__)
+    c_JOIN(name ## _,c_NUMARGS(__VA_ARGS__))(__VA_ARGS__)
 #define c_JOIN0(a, b) a ## b
 #define c_JOIN(a, b) c_JOIN0(a, b)
-#define c_EXPAND(...) __VA_ARGS__
 #define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
-#define _c_APPLY_ARG_N(args) _c_ARG_N args  // wrap c_EXPAND(..) for MSVC without /std:c11
-#define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
-#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,N,...) N
+#define _c_APPLY_ARG_N(args) _c_ARG_N args
+#define _c_RSEQ_N 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,_17,_18,_19,_20,N,...) N
 
 // Saturated overloading
 // #define foo(...) foo_I(__VA_ARGS__, c_COMMA_N(foo_3), c_COMMA_N(foo_2), c_COMMA_N(foo_1),)(__VA_ARGS__)
 // #define foo_I(a,b,c, n, ...) c_TUPLE_AT_1(n, foo_n,)
 #define c_TUPLE_AT_1(x,y,...) y
 #define c_COMMA_N(x) ,x
+#define c_EXPAND(...) __VA_ARGS__
 
 // Select arg, e.g. for #define i_type A,B then c_GETARG(2, i_type) is B
-#define c_GETARG(N, ...) c_ARG_##N(__VA_ARGS__,) // wrap c_EXPAND(..) for MSVC without /std:c11
+#define c_GETARG(N, ...) c_ARG_##N(__VA_ARGS__,)
 #define c_ARG_1(a, ...) a
 #define c_ARG_2(a, b, ...) b
 #define c_ARG_3(a, b, c, ...) c
@@ -167,7 +167,9 @@ typedef const char* cstr_raw;
 #define c_each_4(it, C, start, end) \
     _c_each(it, C, start, (end).ref, _)
 
-#define c_each_n(it, C, cnt, n) \
+#define c_each_n(...) c_MACRO_OVERLOAD(c_each_n, __VA_ARGS__)
+#define c_each_n_3(it, C, cnt) c_each_n_4(it, C, cnt, INTPTR_MAX)
+#define c_each_n_4(it, C, cnt, n) \
     struct {C##_iter iter; C##_value* ref; isize size, index;} \
     it = {.iter=C##_begin(&cnt), .size=n}; (it.ref = it.iter.ref) && it.index < it.size; C##_next(&it.iter), ++it.index
 
@@ -276,14 +278,14 @@ STC_INLINE size_t c_hash_n(const void* key, isize len) {
     uint64_t b8; uint32_t b4;
     switch (len) {
         case 8: memcpy(&b8, key, 8); return (size_t)(b8 * 0xc6a4a7935bd1e99d);
-        case 4: memcpy(&b4, key, 4); return b4 * (size_t)0xa2ffeb2f01000193;
+        case 4: memcpy(&b4, key, 4); return b4 * FNV_BASIS;
         default: return c_basehash_n(key, len);
     }
 }
 
 STC_INLINE size_t c_hash_str(const char *str) {
     const uint8_t* msg = (const uint8_t*)str;
-    uint64_t h = FNV_BASIS;
+    size_t h = FNV_BASIS;
     while (*msg) {
         h ^= *(msg++);
         h *= FNV_PRIME;
@@ -291,11 +293,11 @@ STC_INLINE size_t c_hash_str(const char *str) {
     return h;
 }
 
-#define c_hash_mix(...) /* non-commutative hash combine! */ \
-    _chash_mix(c_make_array(size_t, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
+#define c_hash_mix(...) /* non-commutative hash combine */ \
+    c_hash_mix_n(c_make_array(size_t, {__VA_ARGS__}), c_sizeof((size_t[]){__VA_ARGS__})/c_sizeof(size_t))
 
-STC_INLINE size_t _chash_mix(size_t h[], int n) {
-    for (int i = 1; i < n; ++i) h[0] += h[0] ^ h[i];
+STC_INLINE size_t c_hash_mix_n(size_t h[], isize n) {
+    for (isize i = 1; i < n; ++i) h[0] += h[0] ^ h[i];
     return h[0];
 }
 
@@ -403,7 +405,8 @@ typedef union {
 typedef char cstr_value;
 typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {
-    struct { uintptr_t size; cstr_value* data; uintptr_t ncap; } lon;
+    struct { cstr_buf *a, *b, *c; } _dummy;
+    struct { cstr_value* data; uintptr_t size; uintptr_t ncap; } lon;
     struct { cstr_value data[ sizeof(cstr_buf) - 1 ]; uint8_t size; } sml;
 } cstr;
 
@@ -421,7 +424,7 @@ typedef union {
 \
     typedef union SELF { \
         SELF##_value* get; \
-        SELF##_ctrl* ctrl1; \
+        SELF##_ctrl* ctrl; \
     } SELF
 
 #define declare_arc2(SELF, VAL) \
@@ -547,7 +550,6 @@ enum {
     /* match-flags */
     CREG_FULLMATCH = 1<<2, /* like start-, end-of-line anchors were in pattern: "^ ... $" */
     CREG_NEXT = 1<<3,      /* use end of previous match[0] as start of input */
-    CREG_STARTEND = 1<<4,  /* use match[0] as start+end of input */
 
     /* replace-flags */
     CREG_STRIP = 1<<5,     /* only keep the matched strings, strip rest */
@@ -587,17 +589,17 @@ typedef struct {
 
 #define c_match(it, re, str) \
     cregex_iter it = {.regex=re, .input={str}, .match={{0}}}; \
-    cregex_match_next(it.regex, it.input.buf, it.match) == CREG_OK && it.match[0].size;
+    cregex_match(it.regex, it.input.buf, it.match, CREG_NEXT) == CREG_OK && it.match[0].size;
 
 #define c_match_sv(it, re, strview) \
     cregex_iter it = {.regex=re, .input=strview, .match={{0}}}; \
-    cregex_match_next_sv(it.regex, it.input, it.match) == CREG_OK && it.match[0].size;
+    cregex_match_sv(it.regex, it.input, it.match, CREG_NEXT) == CREG_OK && it.match[0].size;
 
 /* compile a regex from a pattern. return CREG_OK, or negative error code on failure. */
-int cregex_compile_pro(cregex *re, const char* pattern, int cflags);
+extern int cregex_compile_pro(cregex *re, const char* pattern, int cflags);
 
-STC_INLINE int cregex_compile(cregex *re, const char* pattern)
-    { return cregex_compile_pro(re, pattern, CREG_DEFAULT); }
+#define cregex_compile(...) \
+    c_ARG_4(__VA_ARGS__, cregex_compile_pro(__VA_ARGS__), cregex_compile_pro(__VA_ARGS__, CREG_DEFAULT), _too_few_args_)
 
 /* construct and return a regex from a pattern. return CREG_OK, or negative error code on failure. */
 STC_INLINE cregex cregex_make(const char* pattern, int cflags) {
@@ -608,63 +610,58 @@ STC_INLINE cregex cregex_make(const char* pattern, int cflags) {
 STC_INLINE cregex cregex_from(const char* pattern)
     { return cregex_make(pattern, CREG_DEFAULT); }
 
+/* destroy regex */
+extern void cregex_drop(cregex* re);
 
 /* number of capture groups in a regex pattern, excluding the full match capture (0) */
-int cregex_captures(const cregex* re);
+extern int cregex_captures(const cregex* re);
 
+/* ----- Private ----- */
 
-/* return CREG_OK, CREG_NOMATCH or CREG_MATCHERROR. */
-int cregex_match_pro(const cregex* re, const char* input, csview match[], int mflags);
+struct cregex_match_opt { csview* match; int flags; int _dummy; };
+struct cregex_replace_opt { int count; bool(*xform)(int group, csview match, cstr* out); int flags; int _dummy; };
 
-STC_INLINE int cregex_match(const cregex* re, const char* input, csview match[])
-    { return cregex_match_pro(re, input, match, CREG_DEFAULT); }
+extern int cregex_match_opt(const cregex* re, const char* input, const char* input_end, struct cregex_match_opt opt);
+extern int cregex_match_aio_opt(const char* pattern, const char* input, const char* input_end, struct cregex_match_opt opt);
+extern cstr cregex_replace_opt(const cregex* re, const char* input, const char* input_end, const char* replace, struct cregex_replace_opt opt);
+extern cstr cregex_replace_aio_opt(const char* pattern, const char* input, const char* input_end, const char* replace, struct cregex_replace_opt opt);
 
-STC_INLINE int cregex_match_sv(const cregex* re, csview input, csview match[]) {
-    match[0] = input;
-    return cregex_match_pro(re, input.buf, match, CREG_STARTEND);
-}
+static inline int cregex_match_sv_opt(const cregex* re, csview sv, struct cregex_match_opt opt)
+    { return cregex_match_opt(re, sv.buf, sv.buf+sv.size, opt); }
+static inline int cregex_match_aio_sv_opt(const char* pattern, csview sv, struct cregex_match_opt opt)
+    { return cregex_match_aio_opt(pattern, sv.buf, sv.buf+sv.size, opt); }
+static inline cstr cregex_replace_sv_opt(const cregex* re, csview sv, const char* replace, struct cregex_replace_opt opt)
+    { return cregex_replace_opt(re, sv.buf, sv.buf+sv.size, replace, opt); }
+static inline cstr cregex_replace_aio_sv_opt(const char* pattern, csview sv, const char* replace, struct cregex_replace_opt opt)
+    { return cregex_replace_aio_opt(pattern, sv.buf, sv.buf+sv.size, replace, opt); }
 
+/* match: return CREG_OK, CREG_NOMATCH or CREG_MATCHERROR. */
+#define _cregex_match(re, str, ...) cregex_match_opt(re, str, NULL, (struct cregex_match_opt){__VA_ARGS__})
+#define _cregex_match_sv(re, sv, ...) cregex_match_sv_opt(re, sv, (struct cregex_match_opt){__VA_ARGS__})
+/* all-in-one: compile RE pattern + match + free */
+#define _cregex_match_aio(pattern, str, ...) cregex_match_aio_opt(pattern, str, NULL, (struct cregex_match_opt){__VA_ARGS__})
+#define _cregex_match_aio_sv(pattern, sv, ...) cregex_match_aio_sv_opt(pattern, sv, (struct cregex_match_opt){__VA_ARGS__})
 
-STC_INLINE bool cregex_is_match(const cregex* re, const char* input)
-    { return cregex_match_pro(re, input, NULL, CREG_DEFAULT) == CREG_OK; }
+/* replace input with a string using regular expression */
+#define _cregex_replace(re, str, replace, ...) cregex_replace_opt(re, str, NULL, replace, (struct cregex_replace_opt){__VA_ARGS__})
+#define _cregex_replace_sv(re, sv, replace, ...) cregex_replace_sv_opt(re, sv, replace, (struct cregex_replace_opt){__VA_ARGS__})
+/* all-in-one: compile RE string pattern + match + replace + free */
+#define _cregex_replace_aio(pattern, str, replace, ...) cregex_replace_aio_opt(pattern, str, NULL, replace, (struct cregex_replace_opt){__VA_ARGS__})
+#define _cregex_replace_aio_sv(pattern, sv, replace, ...) cregex_replace_aio_sv_opt(pattern, sv, replace, (struct cregex_replace_opt){__VA_ARGS__})
 
-STC_INLINE int cregex_match_next_sv(const cregex* re, csview input, csview match[]) {
-    if (match[0].buf) {
-        match[0].buf += match[0].size;
-        match[0].size = input.buf + input.size - match[0].buf;
-    }
-    return cregex_match_pro(re, input.buf, match, CREG_STARTEND);
-}
+/* ----- API functions ---- */
 
-STC_INLINE int cregex_match_next(const cregex* re, const char* input, csview match[]) {
-    return cregex_match_pro(re, input, match, CREG_NEXT);
-}
+#define cregex_match(...) _cregex_match(__VA_ARGS__, 0)
+#define cregex_match_sv(...) _cregex_match_sv(__VA_ARGS__, 0)
+#define cregex_match_aio(...) _cregex_match_aio(__VA_ARGS__, 0)
+#define cregex_match_aio_sv(...) _cregex_match_aio_sv(__VA_ARGS__, 0)
 
-/* match + compile RE pattern */
-int cregex_match_aio(const char* pattern, const char* input, csview match[]);
+#define cregex_is_match(re, str) (_cregex_match(re, str, 0) == CREG_OK)
 
-
-/* replace csview input with replace using regular expression pattern */
-cstr cregex_replace_sv(const cregex* re, csview input, const char* replace, int count,
-                       bool(*transform)(int group, csview match, cstr* result), int rflags);
-
-/* replace const char* input with replace using regular expression pattern */
-STC_INLINE cstr cregex_replace(const cregex* re, const char* input, const char* replace) {
-    csview sv = {input, c_strlen(input)};
-    return cregex_replace_sv(re, sv, replace, INT32_MAX, NULL, CREG_DEFAULT);
-}
-
-/* replace + compile RE pattern, and extra arguments */
-cstr cregex_replace_aio_sv(const char* pattern, csview input, const char* replace, int count,
-                           bool(*transform)(int group, csview match, cstr* result), int crflags);
-
-STC_INLINE cstr cregex_replace_aio(const char* pattern, const char* input, const char* replace) {
-    csview sv = {input, c_strlen(input)};
-    return cregex_replace_aio_sv(pattern, sv, replace, INT32_MAX, NULL, CREG_DEFAULT);
-}
-
-/* destroy regex */
-void cregex_drop(cregex* re);
+#define cregex_replace(...) _cregex_replace(__VA_ARGS__, 0)
+#define cregex_replace_sv(...) _cregex_replace_sv(__VA_ARGS__, 0)
+#define cregex_replace_aio(...) _cregex_replace_aio(__VA_ARGS__, 0)
+#define cregex_replace_aio_sv(...) _cregex_replace_aio_sv(__VA_ARGS__, 0)
 
 #endif // STC_CREGEX_H_INCLUDED
 
@@ -1189,7 +1186,7 @@ STC_INLINE char* cstr_append_s(cstr* self, cstr s)
 } while (0);
 
 #define cstr_join_items(self, sep, ...) \
-    cstr_join_n(self, sep, c_make_array(const char*, __VA_ARGS__), c_NUMARGS(__VA_ARGS__))
+    cstr_join_n(self, sep, c_make_array(const char*, __VA_ARGS__), c_sizeof((const char*[])__VA_ARGS__)/c_sizeof(char*))
 
 STC_INLINE void cstr_join_n(cstr* self, const char* sep, const char* arr[], isize n) {
     const char* _sep = cstr_is_empty(self) ? "" : sep;
@@ -2720,8 +2717,9 @@ _regexec1(const _Reprog *progp,  /* program to run */
                 case TOK_NWBOUND:
                     ok = true; /* FALLTHRU */
                 case TOK_WBOUND:
-                    if (ok ^ (s == bol || s == j->eol || (utf8_isword(utf8_peek_at(s, -1))
-                                                        ^ utf8_isword(utf8_peek(s)))))
+                    if (ok ^ (r == 0 || s == bol || s == j->eol ||
+                              (utf8_isword(utf8_peek_at(s, -1)) ^
+                               utf8_isword(utf8_peek(s)))))
                         continue;
                     break;
                 case TOK_NCCLASS:
@@ -2796,6 +2794,7 @@ _regexec2(const _Reprog *progp,    /* program to run */
 static int
 _regexec(const _Reprog *progp,    /* program to run */
     const char *bol,    /* string to run machine on */
+    const char *bol_end,/* end of string (or NULL for null-termination) */
     int ms,             /* number of elements at mp */
     _Resub mp[],        /* subexpression elements */
     int mflags)
@@ -2805,14 +2804,12 @@ _regexec(const _Reprog *progp,    /* program to run */
     int rv;
 
     j.starts = bol;
-    j.eol = NULL;
+    j.eol = bol_end;
 
-    if (mp && mp[0].buf) {
-        if (mflags & CREG_STARTEND)
-            j.starts = mp[0].buf, j.eol = mp[0].buf + mp[0].size;
-        else if (mflags & CREG_NEXT)
-            j.starts = mp[0].buf + mp[0].size;
-    }
+    if ((mflags & CREG_NEXT) && mp[0].buf)
+        j.starts = mp[0].buf + mp[0].size;
+    if (j.eol && j.starts > j.eol)
+        return 0; // no match
 
     j.starttype = 0;
     j.startchar = 0;
@@ -2877,21 +2874,22 @@ _build_substitution(const char* replace, int nmatch, const csview match[],
 
 
 
-int
-cregex_compile_pro(cregex *self, const char* pattern, int cflags) {
+int cregex_compile_pro(cregex *self, const char* pattern, int cflags) {
     _Parser par;
     self->prog = _regcomp1(self->prog, &par, pattern, cflags);
     return self->error = par.error;
 }
 
-int
-cregex_captures(const cregex* self) {
+int cregex_captures(const cregex* self) {
     return self->prog ? self->prog->nsubids : 0;
 }
 
-int
-cregex_match_pro(const cregex* re, const char* input, csview match[], int mflags) {
-    int res = _regexec(re->prog, input, cregex_captures(re) + 1, match, mflags);
+void cregex_drop(cregex* self) {
+    c_free(self->prog, self->prog->allocsize);
+}
+
+int cregex_match_opt(const cregex* re, const char* input, const char* input_end, struct cregex_match_opt opt) {
+    int res = _regexec(re->prog, input, input_end, cregex_captures(re) + 1, opt.match, opt.flags);
     switch (res) {
         case 1: return CREG_OK;
         case 0: return CREG_NOMATCH;
@@ -2899,51 +2897,46 @@ cregex_match_pro(const cregex* re, const char* input, csview match[], int mflags
     }
 }
 
-int
-cregex_match_aio(const char* pattern, const char* input, csview match[]) {
-    cregex re = cregex_make(pattern, CREG_DEFAULT);
+int cregex_match_aio_opt(const char* pattern, const char* input, const char* input_end, struct cregex_match_opt opt) {
+    cregex re = cregex_make(pattern, opt.flags);
     if (re.error != CREG_OK) return re.error;
-    int res = cregex_match_pro(&re, input, match, CREG_DEFAULT);
+    int res = cregex_match_opt(&re, input, input_end, opt);
     cregex_drop(&re);
     return res;
 }
 
-cstr
-cregex_replace_sv(const cregex* re, csview input, const char* replace,
-                  int count, bool(*transform)(int, csview, cstr*), int rflags) {
+cstr cregex_replace_opt(const cregex* re, const char* input, const char* input_end, const char* replace, struct cregex_replace_opt opt) {
     cstr out = {0};
     cstr subst = {0};
     csview match[CREG_MAX_CAPTURES];
     int nmatch = cregex_captures(re) + 1;
-    bool copy = !(rflags & CREG_STRIP);
+    bool copy = !(opt.flags & CREG_STRIP);
+    struct cregex_match_opt mopt = {match};
+    opt.count += (opt.count != 0);
 
-    while (count-- && cregex_match_sv(re, input, match) == CREG_OK) {
-        _build_substitution(replace, nmatch, match, transform, &subst);
-        const isize mpos = (match[0].buf - input.buf);
-        if (copy & (mpos > 0)) cstr_append_n(&out, input.buf, mpos);
+    while (--opt.count && cregex_match_opt(re, input, input_end, mopt) == CREG_OK) {
+        _build_substitution(replace, nmatch, match, opt.xform, &subst);
+        const isize mpos = (match[0].buf - input);
+        if (copy & (mpos > 0))
+            cstr_append_n(&out, input, mpos);
         cstr_append_s(&out, subst);
-        input.buf = match[0].buf + match[0].size;
-        input.size -= mpos + match[0].size;
+        input = match[0].buf + match[0].size;
     }
-    if (copy) cstr_append_sv(&out, input);
+    if (copy) {
+        isize len = input_end ? input_end - input : c_strlen(input);
+        cstr_append_sv(&out, c_sv(input, len));
+    }
     cstr_drop(&subst);
     return out;
 }
 
-cstr
-cregex_replace_aio_sv(const char* pattern, csview input, const char* replace,
-                      int count, bool(*transform)(int, csview, cstr*), int crflags) {
+cstr cregex_replace_aio_opt(const char* pattern, const char* input, const char* input_end, const char* replace, struct cregex_replace_opt opt) {
     cregex re = {0};
-    if (cregex_compile_pro(&re, pattern, crflags) != CREG_OK)
+    if (cregex_compile_pro(&re, pattern, opt.flags) != CREG_OK)
         assert(0);
-    cstr out = cregex_replace_sv(&re, input, replace, count, transform, crflags);
+    cstr out = cregex_replace_opt(&re, input, input_end, replace, opt);
     cregex_drop(&re);
     return out;
-}
-
-void
-cregex_drop(cregex* self) {
-    c_free(self->prog, self->prog->allocsize);
 }
 
 #endif // STC_CREGEX_PRV_C_INCLUDED
@@ -3266,24 +3259,41 @@ bool utf8_valid_n(const char* s, isize nbytes) {
     return d.state == utf8_ACCEPT;
 }
 
+#define _binsearch(c, at, N, ret) do { \
+    int _n = N, _i = 0, _mid = _n/2; \
+    while (_n > 0) { \
+        if (at(_i + _mid) < c) { \
+            _i += _mid + 1; \
+            _n -= _mid + 1; \
+            _mid = _n*7/8; \
+        } else { \
+            _n = _mid; \
+            _mid = _n/8; \
+        } \
+    } \
+    ret = (_i >= N || at(_i) < c) ? N : _i; \
+} while (0)
+
 uint32_t utf8_casefold(uint32_t c) {
-    for (int i=0; i < casefold_len; ++i) {
+    #define _at_fold(idx) casemappings[idx].c2
+    int i;
+    _binsearch(c, _at_fold, casefold_len, i);
+    if (i < casefold_len && casemappings[i].c1 <= c && c <= casemappings[i].c2) {
         const struct CaseMapping entry = casemappings[i];
-        if (c <= entry.c2) {
-            if (c < entry.c1) return c;
-            int d = entry.m2 - entry.c2;
-            if (d == 1) return c + ((entry.c2 & 1U) == (c & 1U));
-            return (uint32_t)((int)c + d);
-        }
+        int d = entry.m2 - entry.c2;
+        if (d == 1) return c + ((entry.c2 & 1U) == (c & 1U));
+        return (uint32_t)((int)c + d);
     }
     return c;
 }
 
 uint32_t utf8_tolower(uint32_t c) {
-    for (int i=0; i < (int)(sizeof upcase_ind/sizeof *upcase_ind); ++i) {
+    #define _at_upper(idx) casemappings[upcase_ind[idx]].c2
+    int i, n = c_countof(upcase_ind);
+    _binsearch(c, _at_upper, n, i);
+    if (i < n) {
         const struct CaseMapping entry = casemappings[upcase_ind[i]];
-        if (c <= entry.c2) {
-            if (c < entry.c1) return c;
+        if (entry.c1 <= c && c <= entry.c2) {
             int d = entry.m2 - entry.c2;
             if (d == 1) return c + ((entry.c2 & 1U) == (c & 1U));
             return (uint32_t)((int)c + d);
@@ -3293,11 +3303,13 @@ uint32_t utf8_tolower(uint32_t c) {
 }
 
 uint32_t utf8_toupper(uint32_t c) {
-    for (int i=0; i < (int)(sizeof lowcase_ind/sizeof *lowcase_ind); ++i) {
+    #define _at_lower(idx) casemappings[lowcase_ind[idx]].m2
+    int i, n = c_countof(lowcase_ind);
+    _binsearch(c, _at_lower, n, i);
+    if (i < n) {
         const struct CaseMapping entry = casemappings[lowcase_ind[i]];
-        if (c <= entry.m2) {
-            int d = entry.m2 - entry.c2;
-            if (c < (uint32_t)(entry.c1 + d)) return c;
+        int d = entry.m2 - entry.c2;
+        if (entry.c1 + (uint32_t)d <= c && c <= entry.m2) {
             if (d == 1) return c - ((entry.m2 & 1U) == (c & 1U));
             return (uint32_t)((int)c - d);
         }

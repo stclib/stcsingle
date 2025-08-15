@@ -133,7 +133,8 @@ typedef union {
 typedef char cstr_value;
 typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {
-    struct { uintptr_t size; cstr_value* data; uintptr_t ncap; } lon;
+    struct { cstr_buf *a, *b, *c; } _dummy;
+    struct { cstr_value* data; uintptr_t size; uintptr_t ncap; } lon;
     struct { cstr_value data[ sizeof(cstr_buf) - 1 ]; uint8_t size; } sml;
 } cstr;
 
@@ -151,7 +152,7 @@ typedef union {
 \
     typedef union SELF { \
         SELF##_value* get; \
-        SELF##_ctrl* ctrl1; \
+        SELF##_ctrl* ctrl; \
     } SELF
 
 #define declare_arc2(SELF, VAL) \
@@ -307,25 +308,25 @@ typedef ptrdiff_t       isize;
 #define c_ZU PRIuPTR
 #define c_NPOS INTPTR_MAX
 
-// Macro overloading feature support based on: https://rextester.com/ONP80107
+// Macro overloading feature support
 #define c_MACRO_OVERLOAD(name, ...) \
-    c_JOIN(c_JOIN0(name,_),c_NUMARGS(__VA_ARGS__))(__VA_ARGS__)
+    c_JOIN(name ## _,c_NUMARGS(__VA_ARGS__))(__VA_ARGS__)
 #define c_JOIN0(a, b) a ## b
 #define c_JOIN(a, b) c_JOIN0(a, b)
-#define c_EXPAND(...) __VA_ARGS__
 #define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
-#define _c_APPLY_ARG_N(args) _c_ARG_N args  // wrap c_EXPAND(..) for MSVC without /std:c11
-#define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
-#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,N,...) N
+#define _c_APPLY_ARG_N(args) _c_ARG_N args
+#define _c_RSEQ_N 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,_17,_18,_19,_20,N,...) N
 
 // Saturated overloading
 // #define foo(...) foo_I(__VA_ARGS__, c_COMMA_N(foo_3), c_COMMA_N(foo_2), c_COMMA_N(foo_1),)(__VA_ARGS__)
 // #define foo_I(a,b,c, n, ...) c_TUPLE_AT_1(n, foo_n,)
 #define c_TUPLE_AT_1(x,y,...) y
 #define c_COMMA_N(x) ,x
+#define c_EXPAND(...) __VA_ARGS__
 
 // Select arg, e.g. for #define i_type A,B then c_GETARG(2, i_type) is B
-#define c_GETARG(N, ...) c_ARG_##N(__VA_ARGS__,) // wrap c_EXPAND(..) for MSVC without /std:c11
+#define c_GETARG(N, ...) c_ARG_##N(__VA_ARGS__,)
 #define c_ARG_1(a, ...) a
 #define c_ARG_2(a, b, ...) b
 #define c_ARG_3(a, b, c, ...) c
@@ -435,7 +436,9 @@ typedef const char* cstr_raw;
 #define c_each_4(it, C, start, end) \
     _c_each(it, C, start, (end).ref, _)
 
-#define c_each_n(it, C, cnt, n) \
+#define c_each_n(...) c_MACRO_OVERLOAD(c_each_n, __VA_ARGS__)
+#define c_each_n_3(it, C, cnt) c_each_n_4(it, C, cnt, INTPTR_MAX)
+#define c_each_n_4(it, C, cnt, n) \
     struct {C##_iter iter; C##_value* ref; isize size, index;} \
     it = {.iter=C##_begin(&cnt), .size=n}; (it.ref = it.iter.ref) && it.index < it.size; C##_next(&it.iter), ++it.index
 
@@ -544,14 +547,14 @@ STC_INLINE size_t c_hash_n(const void* key, isize len) {
     uint64_t b8; uint32_t b4;
     switch (len) {
         case 8: memcpy(&b8, key, 8); return (size_t)(b8 * 0xc6a4a7935bd1e99d);
-        case 4: memcpy(&b4, key, 4); return b4 * (size_t)0xa2ffeb2f01000193;
+        case 4: memcpy(&b4, key, 4); return b4 * FNV_BASIS;
         default: return c_basehash_n(key, len);
     }
 }
 
 STC_INLINE size_t c_hash_str(const char *str) {
     const uint8_t* msg = (const uint8_t*)str;
-    uint64_t h = FNV_BASIS;
+    size_t h = FNV_BASIS;
     while (*msg) {
         h ^= *(msg++);
         h *= FNV_PRIME;
@@ -559,11 +562,11 @@ STC_INLINE size_t c_hash_str(const char *str) {
     return h;
 }
 
-#define c_hash_mix(...) /* non-commutative hash combine! */ \
-    _chash_mix(c_make_array(size_t, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
+#define c_hash_mix(...) /* non-commutative hash combine */ \
+    c_hash_mix_n(c_make_array(size_t, {__VA_ARGS__}), c_sizeof((size_t[]){__VA_ARGS__})/c_sizeof(size_t))
 
-STC_INLINE size_t _chash_mix(size_t h[], int n) {
-    for (int i = 1; i < n; ++i) h[0] += h[0] ^ h[i];
+STC_INLINE size_t c_hash_mix_n(size_t h[], isize n) {
+    for (isize i = 1; i < n; ++i) h[0] += h[0] ^ h[i];
     return h[0];
 }
 
@@ -684,6 +687,8 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
 #endif
 
 #if defined i_aux && c_NUMARGS(i_aux) == 2
+  // shorthand for defining i_aux AND i_allocator as a one-liner combo.
+  #define _i_aux_alloc
   #define _i_aux_def c_GETARG(1, i_aux) aux;
   #undef i_allocator // override:
   #define i_allocator c_GETARG(2, i_aux)
@@ -754,8 +759,6 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
   #endif
   #if !defined i_keyfrom && defined i_keyraw
     #define i_keyfrom c_JOIN(i_keyclass, _from)
-  #elif !defined i_keyfrom && !defined i_no_clone
-    #define i_keyfrom c_JOIN(i_keyclass, _clone)
   #endif
   #if !defined i_keytoraw && defined i_keyraw
     #define i_keytoraw c_JOIN(i_keyclass, _toraw)
@@ -820,9 +823,7 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
 #ifndef i_tag
   #define i_tag i_key
 #endif
-#if !defined i_keyfrom && defined i_keyclone && !defined i_keyraw
-  #define i_keyfrom i_keyclone
-#elif !defined i_keyfrom
+#if !defined i_keyfrom
   #define i_keyfrom c_default_clone
 #else
   #undef i_no_emplace
@@ -859,8 +860,6 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
   #endif
   #if !defined i_valfrom && defined i_valraw
     #define i_valfrom c_JOIN(i_valclass, _from)
-  #elif !defined i_valfrom && !defined i_no_clone
-    #define i_valfrom c_JOIN(i_valclass, _clone)
   #endif
   #if !defined i_valtoraw && defined i_valraw
     #define i_valtoraw c_JOIN(i_valclass, _toraw)
@@ -875,9 +874,7 @@ struct hmap_meta { uint16_t hashx:6, dist:10; }; // dist: 0=empty, 1=PSL 0, 2=PS
   #error "Both i_valclone and i_valdrop must be defined, if any"
 #endif
 
-#if !defined i_valfrom && defined i_valclone && !defined i_valraw
-  #define i_valfrom i_valclone
-#elif !defined i_valfrom
+#if !defined i_valfrom
   #define i_valfrom c_default_clone
 #else
   #undef i_no_emplace
@@ -1343,6 +1340,8 @@ _c_MEMB(_erase_entry)(Self* self, _m_value* _val) {
 #undef _i_keyref
 #undef _i_MAP_ONLY
 #undef _i_SET_ONLY
+// ### BEGIN_FILE_INCLUDE: finalize.h
+#ifndef i_extend
 // ### BEGIN_FILE_INCLUDE: linkage2.h
 
 #undef i_aux
@@ -1416,6 +1415,9 @@ _c_MEMB(_erase_entry)(Self* self, _m_value* _val) {
 #undef _i_template
 #undef Self
 // ### END_FILE_INCLUDE: template2.h
+#endif
+#undef i_extend
+// ### END_FILE_INCLUDE: finalize.h
 // ### END_FILE_INCLUDE: hmap.h
 // ### END_FILE_INCLUDE: hset.h
 

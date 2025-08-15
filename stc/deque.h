@@ -127,7 +127,8 @@ typedef union {
 typedef char cstr_value;
 typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {
-    struct { uintptr_t size; cstr_value* data; uintptr_t ncap; } lon;
+    struct { cstr_buf *a, *b, *c; } _dummy;
+    struct { cstr_value* data; uintptr_t size; uintptr_t ncap; } lon;
     struct { cstr_value data[ sizeof(cstr_buf) - 1 ]; uint8_t size; } sml;
 } cstr;
 
@@ -145,7 +146,7 @@ typedef union {
 \
     typedef union SELF { \
         SELF##_value* get; \
-        SELF##_ctrl* ctrl1; \
+        SELF##_ctrl* ctrl; \
     } SELF
 
 #define declare_arc2(SELF, VAL) \
@@ -301,25 +302,25 @@ typedef ptrdiff_t       isize;
 #define c_ZU PRIuPTR
 #define c_NPOS INTPTR_MAX
 
-// Macro overloading feature support based on: https://rextester.com/ONP80107
+// Macro overloading feature support
 #define c_MACRO_OVERLOAD(name, ...) \
-    c_JOIN(c_JOIN0(name,_),c_NUMARGS(__VA_ARGS__))(__VA_ARGS__)
+    c_JOIN(name ## _,c_NUMARGS(__VA_ARGS__))(__VA_ARGS__)
 #define c_JOIN0(a, b) a ## b
 #define c_JOIN(a, b) c_JOIN0(a, b)
-#define c_EXPAND(...) __VA_ARGS__
 #define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
-#define _c_APPLY_ARG_N(args) _c_ARG_N args  // wrap c_EXPAND(..) for MSVC without /std:c11
-#define _c_RSEQ_N 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
-#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,N,...) N
+#define _c_APPLY_ARG_N(args) _c_ARG_N args
+#define _c_RSEQ_N 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,_17,_18,_19,_20,N,...) N
 
 // Saturated overloading
 // #define foo(...) foo_I(__VA_ARGS__, c_COMMA_N(foo_3), c_COMMA_N(foo_2), c_COMMA_N(foo_1),)(__VA_ARGS__)
 // #define foo_I(a,b,c, n, ...) c_TUPLE_AT_1(n, foo_n,)
 #define c_TUPLE_AT_1(x,y,...) y
 #define c_COMMA_N(x) ,x
+#define c_EXPAND(...) __VA_ARGS__
 
 // Select arg, e.g. for #define i_type A,B then c_GETARG(2, i_type) is B
-#define c_GETARG(N, ...) c_ARG_##N(__VA_ARGS__,) // wrap c_EXPAND(..) for MSVC without /std:c11
+#define c_GETARG(N, ...) c_ARG_##N(__VA_ARGS__,)
 #define c_ARG_1(a, ...) a
 #define c_ARG_2(a, b, ...) b
 #define c_ARG_3(a, b, c, ...) c
@@ -429,7 +430,9 @@ typedef const char* cstr_raw;
 #define c_each_4(it, C, start, end) \
     _c_each(it, C, start, (end).ref, _)
 
-#define c_each_n(it, C, cnt, n) \
+#define c_each_n(...) c_MACRO_OVERLOAD(c_each_n, __VA_ARGS__)
+#define c_each_n_3(it, C, cnt) c_each_n_4(it, C, cnt, INTPTR_MAX)
+#define c_each_n_4(it, C, cnt, n) \
     struct {C##_iter iter; C##_value* ref; isize size, index;} \
     it = {.iter=C##_begin(&cnt), .size=n}; (it.ref = it.iter.ref) && it.index < it.size; C##_next(&it.iter), ++it.index
 
@@ -538,14 +541,14 @@ STC_INLINE size_t c_hash_n(const void* key, isize len) {
     uint64_t b8; uint32_t b4;
     switch (len) {
         case 8: memcpy(&b8, key, 8); return (size_t)(b8 * 0xc6a4a7935bd1e99d);
-        case 4: memcpy(&b4, key, 4); return b4 * (size_t)0xa2ffeb2f01000193;
+        case 4: memcpy(&b4, key, 4); return b4 * FNV_BASIS;
         default: return c_basehash_n(key, len);
     }
 }
 
 STC_INLINE size_t c_hash_str(const char *str) {
     const uint8_t* msg = (const uint8_t*)str;
-    uint64_t h = FNV_BASIS;
+    size_t h = FNV_BASIS;
     while (*msg) {
         h ^= *(msg++);
         h *= FNV_PRIME;
@@ -553,11 +556,11 @@ STC_INLINE size_t c_hash_str(const char *str) {
     return h;
 }
 
-#define c_hash_mix(...) /* non-commutative hash combine! */ \
-    _chash_mix(c_make_array(size_t, {__VA_ARGS__}), c_NUMARGS(__VA_ARGS__))
+#define c_hash_mix(...) /* non-commutative hash combine */ \
+    c_hash_mix_n(c_make_array(size_t, {__VA_ARGS__}), c_sizeof((size_t[]){__VA_ARGS__})/c_sizeof(size_t))
 
-STC_INLINE size_t _chash_mix(size_t h[], int n) {
-    for (int i = 1; i < n; ++i) h[0] += h[0] ^ h[i];
+STC_INLINE size_t c_hash_mix_n(size_t h[], isize n) {
+    for (isize i = 1; i < n; ++i) h[0] += h[0] ^ h[i];
     return h[0];
 }
 
@@ -666,6 +669,8 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 #endif
 
 #if defined i_aux && c_NUMARGS(i_aux) == 2
+  // shorthand for defining i_aux AND i_allocator as a one-liner combo.
+  #define _i_aux_alloc
   #define _i_aux_def c_GETARG(1, i_aux) aux;
   #undef i_allocator // override:
   #define i_allocator c_GETARG(2, i_aux)
@@ -736,8 +741,6 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
   #endif
   #if !defined i_keyfrom && defined i_keyraw
     #define i_keyfrom c_JOIN(i_keyclass, _from)
-  #elif !defined i_keyfrom && !defined i_no_clone
-    #define i_keyfrom c_JOIN(i_keyclass, _clone)
   #endif
   #if !defined i_keytoraw && defined i_keyraw
     #define i_keytoraw c_JOIN(i_keyclass, _toraw)
@@ -802,9 +805,7 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 #ifndef i_tag
   #define i_tag i_key
 #endif
-#if !defined i_keyfrom && defined i_keyclone && !defined i_keyraw
-  #define i_keyfrom i_keyclone
-#elif !defined i_keyfrom
+#if !defined i_keyfrom
   #define i_keyfrom c_default_clone
 #else
   #undef i_no_emplace
@@ -841,8 +842,6 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
   #endif
   #if !defined i_valfrom && defined i_valraw
     #define i_valfrom c_JOIN(i_valclass, _from)
-  #elif !defined i_valfrom && !defined i_no_clone
-    #define i_valfrom c_JOIN(i_valclass, _clone)
   #endif
   #if !defined i_valtoraw && defined i_valraw
     #define i_valtoraw c_JOIN(i_valclass, _toraw)
@@ -857,9 +856,7 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
   #error "Both i_valclone and i_valdrop must be defined, if any"
 #endif
 
-#if !defined i_valfrom && defined i_valclone && !defined i_valraw
-  #define i_valfrom i_valclone
-#elif !defined i_valfrom
+#if !defined i_valfrom
   #define i_valfrom c_default_clone
 #else
   #undef i_no_emplace
@@ -905,73 +902,90 @@ STC_API _m_iter         _c_MEMB(_advance)(_m_iter it, isize n);
 #define _cbuf_toidx(self, pos) (((pos) - (self)->start) & (self)->capmask)
 #define _cbuf_topos(self, idx) (((self)->start + (idx)) & (self)->capmask)
 
-STC_INLINE void         _c_MEMB(_put_n)(Self* self, const _m_raw* raw, isize n)
-                            { while (n--) _c_MEMB(_push)(self, i_keyfrom((*raw))), ++raw; }
+STC_INLINE void _c_MEMB(_put_n)(Self* self, const _m_raw* raw, isize n)
+    { while (n--) _c_MEMB(_push)(self, i_keyfrom((*raw))), ++raw; }
 
-STC_INLINE void         _c_MEMB(_value_drop)(const Self* self, _m_value* val)
-                            { (void)self; i_keydrop(val); }
+STC_INLINE void _c_MEMB(_value_drop)(const Self* self, _m_value* val)
+    { (void)self; i_keydrop(val); }
 
 #ifndef _i_aux_alloc
-STC_INLINE Self         _c_MEMB(_init)(void)
-                            { Self cx = {0}; return cx; }
+STC_INLINE Self _c_MEMB(_init)(void)
+    { Self out = {0}; return out; }
 
-STC_INLINE Self         _c_MEMB(_with_capacity)(const isize cap)
-                            { Self cx = {0}; _c_MEMB(_reserve)(&cx, cap); return cx; }
+STC_INLINE Self _c_MEMB(_with_capacity)(isize cap) {
+    cap = c_next_pow2(cap + 1);
+    Self out = {_i_new_n(_m_value, cap), 0, 0, cap - 1};
+    return out;
+}
+STC_INLINE Self _c_MEMB(_with_size_uninit)(isize size)
+    { Self out = _c_MEMB(_with_capacity)(size); out.end = size; return out; }
 
-STC_INLINE Self         _c_MEMB(_from_n)(const _m_raw* raw, isize n)
-                            { Self cx = {0}; _c_MEMB(_put_n)(&cx, raw, n); return cx; }
+STC_INLINE Self _c_MEMB(_with_size)(isize size, _m_raw default_raw) {
+    Self out = _c_MEMB(_with_capacity)(size);
+    while (out.end < size) out.cbuf[out.end++] = i_keyfrom(default_raw);
+    return out;
+}
+STC_INLINE Self _c_MEMB(_from_n)(const _m_raw* raw, isize n) {
+    Self out = _c_MEMB(_with_capacity)(n);
+    _c_MEMB(_put_n)(&out, raw, n); return out;
+}
 #endif
 
 #if !defined i_no_emplace
-STC_INLINE _m_value*    _c_MEMB(_emplace)(Self* self, _m_raw raw)
-                            { return _c_MEMB(_push)(self, i_keyfrom(raw)); }
+STC_INLINE _m_value* _c_MEMB(_emplace)(Self* self, _m_raw raw)
+    { return _c_MEMB(_push)(self, i_keyfrom(raw)); }
 #endif
 
 #if defined _i_has_eq
-STC_API bool            _c_MEMB(_eq)(const Self* self, const Self* other);
+STC_API bool _c_MEMB(_eq)(const Self* self, const Self* other);
 #endif
 
 #if !defined i_no_clone
-STC_API Self            _c_MEMB(_clone)(Self q);
-STC_INLINE _m_value     _c_MEMB(_value_clone)(const Self* self, _m_value val)
-                            { (void)self; return i_keyclone(val); }
+STC_API Self _c_MEMB(_clone)(Self q);
 
-STC_INLINE void         _c_MEMB(_copy)(Self* self, const Self* other) {
-                            if (self == other) return;
-                            _c_MEMB(_drop)(self);
-                            *self = _c_MEMB(_clone)(*other);
-                        }
+STC_INLINE _m_value _c_MEMB(_value_clone)(const Self* self, _m_value val)
+    { (void)self; return i_keyclone(val); }
+
+STC_INLINE void _c_MEMB(_copy)(Self* self, const Self* other) {
+    if (self == other) return;
+    _c_MEMB(_drop)(self);
+    *self = _c_MEMB(_clone)(*other);
+}
 #endif // !i_no_clone
 
-STC_INLINE isize        _c_MEMB(_size)(const Self* self)
-                            { return _cbuf_toidx(self, self->end); }
-STC_INLINE isize        _c_MEMB(_capacity)(const Self* self)
-                            { return self->capmask; }
-STC_INLINE bool         _c_MEMB(_is_empty)(const Self* self)
-                            { return self->start == self->end; }
-STC_INLINE _m_raw       _c_MEMB(_value_toraw)(const _m_value* pval)
-                            { return i_keytoraw(pval); }
+STC_INLINE isize _c_MEMB(_size)(const Self* self)
+    { return _cbuf_toidx(self, self->end); }
+
+STC_INLINE isize _c_MEMB(_capacity)(const Self* self)
+    { return self->capmask; }
+
+STC_INLINE bool _c_MEMB(_is_empty)(const Self* self)
+    { return self->start == self->end; }
+
+STC_INLINE _m_raw _c_MEMB(_value_toraw)(const _m_value* pval)
+    { return i_keytoraw(pval); }
 
 STC_INLINE const _m_value* _c_MEMB(_front)(const Self* self)
-                            { return self->cbuf + self->start; }
-STC_INLINE _m_value*    _c_MEMB(_front_mut)(Self* self)
-                            { return self->cbuf + self->start; }
+    { return self->cbuf + self->start; }
+
+STC_INLINE _m_value* _c_MEMB(_front_mut)(Self* self)
+    { return self->cbuf + self->start; }
 
 STC_INLINE const _m_value* _c_MEMB(_back)(const Self* self)
-                            { return self->cbuf + ((self->end - 1) & self->capmask); }
-STC_INLINE _m_value*    _c_MEMB(_back_mut)(Self* self)
-                            { return (_m_value*)_c_MEMB(_back)(self); }
+    { return self->cbuf + ((self->end - 1) & self->capmask); }
+
+STC_INLINE _m_value* _c_MEMB(_back_mut)(Self* self)
+    { return (_m_value*)_c_MEMB(_back)(self); }
 
 STC_INLINE Self _c_MEMB(_move)(Self *self) {
     Self m = *self;
-    memset(self, 0, sizeof *self);
+    self->capmask = self->start = self->end = 0;
+    self->cbuf = NULL;
     return m;
 }
 
-STC_INLINE void _c_MEMB(_take)(Self *self, Self unowned) {
-    _c_MEMB(_drop)(self);
-    *self = unowned;
-}
+STC_INLINE void _c_MEMB(_take)(Self *self, Self unowned)
+    { _c_MEMB(_drop)(self); *self = unowned; }
 
 STC_INLINE void _c_MEMB(_pop)(Self* self) { // pop_front
     c_assert(!_c_MEMB(_is_empty)(self));
@@ -1318,7 +1332,7 @@ _c_MEMB(_lower_bound_range)(const Self* self, const _m_raw raw, isize start, isi
             step = count/8;
         }
     }
-    return start == end ? c_NPOS : start;
+    return start >= end ? c_NPOS : start;
 }
 
 STC_DEF isize // c_NPOS = not found
@@ -1414,6 +1428,8 @@ _c_MEMB(_find_in)(const Self* self, _m_iter i1, _m_iter i2, _m_raw raw) {
 }
 #endif
 #endif // IMPLEMENTATION
+// ### BEGIN_FILE_INCLUDE: finalize.h
+#ifndef i_extend
 // ### BEGIN_FILE_INCLUDE: linkage2.h
 
 #undef i_aux
@@ -1487,5 +1503,8 @@ _c_MEMB(_find_in)(const Self* self, _m_iter i1, _m_iter i2, _m_raw raw) {
 #undef _i_template
 #undef Self
 // ### END_FILE_INCLUDE: template2.h
+#endif
+#undef i_extend
+// ### END_FILE_INCLUDE: finalize.h
 // ### END_FILE_INCLUDE: deque.h
 
