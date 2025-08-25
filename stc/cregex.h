@@ -651,17 +651,16 @@ static inline cstr cregex_replace_aio_sv_opt(const char* pattern, csview sv, con
 
 /* ----- API functions ---- */
 
-#define cregex_match(...) _cregex_match(__VA_ARGS__, 0)
-#define cregex_match_sv(...) _cregex_match_sv(__VA_ARGS__, 0)
-#define cregex_match_aio(...) _cregex_match_aio(__VA_ARGS__, 0)
-#define cregex_match_aio_sv(...) _cregex_match_aio_sv(__VA_ARGS__, 0)
-
+#define cregex_match(...) _cregex_match(__VA_ARGS__, ._dummy=0)
+#define cregex_match_sv(...) _cregex_match_sv(__VA_ARGS__, ._dummy=0)
+#define cregex_match_aio(...) _cregex_match_aio(__VA_ARGS__, ._dummy=0)
+#define cregex_match_aio_sv(...) _cregex_match_aio_sv(__VA_ARGS__, ._dummy=0)
 #define cregex_is_match(re, str) (_cregex_match(re, str, 0) == CREG_OK)
 
-#define cregex_replace(...) _cregex_replace(__VA_ARGS__, 0)
-#define cregex_replace_sv(...) _cregex_replace_sv(__VA_ARGS__, 0)
-#define cregex_replace_aio(...) _cregex_replace_aio(__VA_ARGS__, 0)
-#define cregex_replace_aio_sv(...) _cregex_replace_aio_sv(__VA_ARGS__, 0)
+#define cregex_replace(...) _cregex_replace(__VA_ARGS__, ._dummy=0)
+#define cregex_replace_sv(...) _cregex_replace_sv(__VA_ARGS__, ._dummy=0)
+#define cregex_replace_aio(...) _cregex_replace_aio(__VA_ARGS__, ._dummy=0)
+#define cregex_replace_aio_sv(...) _cregex_replace_aio_sv(__VA_ARGS__, ._dummy=0)
 
 #endif // STC_CREGEX_H_INCLUDED
 
@@ -733,6 +732,8 @@ static inline cstr cregex_replace_aio_sv_opt(const char* pattern, csview sv, con
 #ifndef STC_UTF8_PRV_H_INCLUDED
 #define STC_UTF8_PRV_H_INCLUDED
 
+#include <ctype.h>
+
 // The following functions assume valid utf8 strings:
 
 /* number of bytes in the utf8 codepoint from s */
@@ -787,9 +788,9 @@ STC_INLINE csview utf8_subview(const char *s, isize u8pos, isize u8len) {
 }
 
 // ------------------------------------------------------
-// The following requires linking with utf8 symbols.
+// Functions below must be linked with utf8_prv.c content
 // To call them, either define i_import before including
-// one of cstr, csview, zsview, or link with src/libstc.o.
+// one of cstr, csview, zsview, or link with src/libstc.a
 
 /* decode next utf8 codepoint. https://bjoern.hoehrmann.de/utf-8/decoder/dfa */
 typedef struct { uint32_t state, codep; } utf8_decode_t;
@@ -808,10 +809,10 @@ extern uint32_t utf8_tolower(uint32_t c);
 extern uint32_t utf8_toupper(uint32_t c);
 
 STC_INLINE bool utf8_isupper(uint32_t c)
-    { return utf8_tolower(c) != c; }
+    { return c < 128 ? (c >= 'A') & (c <= 'Z') : utf8_tolower(c) != c; }
 
 STC_INLINE bool utf8_islower(uint32_t c)
-    { return utf8_toupper(c) != c; }
+    { return c < 128 ? (c >= 'a') & (c <= 'z') : utf8_toupper(c) != c; }
 
 STC_INLINE uint32_t utf8_decode(utf8_decode_t* d, const uint32_t byte) {
     const uint32_t type = utf8_dtab[byte];
@@ -832,6 +833,69 @@ STC_INLINE uint32_t utf8_peek(const char* s) {
 STC_INLINE int utf8_icmp(const char* s1, const char* s2) {
     return utf8_icompare(c_sv(s1, INTPTR_MAX), c_sv(s2, INTPTR_MAX));
 }
+
+// ------------------------------------------------------
+// Functions below must be linked with ucd_prv.c content
+
+enum utf8_group {
+    U8G_Cc, U8G_L, U8G_Lm, U8G_Lt, U8G_Nd, U8G_Nl, U8G_No,
+    U8G_P, U8G_Pc, U8G_Pd, U8G_Pe, U8G_Pf, U8G_Pi, U8G_Ps,
+    U8G_Sc, U8G_Sk, U8G_Sm, U8G_Zl, U8G_Zp, U8G_Zs,
+    U8G_Arabic, U8G_Bengali, U8G_Cyrillic,
+    U8G_Devanagari, U8G_Georgian, U8G_Greek,
+    U8G_Han, U8G_Hiragana, U8G_Katakana,
+    U8G_Latin, U8G_Thai,
+    U8G_SIZE
+};
+
+extern bool utf8_isgroup(int group, uint32_t c);
+
+STC_INLINE bool utf8_isdigit(uint32_t c)
+    { return c < 128 ? (c >= '0') & (c <= '9') : utf8_isgroup(U8G_Nd, c); }
+
+STC_INLINE bool utf8_isalpha(uint32_t c)
+    { return (c < 128 ? isalpha((int)c) != 0 : utf8_isgroup(U8G_L, c)); }
+
+STC_INLINE bool utf8_iscased(uint32_t c) {
+    if (c < 128) return isalpha((int)c) != 0;
+    return utf8_toupper(c) != c || utf8_tolower(c) != c || utf8_isgroup(U8G_Lt, c);
+}
+
+STC_INLINE bool utf8_isalnum(uint32_t c) {
+    if (c < 128) return isalnum((int)c) != 0;
+    return utf8_isgroup(U8G_L, c) || utf8_isgroup(U8G_Nd, c);
+}
+
+STC_INLINE bool utf8_isword(uint32_t c) {
+    if (c < 128) return (isalnum((int)c) != 0) | (c == '_');
+    return utf8_isgroup(U8G_L, c) || utf8_isgroup(U8G_Nd, c) || utf8_isgroup(U8G_Pc, c);
+}
+
+STC_INLINE bool utf8_isblank(uint32_t c) {
+    if (c < 128) return (c == ' ') | (c == '\t');
+    return utf8_isgroup(U8G_Zs, c);
+}
+
+STC_INLINE bool utf8_isspace(uint32_t c) {
+    if (c < 128) return isspace((int)c) != 0;
+    return ((c == 8232) | (c == 8233)) || utf8_isgroup(U8G_Zs, c);
+}
+
+#define c_lowerbound(T, c, at, less, N, ret) do { \
+    int _n = N, _i = 0, _mid = _n/2; \
+    T _c = c; \
+    while (_n > 0) { \
+        if (less(at((_i + _mid)), &_c)) { \
+            _i += _mid + 1; \
+            _n -= _mid + 1; \
+            _mid = _n*7/8; \
+        } else { \
+            _n = _mid; \
+            _mid = _n/8; \
+        } \
+    } \
+    *(ret) = _i; \
+} while (0)
 
 #endif // STC_UTF8_PRV_H_INCLUDED
 // ### END_FILE_INCLUDE: utf8_prv.h
@@ -1239,65 +1303,13 @@ STC_INLINE bool cstr_getline(cstr *self, FILE *fp)
 #ifndef STC_UCD_PRV_C_INCLUDED
 #define STC_UCD_PRV_C_INCLUDED
 
-#include <ctype.h>
-
 // ------------------------------------------------------
 // The following requires linking with utf8 symbols.
 // To call them, either define i_import before including
 // one of cstr, csview, zsview, or link with src/libstc.o.
 
-enum {
-    U8G_Cc, U8G_Lt, U8G_Nd, U8G_Nl,
-    U8G_Pc, U8G_Pd, U8G_Pf, U8G_Pi,
-    U8G_Sc, U8G_Zl, U8G_Zp, U8G_Zs,
-    U8G_Arabic, U8G_Bengali, U8G_Cyrillic,
-    U8G_Devanagari, U8G_Georgian, U8G_Greek,
-    U8G_Han, U8G_Hiragana, U8G_Katakana,
-    U8G_Latin, U8G_Thai,
-    U8G_SIZE
-};
-
-static bool utf8_isgroup(int group, uint32_t c);
-
-static bool utf8_isalpha(uint32_t c) {
-    static int16_t groups[] = {U8G_Latin, U8G_Nl, U8G_Cyrillic, U8G_Han, U8G_Devanagari,
-                               U8G_Arabic, U8G_Bengali, U8G_Hiragana, U8G_Katakana,
-                               U8G_Thai, U8G_Greek, U8G_Georgian};
-    if (c < 128) return isalpha((int)c) != 0;
-    for (int j=0; j < (int)(sizeof groups/sizeof groups[0]); ++j)
-        if (utf8_isgroup(groups[j], c))
-            return true;
-    return false;
-}
-
-static bool utf8_iscased(uint32_t c) {
-    if (c < 128) return isalpha((int)c) != 0;
-    return utf8_islower(c) || utf8_isupper(c) ||
-           utf8_isgroup(U8G_Lt, c);
-}
-
-static bool utf8_isalnum(uint32_t c) {
-    if (c < 128) return isalnum((int)c) != 0;
-    return utf8_isalpha(c) || utf8_isgroup(U8G_Nd, c);
-}
-
-static bool utf8_isword(uint32_t c) {
-    if (c < 128) return (isalnum((int)c) != 0) | (c == '_');
-    return utf8_isalpha(c) || utf8_isgroup(U8G_Nd, c) ||
-           utf8_isgroup(U8G_Pc, c);
-}
-
-static bool utf8_isblank(uint32_t c) {
-    if (c < 128) return (c == ' ') | (c == '\t');
-    return utf8_isgroup(U8G_Zs, c);
-}
-
-static bool utf8_isspace(uint32_t c) {
-    if (c < 128) return isspace((int)c) != 0;
-    return ((c == 8232) | (c == 8233)) || utf8_isgroup(U8G_Zs, c);
-}
-
 /* The tables below are extracted from the RE2 library */
+
 typedef struct {
   uint16_t lo;
   uint16_t hi;
@@ -1306,6 +1318,449 @@ typedef struct {
 static const URange16 Cc_range16[] = { // Control
     { 0, 31 },
     { 127, 159 },
+};
+
+static const URange16 L_range16[] = { // Letter
+    { 65, 90 },
+    { 97, 122 },
+    { 170, 170 },
+    { 181, 181 },
+    { 186, 186 },
+    { 192, 214 },
+    { 216, 246 },
+    { 248, 705 },
+    { 710, 721 },
+    { 736, 740 },
+    { 748, 748 },
+    { 750, 750 },
+    { 880, 884 },
+    { 886, 887 },
+    { 890, 893 },
+    { 895, 895 },
+    { 902, 902 },
+    { 904, 906 },
+    { 908, 908 },
+    { 910, 929 },
+    { 931, 1013 },
+    { 1015, 1153 },
+    { 1162, 1327 },
+    { 1329, 1366 },
+    { 1369, 1369 },
+    { 1376, 1416 },
+    { 1488, 1514 },
+    { 1519, 1522 },
+    { 1568, 1610 },
+    { 1646, 1647 },
+    { 1649, 1747 },
+    { 1749, 1749 },
+    { 1765, 1766 },
+    { 1774, 1775 },
+    { 1786, 1788 },
+    { 1791, 1791 },
+    { 1808, 1808 },
+    { 1810, 1839 },
+    { 1869, 1957 },
+    { 1969, 1969 },
+    { 1994, 2026 },
+    { 2036, 2037 },
+    { 2042, 2042 },
+    { 2048, 2069 },
+    { 2074, 2074 },
+    { 2084, 2084 },
+    { 2088, 2088 },
+    { 2112, 2136 },
+    { 2144, 2154 },
+    { 2160, 2183 },
+    { 2185, 2190 },
+    { 2208, 2249 },
+    { 2308, 2361 },
+    { 2365, 2365 },
+    { 2384, 2384 },
+    { 2392, 2401 },
+    { 2417, 2432 },
+    { 2437, 2444 },
+    { 2447, 2448 },
+    { 2451, 2472 },
+    { 2474, 2480 },
+    { 2482, 2482 },
+    { 2486, 2489 },
+    { 2493, 2493 },
+    { 2510, 2510 },
+    { 2524, 2525 },
+    { 2527, 2529 },
+    { 2544, 2545 },
+    { 2556, 2556 },
+    { 2565, 2570 },
+    { 2575, 2576 },
+    { 2579, 2600 },
+    { 2602, 2608 },
+    { 2610, 2611 },
+    { 2613, 2614 },
+    { 2616, 2617 },
+    { 2649, 2652 },
+    { 2654, 2654 },
+    { 2674, 2676 },
+    { 2693, 2701 },
+    { 2703, 2705 },
+    { 2707, 2728 },
+    { 2730, 2736 },
+    { 2738, 2739 },
+    { 2741, 2745 },
+    { 2749, 2749 },
+    { 2768, 2768 },
+    { 2784, 2785 },
+    { 2809, 2809 },
+    { 2821, 2828 },
+    { 2831, 2832 },
+    { 2835, 2856 },
+    { 2858, 2864 },
+    { 2866, 2867 },
+    { 2869, 2873 },
+    { 2877, 2877 },
+    { 2908, 2909 },
+    { 2911, 2913 },
+    { 2929, 2929 },
+    { 2947, 2947 },
+    { 2949, 2954 },
+    { 2958, 2960 },
+    { 2962, 2965 },
+    { 2969, 2970 },
+    { 2972, 2972 },
+    { 2974, 2975 },
+    { 2979, 2980 },
+    { 2984, 2986 },
+    { 2990, 3001 },
+    { 3024, 3024 },
+    { 3077, 3084 },
+    { 3086, 3088 },
+    { 3090, 3112 },
+    { 3114, 3129 },
+    { 3133, 3133 },
+    { 3160, 3162 },
+    { 3165, 3165 },
+    { 3168, 3169 },
+    { 3200, 3200 },
+    { 3205, 3212 },
+    { 3214, 3216 },
+    { 3218, 3240 },
+    { 3242, 3251 },
+    { 3253, 3257 },
+    { 3261, 3261 },
+    { 3293, 3294 },
+    { 3296, 3297 },
+    { 3313, 3314 },
+    { 3332, 3340 },
+    { 3342, 3344 },
+    { 3346, 3386 },
+    { 3389, 3389 },
+    { 3406, 3406 },
+    { 3412, 3414 },
+    { 3423, 3425 },
+    { 3450, 3455 },
+    { 3461, 3478 },
+    { 3482, 3505 },
+    { 3507, 3515 },
+    { 3517, 3517 },
+    { 3520, 3526 },
+    { 3585, 3632 },
+    { 3634, 3635 },
+    { 3648, 3654 },
+    { 3713, 3714 },
+    { 3716, 3716 },
+    { 3718, 3722 },
+    { 3724, 3747 },
+    { 3749, 3749 },
+    { 3751, 3760 },
+    { 3762, 3763 },
+    { 3773, 3773 },
+    { 3776, 3780 },
+    { 3782, 3782 },
+    { 3804, 3807 },
+    { 3840, 3840 },
+    { 3904, 3911 },
+    { 3913, 3948 },
+    { 3976, 3980 },
+    { 4096, 4138 },
+    { 4159, 4159 },
+    { 4176, 4181 },
+    { 4186, 4189 },
+    { 4193, 4193 },
+    { 4197, 4198 },
+    { 4206, 4208 },
+    { 4213, 4225 },
+    { 4238, 4238 },
+    { 4256, 4293 },
+    { 4295, 4295 },
+    { 4301, 4301 },
+    { 4304, 4346 },
+    { 4348, 4680 },
+    { 4682, 4685 },
+    { 4688, 4694 },
+    { 4696, 4696 },
+    { 4698, 4701 },
+    { 4704, 4744 },
+    { 4746, 4749 },
+    { 4752, 4784 },
+    { 4786, 4789 },
+    { 4792, 4798 },
+    { 4800, 4800 },
+    { 4802, 4805 },
+    { 4808, 4822 },
+    { 4824, 4880 },
+    { 4882, 4885 },
+    { 4888, 4954 },
+    { 4992, 5007 },
+    { 5024, 5109 },
+    { 5112, 5117 },
+    { 5121, 5740 },
+    { 5743, 5759 },
+    { 5761, 5786 },
+    { 5792, 5866 },
+    { 5873, 5880 },
+    { 5888, 5905 },
+    { 5919, 5937 },
+    { 5952, 5969 },
+    { 5984, 5996 },
+    { 5998, 6000 },
+    { 6016, 6067 },
+    { 6103, 6103 },
+    { 6108, 6108 },
+    { 6176, 6264 },
+    { 6272, 6276 },
+    { 6279, 6312 },
+    { 6314, 6314 },
+    { 6320, 6389 },
+    { 6400, 6430 },
+    { 6480, 6509 },
+    { 6512, 6516 },
+    { 6528, 6571 },
+    { 6576, 6601 },
+    { 6656, 6678 },
+    { 6688, 6740 },
+    { 6823, 6823 },
+    { 6917, 6963 },
+    { 6981, 6988 },
+    { 7043, 7072 },
+    { 7086, 7087 },
+    { 7098, 7141 },
+    { 7168, 7203 },
+    { 7245, 7247 },
+    { 7258, 7293 },
+    { 7296, 7304 },
+    { 7312, 7354 },
+    { 7357, 7359 },
+    { 7401, 7404 },
+    { 7406, 7411 },
+    { 7413, 7414 },
+    { 7418, 7418 },
+    { 7424, 7615 },
+    { 7680, 7957 },
+    { 7960, 7965 },
+    { 7968, 8005 },
+    { 8008, 8013 },
+    { 8016, 8023 },
+    { 8025, 8025 },
+    { 8027, 8027 },
+    { 8029, 8029 },
+    { 8031, 8061 },
+    { 8064, 8116 },
+    { 8118, 8124 },
+    { 8126, 8126 },
+    { 8130, 8132 },
+    { 8134, 8140 },
+    { 8144, 8147 },
+    { 8150, 8155 },
+    { 8160, 8172 },
+    { 8178, 8180 },
+    { 8182, 8188 },
+    { 8305, 8305 },
+    { 8319, 8319 },
+    { 8336, 8348 },
+    { 8450, 8450 },
+    { 8455, 8455 },
+    { 8458, 8467 },
+    { 8469, 8469 },
+    { 8473, 8477 },
+    { 8484, 8484 },
+    { 8486, 8486 },
+    { 8488, 8488 },
+    { 8490, 8493 },
+    { 8495, 8505 },
+    { 8508, 8511 },
+    { 8517, 8521 },
+    { 8526, 8526 },
+    { 8579, 8580 },
+    { 11264, 11492 },
+    { 11499, 11502 },
+    { 11506, 11507 },
+    { 11520, 11557 },
+    { 11559, 11559 },
+    { 11565, 11565 },
+    { 11568, 11623 },
+    { 11631, 11631 },
+    { 11648, 11670 },
+    { 11680, 11686 },
+    { 11688, 11694 },
+    { 11696, 11702 },
+    { 11704, 11710 },
+    { 11712, 11718 },
+    { 11720, 11726 },
+    { 11728, 11734 },
+    { 11736, 11742 },
+    { 11823, 11823 },
+    { 12293, 12294 },
+    { 12337, 12341 },
+    { 12347, 12348 },
+    { 12353, 12438 },
+    { 12445, 12447 },
+    { 12449, 12538 },
+    { 12540, 12543 },
+    { 12549, 12591 },
+    { 12593, 12686 },
+    { 12704, 12735 },
+    { 12784, 12799 },
+    { 13312, 19903 },
+    { 19968, 42124 },
+    { 42192, 42237 },
+    { 42240, 42508 },
+    { 42512, 42527 },
+    { 42538, 42539 },
+    { 42560, 42606 },
+    { 42623, 42653 },
+    { 42656, 42725 },
+    { 42775, 42783 },
+    { 42786, 42888 },
+    { 42891, 42954 },
+    { 42960, 42961 },
+    { 42963, 42963 },
+    { 42965, 42969 },
+    { 42994, 43009 },
+    { 43011, 43013 },
+    { 43015, 43018 },
+    { 43020, 43042 },
+    { 43072, 43123 },
+    { 43138, 43187 },
+    { 43250, 43255 },
+    { 43259, 43259 },
+    { 43261, 43262 },
+    { 43274, 43301 },
+    { 43312, 43334 },
+    { 43360, 43388 },
+    { 43396, 43442 },
+    { 43471, 43471 },
+    { 43488, 43492 },
+    { 43494, 43503 },
+    { 43514, 43518 },
+    { 43520, 43560 },
+    { 43584, 43586 },
+    { 43588, 43595 },
+    { 43616, 43638 },
+    { 43642, 43642 },
+    { 43646, 43695 },
+    { 43697, 43697 },
+    { 43701, 43702 },
+    { 43705, 43709 },
+    { 43712, 43712 },
+    { 43714, 43714 },
+    { 43739, 43741 },
+    { 43744, 43754 },
+    { 43762, 43764 },
+    { 43777, 43782 },
+    { 43785, 43790 },
+    { 43793, 43798 },
+    { 43808, 43814 },
+    { 43816, 43822 },
+    { 43824, 43866 },
+    { 43868, 43881 },
+    { 43888, 44002 },
+    { 44032, 55203 },
+    { 55216, 55238 },
+    { 55243, 55291 },
+    { 63744, 64109 },
+    { 64112, 64217 },
+    { 64256, 64262 },
+    { 64275, 64279 },
+    { 64285, 64285 },
+    { 64287, 64296 },
+    { 64298, 64310 },
+    { 64312, 64316 },
+    { 64318, 64318 },
+    { 64320, 64321 },
+    { 64323, 64324 },
+    { 64326, 64433 },
+    { 64467, 64829 },
+    { 64848, 64911 },
+    { 64914, 64967 },
+    { 65008, 65019 },
+    { 65136, 65140 },
+    { 65142, 65276 },
+    { 65313, 65338 },
+    { 65345, 65370 },
+    { 65382, 65470 },
+    { 65474, 65479 },
+    { 65482, 65487 },
+    { 65490, 65495 },
+    { 65498, 65500 },
+};
+
+static const URange16 Lm_range16[] = { // Modifier letter
+    { 688, 705 },
+    { 710, 721 },
+    { 736, 740 },
+    { 748, 748 },
+    { 750, 750 },
+    { 884, 884 },
+    { 890, 890 },
+    { 1369, 1369 },
+    { 1600, 1600 },
+    { 1765, 1766 },
+    { 2036, 2037 },
+    { 2042, 2042 },
+    { 2074, 2074 },
+    { 2084, 2084 },
+    { 2088, 2088 },
+    { 2249, 2249 },
+    { 2417, 2417 },
+    { 3654, 3654 },
+    { 3782, 3782 },
+    { 4348, 4348 },
+    { 6103, 6103 },
+    { 6211, 6211 },
+    { 6823, 6823 },
+    { 7288, 7293 },
+    { 7468, 7530 },
+    { 7544, 7544 },
+    { 7579, 7615 },
+    { 8305, 8305 },
+    { 8319, 8319 },
+    { 8336, 8348 },
+    { 11388, 11389 },
+    { 11631, 11631 },
+    { 11823, 11823 },
+    { 12293, 12293 },
+    { 12337, 12341 },
+    { 12347, 12347 },
+    { 12445, 12446 },
+    { 12540, 12542 },
+    { 40981, 40981 },
+    { 42232, 42237 },
+    { 42508, 42508 },
+    { 42623, 42623 },
+    { 42652, 42653 },
+    { 42775, 42783 },
+    { 42864, 42864 },
+    { 42888, 42888 },
+    { 42994, 42996 },
+    { 43000, 43001 },
+    { 43471, 43471 },
+    { 43494, 43494 },
+    { 43632, 43632 },
+    { 43741, 43741 },
+    { 43763, 43764 },
+    { 43868, 43871 },
+    { 43881, 43881 },
+    { 65392, 65392 },
+    { 65438, 65439 },
 };
 
 static const URange16 Lt_range16[] = { // Title case
@@ -1371,6 +1826,174 @@ static const URange16 Nl_range16[] = { // Number letter
     { 42726, 42735 },
 };
 
+static const URange16 No_range16[] = { // Other number
+    { 178, 179 },
+    { 185, 185 },
+    { 188, 190 },
+    { 2548, 2553 },
+    { 2930, 2935 },
+    { 3056, 3058 },
+    { 3192, 3198 },
+    { 3416, 3422 },
+    { 3440, 3448 },
+    { 3882, 3891 },
+    { 4969, 4988 },
+    { 6128, 6137 },
+    { 6618, 6618 },
+    { 8304, 8304 },
+    { 8308, 8313 },
+    { 8320, 8329 },
+    { 8528, 8543 },
+    { 8585, 8585 },
+    { 9312, 9371 },
+    { 9450, 9471 },
+    { 10102, 10131 },
+    { 11517, 11517 },
+    { 12690, 12693 },
+    { 12832, 12841 },
+    { 12872, 12879 },
+    { 12881, 12895 },
+    { 12928, 12937 },
+    { 12977, 12991 },
+    { 43056, 43061 },
+};
+
+static const URange16 P_range16[] = { // Punctuation
+    { 33, 35 },
+    { 37, 42 },
+    { 44, 47 },
+    { 58, 59 },
+    { 63, 64 },
+    { 91, 93 },
+    { 95, 95 },
+    { 123, 123 },
+    { 125, 125 },
+    { 161, 161 },
+    { 167, 167 },
+    { 171, 171 },
+    { 182, 183 },
+    { 187, 187 },
+    { 191, 191 },
+    { 894, 894 },
+    { 903, 903 },
+    { 1370, 1375 },
+    { 1417, 1418 },
+    { 1470, 1470 },
+    { 1472, 1472 },
+    { 1475, 1475 },
+    { 1478, 1478 },
+    { 1523, 1524 },
+    { 1545, 1546 },
+    { 1548, 1549 },
+    { 1563, 1563 },
+    { 1565, 1567 },
+    { 1642, 1645 },
+    { 1748, 1748 },
+    { 1792, 1805 },
+    { 2039, 2041 },
+    { 2096, 2110 },
+    { 2142, 2142 },
+    { 2404, 2405 },
+    { 2416, 2416 },
+    { 2557, 2557 },
+    { 2678, 2678 },
+    { 2800, 2800 },
+    { 3191, 3191 },
+    { 3204, 3204 },
+    { 3572, 3572 },
+    { 3663, 3663 },
+    { 3674, 3675 },
+    { 3844, 3858 },
+    { 3860, 3860 },
+    { 3898, 3901 },
+    { 3973, 3973 },
+    { 4048, 4052 },
+    { 4057, 4058 },
+    { 4170, 4175 },
+    { 4347, 4347 },
+    { 4960, 4968 },
+    { 5120, 5120 },
+    { 5742, 5742 },
+    { 5787, 5788 },
+    { 5867, 5869 },
+    { 5941, 5942 },
+    { 6100, 6102 },
+    { 6104, 6106 },
+    { 6144, 6154 },
+    { 6468, 6469 },
+    { 6686, 6687 },
+    { 6816, 6822 },
+    { 6824, 6829 },
+    { 7002, 7008 },
+    { 7037, 7038 },
+    { 7164, 7167 },
+    { 7227, 7231 },
+    { 7294, 7295 },
+    { 7360, 7367 },
+    { 7379, 7379 },
+    { 8208, 8231 },
+    { 8240, 8259 },
+    { 8261, 8273 },
+    { 8275, 8286 },
+    { 8317, 8318 },
+    { 8333, 8334 },
+    { 8968, 8971 },
+    { 9001, 9002 },
+    { 10088, 10101 },
+    { 10181, 10182 },
+    { 10214, 10223 },
+    { 10627, 10648 },
+    { 10712, 10715 },
+    { 10748, 10749 },
+    { 11513, 11516 },
+    { 11518, 11519 },
+    { 11632, 11632 },
+    { 11776, 11822 },
+    { 11824, 11855 },
+    { 11858, 11869 },
+    { 12289, 12291 },
+    { 12296, 12305 },
+    { 12308, 12319 },
+    { 12336, 12336 },
+    { 12349, 12349 },
+    { 12448, 12448 },
+    { 12539, 12539 },
+    { 42238, 42239 },
+    { 42509, 42511 },
+    { 42611, 42611 },
+    { 42622, 42622 },
+    { 42738, 42743 },
+    { 43124, 43127 },
+    { 43214, 43215 },
+    { 43256, 43258 },
+    { 43260, 43260 },
+    { 43310, 43311 },
+    { 43359, 43359 },
+    { 43457, 43469 },
+    { 43486, 43487 },
+    { 43612, 43615 },
+    { 43742, 43743 },
+    { 43760, 43761 },
+    { 44011, 44011 },
+    { 64830, 64831 },
+    { 65040, 65049 },
+    { 65072, 65106 },
+    { 65108, 65121 },
+    { 65123, 65123 },
+    { 65128, 65128 },
+    { 65130, 65131 },
+    { 65281, 65283 },
+    { 65285, 65290 },
+    { 65292, 65295 },
+    { 65306, 65307 },
+    { 65311, 65312 },
+    { 65339, 65341 },
+    { 65343, 65343 },
+    { 65371, 65371 },
+    { 65373, 65373 },
+    { 65375, 65381 },
+};
+
 static const URange16 Pc_range16[] = { // Connector punctuation
     { 95, 95 },
     { 8255, 8256 },
@@ -1401,6 +2024,85 @@ static const URange16 Pd_range16[] = { // Dash punctuation
     { 65293, 65293 },
 };
 
+static const URange16 Pe_range16[] = { // End/close punctuation
+    { 41, 41 },
+    { 93, 93 },
+    { 125, 125 },
+    { 3899, 3899 },
+    { 3901, 3901 },
+    { 5788, 5788 },
+    { 8262, 8262 },
+    { 8318, 8318 },
+    { 8334, 8334 },
+    { 8969, 8969 },
+    { 8971, 8971 },
+    { 9002, 9002 },
+    { 10089, 10089 },
+    { 10091, 10091 },
+    { 10093, 10093 },
+    { 10095, 10095 },
+    { 10097, 10097 },
+    { 10099, 10099 },
+    { 10101, 10101 },
+    { 10182, 10182 },
+    { 10215, 10215 },
+    { 10217, 10217 },
+    { 10219, 10219 },
+    { 10221, 10221 },
+    { 10223, 10223 },
+    { 10628, 10628 },
+    { 10630, 10630 },
+    { 10632, 10632 },
+    { 10634, 10634 },
+    { 10636, 10636 },
+    { 10638, 10638 },
+    { 10640, 10640 },
+    { 10642, 10642 },
+    { 10644, 10644 },
+    { 10646, 10646 },
+    { 10648, 10648 },
+    { 10713, 10713 },
+    { 10715, 10715 },
+    { 10749, 10749 },
+    { 11811, 11811 },
+    { 11813, 11813 },
+    { 11815, 11815 },
+    { 11817, 11817 },
+    { 11862, 11862 },
+    { 11864, 11864 },
+    { 11866, 11866 },
+    { 11868, 11868 },
+    { 12297, 12297 },
+    { 12299, 12299 },
+    { 12301, 12301 },
+    { 12303, 12303 },
+    { 12305, 12305 },
+    { 12309, 12309 },
+    { 12311, 12311 },
+    { 12313, 12313 },
+    { 12315, 12315 },
+    { 12318, 12319 },
+    { 64830, 64830 },
+    { 65048, 65048 },
+    { 65078, 65078 },
+    { 65080, 65080 },
+    { 65082, 65082 },
+    { 65084, 65084 },
+    { 65086, 65086 },
+    { 65088, 65088 },
+    { 65090, 65090 },
+    { 65092, 65092 },
+    { 65096, 65096 },
+    { 65114, 65114 },
+    { 65116, 65116 },
+    { 65118, 65118 },
+    { 65289, 65289 },
+    { 65341, 65341 },
+    { 65373, 65373 },
+    { 65376, 65376 },
+    { 65379, 65379 },
+};
+
 static const URange16 Pf_range16[] = { // Final punctuation
     { 187, 187 },
     { 8217, 8217 },
@@ -1428,6 +2130,88 @@ static const URange16 Pi_range16[] = { // Initial punctuation
     { 11808, 11808 },
 };
 
+static const URange16 Ps_range16[] = { // Start/open punctuation
+    { 40, 40 },
+    { 91, 91 },
+    { 123, 123 },
+    { 3898, 3898 },
+    { 3900, 3900 },
+    { 5787, 5787 },
+    { 8218, 8218 },
+    { 8222, 8222 },
+    { 8261, 8261 },
+    { 8317, 8317 },
+    { 8333, 8333 },
+    { 8968, 8968 },
+    { 8970, 8970 },
+    { 9001, 9001 },
+    { 10088, 10088 },
+    { 10090, 10090 },
+    { 10092, 10092 },
+    { 10094, 10094 },
+    { 10096, 10096 },
+    { 10098, 10098 },
+    { 10100, 10100 },
+    { 10181, 10181 },
+    { 10214, 10214 },
+    { 10216, 10216 },
+    { 10218, 10218 },
+    { 10220, 10220 },
+    { 10222, 10222 },
+    { 10627, 10627 },
+    { 10629, 10629 },
+    { 10631, 10631 },
+    { 10633, 10633 },
+    { 10635, 10635 },
+    { 10637, 10637 },
+    { 10639, 10639 },
+    { 10641, 10641 },
+    { 10643, 10643 },
+    { 10645, 10645 },
+    { 10647, 10647 },
+    { 10712, 10712 },
+    { 10714, 10714 },
+    { 10748, 10748 },
+    { 11810, 11810 },
+    { 11812, 11812 },
+    { 11814, 11814 },
+    { 11816, 11816 },
+    { 11842, 11842 },
+    { 11861, 11861 },
+    { 11863, 11863 },
+    { 11865, 11865 },
+    { 11867, 11867 },
+    { 12296, 12296 },
+    { 12298, 12298 },
+    { 12300, 12300 },
+    { 12302, 12302 },
+    { 12304, 12304 },
+    { 12308, 12308 },
+    { 12310, 12310 },
+    { 12312, 12312 },
+    { 12314, 12314 },
+    { 12317, 12317 },
+    { 64831, 64831 },
+    { 65047, 65047 },
+    { 65077, 65077 },
+    { 65079, 65079 },
+    { 65081, 65081 },
+    { 65083, 65083 },
+    { 65085, 65085 },
+    { 65087, 65087 },
+    { 65089, 65089 },
+    { 65091, 65091 },
+    { 65095, 65095 },
+    { 65113, 65113 },
+    { 65115, 65115 },
+    { 65117, 65117 },
+    { 65288, 65288 },
+    { 65339, 65339 },
+    { 65371, 65371 },
+    { 65375, 65375 },
+    { 65378, 65378 },
+};
+
 static const URange16 Sc_range16[] = { // Currency symbol
     { 36, 36 },
     { 162, 165 },
@@ -1447,6 +2231,95 @@ static const URange16 Sc_range16[] = { // Currency symbol
     { 65284, 65284 },
     { 65504, 65505 },
     { 65509, 65510 },
+};
+
+static const URange16 Sk_range16[] = { // Modifier symbol
+    { 94, 94 },
+    { 96, 96 },
+    { 168, 168 },
+    { 175, 175 },
+    { 180, 180 },
+    { 184, 184 },
+    { 706, 709 },
+    { 722, 735 },
+    { 741, 747 },
+    { 749, 749 },
+    { 751, 767 },
+    { 885, 885 },
+    { 900, 901 },
+    { 2184, 2184 },
+    { 8125, 8125 },
+    { 8127, 8129 },
+    { 8141, 8143 },
+    { 8157, 8159 },
+    { 8173, 8175 },
+    { 8189, 8190 },
+    { 12443, 12444 },
+    { 42752, 42774 },
+    { 42784, 42785 },
+    { 42889, 42890 },
+    { 43867, 43867 },
+    { 43882, 43883 },
+    { 64434, 64450 },
+    { 65342, 65342 },
+    { 65344, 65344 },
+    { 65507, 65507 },
+};
+
+static const URange16 Sm_range16[] = { // Math symbol
+    { 43, 43 },
+    { 60, 62 },
+    { 124, 124 },
+    { 126, 126 },
+    { 172, 172 },
+    { 177, 177 },
+    { 215, 215 },
+    { 247, 247 },
+    { 1014, 1014 },
+    { 1542, 1544 },
+    { 8260, 8260 },
+    { 8274, 8274 },
+    { 8314, 8316 },
+    { 8330, 8332 },
+    { 8472, 8472 },
+    { 8512, 8516 },
+    { 8523, 8523 },
+    { 8592, 8596 },
+    { 8602, 8603 },
+    { 8608, 8608 },
+    { 8611, 8611 },
+    { 8614, 8614 },
+    { 8622, 8622 },
+    { 8654, 8655 },
+    { 8658, 8658 },
+    { 8660, 8660 },
+    { 8692, 8959 },
+    { 8992, 8993 },
+    { 9084, 9084 },
+    { 9115, 9139 },
+    { 9180, 9185 },
+    { 9655, 9655 },
+    { 9665, 9665 },
+    { 9720, 9727 },
+    { 9839, 9839 },
+    { 10176, 10180 },
+    { 10183, 10213 },
+    { 10224, 10239 },
+    { 10496, 10626 },
+    { 10649, 10711 },
+    { 10716, 10747 },
+    { 10750, 11007 },
+    { 11056, 11076 },
+    { 11079, 11084 },
+    { 64297, 64297 },
+    { 65122, 65122 },
+    { 65124, 65126 },
+    { 65291, 65291 },
+    { 65308, 65310 },
+    { 65372, 65372 },
+    { 65374, 65374 },
+    { 65506, 65506 },
+    { 65513, 65516 },
 };
 
 static const URange16 Zl_range16[] = { // Line separator
@@ -1591,18 +2464,18 @@ static const URange16 Han_range16[] = {
 };
 
 static const URange16 Hiragana_range16[] = {
-	{ 12353, 12438 },
-	{ 12445, 12447 },
+    { 12353, 12438 },
+    { 12445, 12447 },
 };
 
 static const URange16 Katakana_range16[] = {
-	{ 12449, 12538 },
-	{ 12541, 12543 },
-	{ 12784, 12799 },
-	{ 13008, 13054 },
-	{ 13056, 13143 },
-	{ 65382, 65391 },
-	{ 65393, 65437 },
+    { 12449, 12538 },
+    { 12541, 12543 },
+    { 12784, 12799 },
+    { 13008, 13054 },
+    { 13056, 13143 },
+    { 65382, 65391 },
+    { 65393, 65437 },
 };
 
 static const URange16 Latin_range16[] = {
@@ -1661,14 +2534,22 @@ typedef struct {
 
 static const UGroup _utf8_unicode_groups[U8G_SIZE] = {
     _e_arg(U8G_Cc, UNI_ENTRY(Cc)),
+    _e_arg(U8G_L, UNI_ENTRY(L)),
+    _e_arg(U8G_Lm, UNI_ENTRY(Lm)),
     _e_arg(U8G_Lt, UNI_ENTRY(Lt)),
     _e_arg(U8G_Nd, UNI_ENTRY(Nd)),
     _e_arg(U8G_Nl, UNI_ENTRY(Nl)),
+    _e_arg(U8G_No, UNI_ENTRY(No)),
+    _e_arg(U8G_P, UNI_ENTRY(P)),
     _e_arg(U8G_Pc, UNI_ENTRY(Pc)),
     _e_arg(U8G_Pd, UNI_ENTRY(Pd)),
+    _e_arg(U8G_Pe, UNI_ENTRY(Pe)),
     _e_arg(U8G_Pf, UNI_ENTRY(Pf)),
     _e_arg(U8G_Pi, UNI_ENTRY(Pi)),
+    _e_arg(U8G_Ps, UNI_ENTRY(Ps)),
     _e_arg(U8G_Sc, UNI_ENTRY(Sc)),
+    _e_arg(U8G_Sk, UNI_ENTRY(Sk)),
+    _e_arg(U8G_Sm, UNI_ENTRY(Sm)),
     _e_arg(U8G_Zl, UNI_ENTRY(Zl)),
     _e_arg(U8G_Zp, UNI_ENTRY(Zp)),
     _e_arg(U8G_Zs, UNI_ENTRY(Zs)),
@@ -1685,14 +2566,11 @@ static const UGroup _utf8_unicode_groups[U8G_SIZE] = {
     _e_arg(U8G_Thai, UNI_ENTRY(Thai)),
 };
 
-static bool utf8_isgroup(int group, uint32_t c) {
-    for (int j=0; j<_utf8_unicode_groups[group].nr16; ++j) {
-        if (c < _utf8_unicode_groups[group].r16[j].lo)
-            return false;
-        if (c <= _utf8_unicode_groups[group].r16[j].hi)
-            return true;
-    }
-    return false;
+bool utf8_isgroup(int group, uint32_t c) {
+    #define _at_group(idx) &_utf8_unicode_groups[group].r16[idx].hi
+    int i, n = _utf8_unicode_groups[group].nr16;
+    c_lowerbound(uint32_t, c, _at_group, c_default_less, n, &i);
+    return (i < n && c >= _utf8_unicode_groups[group].r16[i].lo);
 }
 
 #endif // STC_UCD_PRV_C_INCLUDED
@@ -1777,7 +2655,6 @@ enum {
     ASC_lo      , ASC_LO,       /* lower */
     ASC_up      , ASC_UP,       /* upper */
     ASC_xd      , ASC_XD,       /* hex */
-    UTF_al      , UTF_AL,       /* utf8 alpha */
     UTF_an      , UTF_AN,       /* utf8 alphanumeric */
     UTF_bl      , UTF_BL,       /* utf8 blank */
     UTF_lc      , UTF_LC,       /* utf8 letter cased */
@@ -1785,16 +2662,24 @@ enum {
     UTF_lu      , UTF_LU,       /* utf8 letter uppercase */
     UTF_sp      , UTF_SP,       /* utf8 space */
     UTF_wr      , UTF_WR,       /* utf8 word */
-    UTF_GRP = 0x8150000,
+    UTF_GRP = 0x8150000, // odd enums = inverse:
     UTF_cc = UTF_GRP+2*U8G_Cc, UTF_CC, /* utf8 control char */
+    UTF_l  = UTF_GRP+2*U8G_L,  UTF_L,  /* utf8 letter */
+    UTF_lm = UTF_GRP+2*U8G_Lm, UTF_LM, /* utf8 letter modifier */
     UTF_lt = UTF_GRP+2*U8G_Lt, UTF_LT, /* utf8 letter titlecase */
     UTF_nd = UTF_GRP+2*U8G_Nd, UTF_ND, /* utf8 number decimal */
     UTF_nl = UTF_GRP+2*U8G_Nl, UTF_NL, /* utf8 number letter */
+    UTF_no = UTF_GRP+2*U8G_No, UTF_NO, /* utf8 number other */
+    UTF_p  = UTF_GRP+2*U8G_P,  UTF_P,  /* utf8 punctuation */
     UTF_pc = UTF_GRP+2*U8G_Pc, UTF_PC, /* utf8 punct connector */
     UTF_pd = UTF_GRP+2*U8G_Pd, UTF_PD, /* utf8 punct dash */
+    UTF_pe = UTF_GRP+2*U8G_Pe, UTF_PE, /* utf8 punct close */
     UTF_pf = UTF_GRP+2*U8G_Pf, UTF_PF, /* utf8 punct final */
     UTF_pi = UTF_GRP+2*U8G_Pi, UTF_PI, /* utf8 punct initial */
+    UTF_ps = UTF_GRP+2*U8G_Ps, UTF_PS, /* utf8 punct open */
     UTF_sc = UTF_GRP+2*U8G_Sc, UTF_SC, /* utf8 symbol currency */
+    UTF_sk = UTF_GRP+2*U8G_Sk, UTF_SK, /* utf8 symbol modifier */
+    UTF_sm = UTF_GRP+2*U8G_Sm, UTF_SM, /* utf8 symbol math */
     UTF_zl = UTF_GRP+2*U8G_Zl, UTF_ZL, /* utf8 separator line */
     UTF_zp = UTF_GRP+2*U8G_Zp, UTF_ZP, /* utf8 separator paragraph */
     UTF_zs = UTF_GRP+2*U8G_Zs, UTF_ZS, /* utf8 separator space */
@@ -2280,7 +3165,7 @@ static void
 _lexutfclass(_Parser *par, _Rune *rp)
 {
     static struct { const char* c; uint32_t n, r; } cls[] = {
-        {"{Alpha}", 7, UTF_al}, {"{L&}", 4, UTF_lc},
+        {"{Alpha}", 7, UTF_l}, {"{L&}", 4, UTF_lc},
         {"{Digit}", 7, UTF_nd}, {"{Nd}", 4, UTF_nd},
         {"{Lower}", 7, UTF_ll}, {"{Ll}", 4, UTF_ll},
         {"{Upper}", 7, UTF_lu}, {"{Lu}", 4, UTF_lu},
@@ -2288,11 +3173,16 @@ _lexutfclass(_Parser *par, _Rune *rp)
         {"{Alnum}", 7, UTF_an}, {"{Blank}", 7, UTF_bl},
         {"{Space}", 7, UTF_sp}, {"{Word}", 6, UTF_wr},
         {"{XDigit}", 8, ASC_xd},
-        {"{Lt}", 4, UTF_lt}, {"{Nl}", 4, UTF_nl},
-        {"{Pc}", 4, UTF_pc}, {"{Pd}", 4, UTF_pd},
+        {"{L}",  3, UTF_l},  {"{Lm}", 4, UTF_lm},
+        {"{Lt}", 4, UTF_lt},
+        {"{Nl}", 4, UTF_nl}, {"{No}", 4, UTF_no},
+        {"{P}",  3, UTF_p},  {"{Pc}", 4, UTF_pc},
+        {"{Pd}", 4, UTF_pd}, {"{Pe}", 4, UTF_pe},
         {"{Pf}", 4, UTF_pf}, {"{Pi}", 4, UTF_pi},
+        {"{Ps}", 4, UTF_ps},
         {"{Zl}", 4, UTF_zl}, {"{Zp}", 4, UTF_zp},
         {"{Zs}", 4, UTF_zs}, {"{Sc}", 4, UTF_sc},
+        {"{Sk}", 4, UTF_sk}, {"{Sm}", 4, UTF_sm},
         {"{Arabic}", 8, UTF_arabic},
         {"{Bengali}", 9, UTF_bengali},
         {"{Cyrillic}", 10, UTF_cyrillic},
@@ -2573,17 +3463,25 @@ _runematch(_Rune s, _Rune r)
     case UTF_LL: inv = 1; case UTF_ll: return inv ^ (int)utf8_islower(r);
     case UTF_LU: inv = 1; case UTF_lu: return inv ^ (int)utf8_isupper(r);
     case UTF_LC: inv = 1; case UTF_lc: return inv ^ (int)utf8_iscased(r);
-    case UTF_AL: inv = 1; case UTF_al: return inv ^ (int)utf8_isalpha(r);
     case UTF_WR: inv = 1; case UTF_wr: return inv ^ (int)utf8_isword(r);
+    case UTF_L:  inv = 1; case UTF_l:  return inv ^ (int)utf8_isalpha(r);
+    case UTF_ND: inv = 1; case UTF_nd: return inv ^ (int)utf8_isdigit(r);
+/* isgroup: */
     case UTF_cc: case UTF_CC:
+    case UTF_lm: case UTF_LM:
     case UTF_lt: case UTF_LT:
-    case UTF_nd: case UTF_ND:
     case UTF_nl: case UTF_NL:
+    case UTF_no: case UTF_NO:
+    case UTF_p: case UTF_P:
     case UTF_pc: case UTF_PC:
     case UTF_pd: case UTF_PD:
+    case UTF_pe: case UTF_PE:
     case UTF_pf: case UTF_PF:
     case UTF_pi: case UTF_PI:
+    case UTF_ps: case UTF_PS:
     case UTF_sc: case UTF_SC:
+    case UTF_sk: case UTF_SK:
+    case UTF_sm: case UTF_SM:
     case UTF_zl: case UTF_ZL:
     case UTF_zp: case UTF_ZP:
     case UTF_zs: case UTF_ZS:
@@ -2609,7 +3507,7 @@ static int
 _regexec1(const _Reprog *progp,  /* program to run */
     const char *bol,    /* string to run machine on */
     _Resub *mp,         /* subexpression elements */
-    int ms,        /* number of elements at mp */
+    int ms,             /* number of elements at mp */
     _Reljunk *j,
     int mflags
 )
@@ -2622,15 +3520,10 @@ _regexec1(const _Reprog *progp,  /* program to run */
     const char *s, *p;
     _Rune r, *rp, *ep;
     int n, checkstart, match = 0;
-    int i;
 
     bool icase = progp->flags.icase;
     checkstart = j->starttype;
-    if (mp)
-        for (i=0; i<ms; i++) {
-            mp[i].buf = NULL;
-            mp[i].size = 0;
-        }
+    if (mp) memset(mp, 0, (unsigned)ms*sizeof *mp);
     j->relist[0][0].inst = NULL;
     j->relist[1][0].inst = NULL;
 
@@ -3259,26 +4152,11 @@ bool utf8_valid_n(const char* s, isize nbytes) {
     return d.state == utf8_ACCEPT;
 }
 
-#define _binsearch(c, at, N, ret) do { \
-    int _n = N, _i = 0, _mid = _n/2; \
-    while (_n > 0) { \
-        if (at(_i + _mid) < c) { \
-            _i += _mid + 1; \
-            _n -= _mid + 1; \
-            _mid = _n*7/8; \
-        } else { \
-            _n = _mid; \
-            _mid = _n/8; \
-        } \
-    } \
-    ret = (_i >= N || at(_i) < c) ? N : _i; \
-} while (0)
-
 uint32_t utf8_casefold(uint32_t c) {
-    #define _at_fold(idx) casemappings[idx].c2
+    #define _at_fold(idx) &casemappings[idx].c2
     int i;
-    _binsearch(c, _at_fold, casefold_len, i);
-    if (i < casefold_len && casemappings[i].c1 <= c && c <= casemappings[i].c2) {
+    c_lowerbound(uint32_t, c, _at_fold, c_default_less, casefold_len, &i);
+    if (i < casefold_len && casemappings[i].c1 <= c) {
         const struct CaseMapping entry = casemappings[i];
         int d = entry.m2 - entry.c2;
         if (d == 1) return c + ((entry.c2 & 1U) == (c & 1U));
@@ -3288,12 +4166,12 @@ uint32_t utf8_casefold(uint32_t c) {
 }
 
 uint32_t utf8_tolower(uint32_t c) {
-    #define _at_upper(idx) casemappings[upcase_ind[idx]].c2
+    #define _at_upper(idx) &casemappings[upcase_ind[idx]].c2
     int i, n = c_countof(upcase_ind);
-    _binsearch(c, _at_upper, n, i);
+    c_lowerbound(uint32_t, c, _at_upper, c_default_less, n, &i);
     if (i < n) {
         const struct CaseMapping entry = casemappings[upcase_ind[i]];
-        if (entry.c1 <= c && c <= entry.c2) {
+        if (entry.c1 <= c) {
             int d = entry.m2 - entry.c2;
             if (d == 1) return c + ((entry.c2 & 1U) == (c & 1U));
             return (uint32_t)((int)c + d);
@@ -3303,13 +4181,13 @@ uint32_t utf8_tolower(uint32_t c) {
 }
 
 uint32_t utf8_toupper(uint32_t c) {
-    #define _at_lower(idx) casemappings[lowcase_ind[idx]].m2
+    #define _at_lower(idx) &casemappings[lowcase_ind[idx]].m2
     int i, n = c_countof(lowcase_ind);
-    _binsearch(c, _at_lower, n, i);
+    c_lowerbound(uint32_t, c, _at_lower, c_default_less, n, &i);
     if (i < n) {
         const struct CaseMapping entry = casemappings[lowcase_ind[i]];
         int d = entry.m2 - entry.c2;
-        if (entry.c1 + (uint32_t)d <= c && c <= entry.m2) {
+        if (entry.c1 + (uint32_t)d <= c) {
             if (d == 1) return c - ((entry.m2 & 1U) == (c & 1U));
             return (uint32_t)((int)c - d);
         }

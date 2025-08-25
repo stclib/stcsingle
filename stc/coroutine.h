@@ -387,10 +387,12 @@ typedef struct {
                 (void)(sizeof((co)->base) > sizeof(cco_base) && _state->wg ? --_state->wg->launch_count : 0)) \
         _resume: switch (_state->pos) case CCO_STATE_INIT: // thanks, @liigo!
 
-#define cco_drop /* label */ \
+#define cco_finalize /* label */ \
     _state->drop = true; /* FALLTHRU */ \
     case CCO_STATE_DROP
-#define cco_cleanup [fix: use cco_drop:]
+
+#define cco_drop cco_finalize // [deprecated]
+#define cco_cleanup [fix: use cco_finalize:]
 #define cco_routine [fix: use cco_async]
 
 #define cco_stop(co) \
@@ -503,11 +505,12 @@ typedef struct cco_task cco_task;
 #define cco_status() (_state->fb->status + 0)
 #define cco_fb(task) ((cco_fiber*)(task)->base.state.fb + 0)
 #define cco_env(task) (task)->base.state.fb->env
+#define cco_set_env(task, the_env) ((task)->base.state.fb->env = the_env)
 
 #define cco_cast_task(...) \
     ((void)sizeof((__VA_ARGS__)->base.func(__VA_ARGS__)), (cco_task *)(__VA_ARGS__))
 
-/* Return with error and unwind await stack; must be recovered in cco_drop section */
+/* Return with error and unwind await stack; must be recovered in cco_finalize section */
 #define cco_throw(error_code) \
     do { \
         cco_fiber* _fb = (cco_fiber*)_state->fb; \
@@ -526,7 +529,7 @@ typedef struct cco_task cco_task;
         cco_stop(_fb1->task); \
     } while (0)
 
-/* Cancel job/task and unwind await stack; MAY be stopped (recovered) in cco_drop section */
+/* Cancel job/task and unwind await stack; MAY be stopped (recovered) in cco_finalize section */
 /* Equals cco_throw(CCO_CANCEL) if a_task is in current fiber. */
 #define cco_cancel(a_task) \
     do { \
@@ -542,7 +545,7 @@ typedef struct cco_task cco_task;
     for (cco_fiber *_fbi = _state->fb->next; _fbi != (cco_fiber*)_state->fb; _fbi = _fbi->next) \
         cco_cancel_fiber(_fbi) \
 
-/* Recover the thrown error; to be used in cco_drop section upon handling cco_err()->code */
+/* Recover the thrown error; to be used in cco_finalize section upon handling cco_err()->code */
 #define cco_recover \
     do { \
         cco_fiber* _fb = (cco_fiber*)_state->fb; \
@@ -602,10 +605,8 @@ static inline int _cco_resume_task(cco_task* task)
 #define cco_reset_group(waitgroup) ((waitgroup)->launch_count = 0)
 #define cco_launch(...) c_MACRO_OVERLOAD(cco_launch, __VA_ARGS__)
 #define cco_launch_2(task, waitgroup) cco_launch_3(task, waitgroup, NULL)
-#define cco_launch_3(task, waitgroup, env) do { \
-    cco_group* _wg = waitgroup; _wg->launch_count += 1; \
-    _cco_spawn(cco_cast_task(task), ((void)sizeof((env) == cco_env(task)), env), (cco_fiber*)_state->fb, _wg); \
-} while (0)
+#define cco_launch_3(task, waitgroup, env) \
+    _cco_spawn(cco_cast_task(task), ((void)sizeof((env) == cco_env(task)), env), (cco_fiber*)_state->fb, waitgroup)
 
 #define cco_await_all(waitgroup) \
     cco_await((waitgroup)->launch_count == 0); \
@@ -616,11 +617,14 @@ static inline int _cco_resume_task(cco_task* task)
     cco_await((waitgroup)->launch_count == (waitgroup)->await_count); \
 } while (0)
 
-#define cco_await_any(waitgroup) \
-    cco_await_n(waitgroup, 1)
-
 #define cco_await_cancel(waitgroup) do { \
     /* Note: current fiber must not be in the waitgroup */ \
+    cco_cancel_group(waitgroup); \
+    cco_await_all(waitgroup); \
+} while (0)
+
+#define cco_await_any(waitgroup) do { \
+    cco_await_n(waitgroup, 1); \
     cco_cancel_group(waitgroup); \
     cco_await_all(waitgroup); \
 } while (0)
@@ -713,10 +717,11 @@ cco_fiber* _cco_new_fiber(cco_task* _task, void* env, cco_group* wg) {
 
 cco_fiber* _cco_spawn(cco_task* _task, void* env, cco_fiber* fb, cco_group* wg) {
     cco_fiber* new_fb;
-    new_fb = fb->next = (fb->next == NULL ? fb : c_new(cco_fiber, {.next=fb->next}));
+    new_fb = fb->next = (fb->next ? c_new(cco_fiber, {.next=fb->next}) : fb);
     new_fb->task = _task;
-    new_fb->env = (env == NULL ? fb->env : env);
+    new_fb->env = (env ? env : fb->env);
     _task->base.state.fb = new_fb;
+    if (wg) wg->launch_count += 1;
     _task->base.state.wg = wg;
     return new_fb;
 }
