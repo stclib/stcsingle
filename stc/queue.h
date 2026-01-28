@@ -249,10 +249,10 @@ typedef union {
         AUXDEF \
     } SELF
 
-#define declare_stack_fixed(SELF, VAL, CAP) \
+#define _declare_inplace_stack(SELF, VAL, CAP, AUXDEF) \
     typedef VAL SELF##_value; \
     typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
-    typedef struct SELF { SELF##_value data[CAP]; ptrdiff_t size; } SELF
+    typedef struct SELF { ptrdiff_t size; SELF##_value data[CAP]; AUXDEF } SELF
 
 #define _declare_stack(SELF, VAL, AUXDEF) \
     typedef VAL SELF##_value; \
@@ -277,16 +277,11 @@ typedef union {
 #include <string.h>
 #include <assert.h>
 
-typedef ptrdiff_t       isize;
-#ifndef STC_NO_INT_DEFS
-    typedef int8_t      int8;
-    typedef uint8_t     uint8;
-    typedef int16_t     int16;
-    typedef uint16_t    uint16;
-    typedef int32_t     int32;
-    typedef uint32_t    uint32;
-    typedef int64_t     int64;
-    typedef uint64_t    uint64;
+#ifndef ISIZE_MAX
+    typedef ptrdiff_t   isize_t;
+    typedef isize_t     isize; // [deprecated]
+    #define ISIZE_MIN   PTRDIFF_MIN
+    #define ISIZE_MAX   PTRDIFF_MAX
 #endif
 #if !defined STC_HAS_TYPEOF && (_MSC_FULL_VER >= 193933428 || \
     defined __GNUC__ || defined __clang__ || defined __TINYC__)
@@ -361,7 +356,7 @@ typedef ptrdiff_t       isize;
 #define c_free_n(ptr, n) c_free(ptr, (n)*c_sizeof *(ptr))
 #define c_realloc_n(ptr, old_n, n) c_realloc(ptr, (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
 #define c_delete_n(T, ptr, n) do { \
-    T* _tp = ptr; isize _n = n, _i = _n; \
+    T* _tp = ptr; isize_t _n = n, _i = _n; \
     while (_i--) T##_drop((_tp + _i)); \
     c_free(_tp, _n*c_sizeof(T)); \
 } while (0)
@@ -375,19 +370,19 @@ typedef ptrdiff_t       isize;
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
 #define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
 #define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
-#define c_countof(a)            (isize)(sizeof(a)/sizeof 0[a])
+#define c_countof(a)            (isize_t)(sizeof(a)/sizeof 0[a])
 #define c_arraylen(a)           c_countof(a) // [deprecated]?
 
 // expect signed ints to/from these (use with gcc -Wconversion)
-#define c_sizeof                (isize)sizeof
-#define c_strlen(s)             (isize)strlen(s)
+#define c_sizeof                (isize_t)sizeof
+#define c_strlen(s)             (isize_t)strlen(s)
 #define c_strncmp(a, b, ilen)   strncmp(a, b, c_i2u_size(ilen))
 #define c_memcpy(d, s, ilen)    memcpy(d, s, c_i2u_size(ilen))
 #define c_memmove(d, s, ilen)   memmove(d, s, c_i2u_size(ilen))
 #define c_memset(d, val, ilen)  memset(d, val, c_i2u_size(ilen))
 #define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u_size(ilen))
 // library internal, but may be useful in user code:
-#define c_u2i_size(u)           (isize)(1 ? (u) : (size_t)1) // warns if u is signed
+#define c_u2i_size(u)           (isize_t)(1 ? (u) : (size_t)1) // warns if u is signed
 #define c_i2u_size(i)           (size_t)(1 ? (i) : -1)       // warns if i is unsigned
 #define c_uless(a, b)           ((size_t)(a) < (size_t)(b))
 #define c_safe_cast(T, From, x) ((T)(1 ? (x) : (From){0}))
@@ -401,14 +396,6 @@ typedef ptrdiff_t       isize;
 #define c_default_clone(v)      (v)
 #define c_default_toraw(vp)     (*(vp))
 #define c_default_drop(vp)      ((void) (vp))
-
-// non-owning char pointer
-typedef const char* cstr_raw;
-#define cstr_raw_cmp(x, y)      strcmp(*(x), *(y))
-#define cstr_raw_eq(x, y)       (cstr_raw_cmp(x, y) == 0)
-#define cstr_raw_hash(vp)       c_hash_str(*(vp))
-#define cstr_raw_clone(v)       (v)
-#define cstr_raw_drop(vp)       ((void)vp)
 
 // Control block macros
 
@@ -430,10 +417,15 @@ typedef const char* cstr_raw;
 #define c_each_4(it, C, start, end) \
     _c_each(it, C, start, (end).ref, _)
 
+#define c_each_ref(v, C, cnt) \
+    C##_value* v = (C##_value*)&v; v; ) \
+    for (C##_iter v##_itr_ = C##_begin(&cnt); (v = v##_itr_.ref); C##_next(&v##_itr_)
+#define c_each_item(...) c_each_ref(__VA_ARGS__) // [deprecated]
+
 #define c_each_n(...) c_MACRO_OVERLOAD(c_each_n, __VA_ARGS__)
 #define c_each_n_3(it, C, cnt) c_each_n_4(it, C, cnt, INTPTR_MAX)
 #define c_each_n_4(it, C, cnt, n) \
-    struct {C##_iter iter; C##_value* ref; isize size, index;} \
+    struct {C##_iter iter; C##_value* ref; isize_t size, index;} \
     it = {.iter=C##_begin(&cnt), .size=n}; (it.ref = it.iter.ref) && it.index < it.size; C##_next(&it.iter), ++it.index
 
 #define c_each_reverse(...) c_MACRO_OVERLOAD(c_each_reverse, __VA_ARGS__)
@@ -474,10 +466,10 @@ typedef const char* cstr_raw;
     ; (_c_inc_##i > 0) == (i <= _c_end_##i) ; i += _c_inc_##i
 
 #define c_range(...) c_MACRO_OVERLOAD(c_range, __VA_ARGS__)
-#define c_range_1(stop) c_range_t_4(isize, _c_i1, 0, stop)
-#define c_range_2(i, stop) c_range_t_4(isize, i, 0, stop)
-#define c_range_3(i, start, stop) c_range_t_4(isize, i, start, stop)
-#define c_range_4(i, start, stop, step) c_range_t_5(isize, i, start, stop, step)
+#define c_range_1(stop) c_range_t_4(isize_t, _c_i1, 0, stop)
+#define c_range_2(i, stop) c_range_t_4(isize_t, i, 0, stop)
+#define c_range_3(i, start, stop) c_range_t_4(isize_t, i, start, stop)
+#define c_range_4(i, start, stop, step) c_range_t_5(isize_t, i, start, stop, step)
 
 #define c_range32(...) c_MACRO_OVERLOAD(c_range32, __VA_ARGS__)
 #define c_range32_2(i, stop) c_range_t_4(int32_t, i, 0, stop)
@@ -508,7 +500,7 @@ typedef const char* cstr_raw;
 
 // General functions
 
-STC_INLINE void* c_safe_memcpy(void* dst, const void* src, isize size)
+STC_INLINE void* c_safe_memcpy(void* dst, const void* src, isize_t size)
     { return dst ? memcpy(dst, src, (size_t)size) : NULL; }
 
 #if INTPTR_MAX == INT64_MAX
@@ -519,7 +511,7 @@ STC_INLINE void* c_safe_memcpy(void* dst, const void* src, isize size)
     #define FNV_PRIME 0x01000193
 #endif
 
-STC_INLINE size_t c_basehash_n(const void* key, isize len) {
+STC_INLINE size_t c_basehash_n(const void* key, isize_t len) {
     const uint8_t* msg = (const uint8_t*)key;
     size_t h = FNV_BASIS, block = 0;
 
@@ -537,7 +529,7 @@ STC_INLINE size_t c_basehash_n(const void* key, isize len) {
     return h;
 }
 
-STC_INLINE size_t c_hash_n(const void* key, isize len) {
+STC_INLINE size_t c_hash_n(const void* key, isize_t len) {
     uint64_t b8; uint32_t b4;
     switch (len) {
         case 8: memcpy(&b8, key, 8); return (size_t)(b8 * 0xc6a4a7935bd1e99d);
@@ -559,8 +551,8 @@ STC_INLINE size_t c_hash_str(const char *str) {
 #define c_hash_mix(...) /* non-commutative hash combine */ \
     c_hash_mix_n(c_make_array(size_t, {__VA_ARGS__}), c_sizeof((size_t[]){__VA_ARGS__})/c_sizeof(size_t))
 
-STC_INLINE size_t c_hash_mix_n(size_t h[], isize n) {
-    for (isize i = 1; i < n; ++i) h[0] += h[0] ^ h[i];
+STC_INLINE size_t c_hash_mix_n(size_t h[], isize_t n) {
+    for (isize_t i = 1; i < n; ++i) h[0] += h[0] ^ h[i];
     return h[0];
 }
 
@@ -575,7 +567,7 @@ STC_INLINE size_t c_hash_mix_n(size_t h[], isize n) {
 } while (0)
 
 // get next power of two
-STC_INLINE isize c_next_pow2(isize n) {
+STC_INLINE isize_t c_next_pow2(isize_t n) {
     n--;
     n |= n >> 1, n |= n >> 2;
     n |= n >> 4, n |= n >> 8;
@@ -586,7 +578,7 @@ STC_INLINE isize c_next_pow2(isize n) {
     return n + 1;
 }
 
-STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isize nlen) {
+STC_INLINE char* c_strnstrn(const char *str, isize_t slen, const char *needle, isize_t nlen) {
     if (nlen == 0) return (char *)str;
     if (nlen > slen) return NULL;
     slen -= nlen;
@@ -628,20 +620,39 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
   #define c_OPTION(flag)  ((i_opt) & (flag))
   #define c_declared      (1<<0)
   #define c_no_atomic     (1<<1)
-  #define c_arc2          (1<<2)
+  #define c_use_arc2      (1<<2)
   #define c_no_clone      (1<<3)
-  #define c_no_hash       (1<<4)
   #define c_use_cmp       (1<<5)
   #define c_use_eq        (1<<6)
-  #define c_cmpclass      (1<<7)
-  #define c_keyclass      (1<<8)
-  #define c_valclass      (1<<9)
-  #define c_keypro        (1<<10)
-  #define c_valpro        (1<<11)
-#endif
+  #define c_use_compare   (c_use_cmp | c_use_eq)
+  #define c_compare_key   (1<<7)
+  #define c_class_key     (1<<8)
+  #define c_class_val     (1<<9)
+  #define c_pro_key       (1<<10)
+  #define c_pro_val       (1<<11)
 
-#if defined i_rawclass   // [deprecated]
-  #define i_cmpclass i_rawclass
+  #define c_use_comp c_use_compare // [deprecated]
+  #define c_comp_key c_compare_key // [deprecated]
+  #define c_keycomp  c_compare_key // [deprecated]
+  #define c_cmpclass c_compare_key // [deprecated]
+  #define c_keyclass c_class_key   // [deprecated]
+  #define c_valclass c_class_val   // [deprecated]
+  #define c_keypro   c_pro_key     // [deprecated]
+  #define c_valpro   c_pro_val     // [deprecated]
+#endif
+#ifdef i_keycomp                   // [deprecated]
+  #define i_compare_key i_keycomp
+#elif defined i_comp_key           // [deprecated]
+  #define i_compare_key i_comp_key
+#elif defined i_keyclass           // [deprecated]
+  #define i_class_key i_keyclass
+#elif defined i_keypro             // [deprecated]
+  #define i_pro_key i_keypro
+#endif
+#if defined i_valclass             // [deprecated]
+  #define i_class_val i_valclass
+#elif defined i_valpro             // [deprecated]
+  #define i_pro_val i_valpro
 #endif
 
 #if defined T && !defined i_type
@@ -650,15 +661,13 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 #if defined i_type && c_NUMARGS(i_type) > 1
   #define Self c_GETARG(1, i_type)
   #define i_key c_GETARG(2, i_type)
-  #if c_NUMARGS(i_type) == 3
-    #if defined _i_is_map
-      #define i_val c_GETARG(3, i_type)
-    #else
-      #define i_opt c_GETARG(3, i_type)
-    #endif
-  #elif c_NUMARGS(i_type) == 4
+  #ifdef _i_is_map
     #define i_val c_GETARG(3, i_type)
-    #define i_opt c_GETARG(4, i_type)
+    #if c_NUMARGS(i_type) == 4
+      #define i_opt c_GETARG(4, i_type)+0
+    #endif
+  #elif c_NUMARGS(i_type) >= 3
+    #define i_opt c_GETARG(3, i_type)+0
   #endif
 #elif !defined Self && defined i_type
   #define Self i_type
@@ -681,9 +690,6 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 #if c_OPTION(c_declared)
   #define i_declared
 #endif
-#if c_OPTION(c_no_hash)
-  #define i_no_hash
-#endif
 #if c_OPTION(c_use_cmp)
   #define i_use_cmp
 #endif
@@ -693,83 +699,84 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 #if c_OPTION(c_no_clone) || defined _i_is_arc
   #define i_no_clone
 #endif
-#if c_OPTION(c_keyclass)
-  #define i_keyclass i_key
+#if c_OPTION(c_class_key)
+  #define i_class_key i_key
 #endif
-#if c_OPTION(c_valclass)
-  #define i_valclass i_val
+#if c_OPTION(c_class_val)
+  #define i_class_val i_val
 #endif
-#if c_OPTION(c_cmpclass)
-  #define i_cmpclass i_key
+#if c_OPTION(c_compare_key)
+  #define i_compare_key i_key
   #define i_use_cmp
+  #define i_use_eq
 #endif
-#if c_OPTION(c_keypro)
-  #define i_keypro i_key
+#if c_OPTION(c_pro_key)
+  #define i_pro_key i_key
 #endif
-#if c_OPTION(c_valpro)
-  #define i_valpro i_val
-#endif
-
-#if defined i_keypro
-  #define i_keyclass i_keypro
-  #define i_cmpclass c_JOIN(i_keypro, _raw)
+#if c_OPTION(c_pro_val)
+  #define i_pro_val i_val
 #endif
 
-#if defined i_cmpclass
-  #define i_keyraw i_cmpclass
-  #if !(defined i_key || defined i_keyclass)
-    #define i_key i_cmpclass
-  #endif
-#elif defined i_keyclass && !defined i_keyraw
-  // Special: When only i_keyclass is defined, also define i_cmpclass to the same.
-  // Do not define i_keyraw here, otherwise _from() / _toraw() is expected to exist.
-  #define i_cmpclass i_key
+#if defined i_pro_key
+  #define i_class_key i_pro_key
+  #define i_compare_key c_JOIN(i_pro_key, _raw)
+#endif
+
+#if defined i_compare_key
+  #define i_keyraw i_compare_key
+#elif defined i_class_key && !defined i_keyraw
+  // Also bind comparisons functions when c_class_key is specified.
+  #define i_compare_key i_key
+#elif defined i_keyraw && !defined i_keyfrom
+  // Define _i_no_put when i_keyfrom is not explicitly defined and i_keyraw is.
+  // In this case, i_keytoraw needs to be defined (may be done later in this file).
+  #define _i_no_put
 #endif
 
 // Bind to i_key "class members": _clone, _drop, _from and _toraw (when conditions are met).
-#if defined i_keyclass
+#if defined i_class_key
   #ifndef i_key
-    #define i_key i_keyclass
+    #define i_key i_class_key
   #endif
   #if !defined i_keyclone && !defined i_no_clone
-    #define i_keyclone c_JOIN(i_keyclass, _clone)
+    #define i_keyclone c_JOIN(i_class_key, _clone)
   #endif
   #ifndef i_keydrop
-    #define i_keydrop c_JOIN(i_keyclass, _drop)
+    #define i_keydrop c_JOIN(i_class_key, _drop)
   #endif
   #if !defined i_keyfrom && defined i_keyraw
-    #define i_keyfrom c_JOIN(i_keyclass, _from)
+    #define i_keyfrom c_JOIN(i_class_key, _from)
   #endif
   #if !defined i_keytoraw && defined i_keyraw
-    #define i_keytoraw c_JOIN(i_keyclass, _toraw)
+    #define i_keytoraw c_JOIN(i_class_key, _toraw)
   #endif
 #endif
 
 // Define when container has support for sorting (cmp) and linear search (eq)
-#if defined i_use_cmp || defined i_cmp || defined i_less
+#if defined i_use_cmp || defined i_cmp || defined i_less || defined _i_sorted
   #define _i_has_cmp
 #endif
-#if defined i_use_cmp || defined i_cmp || defined i_use_eq || defined i_eq
+#if defined i_use_eq || defined i_eq || defined i_hash || defined _i_hasher
   #define _i_has_eq
 #endif
 
-// Bind to i_cmpclass "class members": _cmp, _eq and _hash (when conditions are met).
-#if defined i_cmpclass
-  #if !(defined i_cmp || defined i_less) && (defined i_use_cmp || defined _i_sorted)
-    #define i_cmp c_JOIN(i_cmpclass, _cmp)
+// Bind to i_compare_key "class members": _cmp, _eq and _hash (when conditions are met).
+#if defined i_compare_key
+  #if !(defined i_cmp || defined i_less) && defined _i_has_cmp
+    #define i_cmp c_JOIN(i_compare_key, _cmp)
   #endif
-  #if !defined i_eq && (defined i_use_eq || defined i_hash || defined _i_is_hash)
-    #define i_eq c_JOIN(i_cmpclass, _eq)
+  #if !defined i_eq && defined _i_has_eq
+    #define i_eq c_JOIN(i_compare_key, _eq)
   #endif
   #if !(defined i_hash || defined i_no_hash)
-    #define i_hash c_JOIN(i_cmpclass, _hash)
+    #define i_hash c_JOIN(i_compare_key, _hash)
   #endif
 #endif
 
 #if !defined i_key
   #error "No i_key defined"
-#elif defined i_keyraw && !(c_OPTION(c_cmpclass) || defined i_keytoraw)
-  #error "If i_cmpclass / i_keyraw is defined, i_keytoraw must be defined too"
+#elif defined i_keyraw && !(c_OPTION(c_compare_key) || defined i_keytoraw)
+  #error "If i_compare_key / i_keyraw is defined, i_keytoraw must be defined too"
 #elif !defined i_no_clone && (defined i_keyclone ^ defined i_keydrop)
   #error "Both i_keyclone and i_keydrop must be defined, if any (unless i_no_clone defined)."
 #elif defined i_from || defined i_drop
@@ -781,10 +788,9 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 #endif
 
 // Fill in missing i_eq, i_less, i_cmp functions with defaults.
-#if !defined i_eq && defined i_cmp
-  #define i_eq(x, y) (i_cmp(x, y)) == 0
-#elif !defined i_eq
+#if !defined i_eq
   #define i_eq(x, y) *x == *y // works for integral types
+  #define _i_has_default_eq
 #endif
 #if !defined i_less && defined i_cmp
   #define i_less(x, y) (i_cmp(x, y)) < 0
@@ -798,15 +804,16 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
   #define i_hash c_default_hash
 #endif
 
-#define i_no_emplace
+#define _i_no_emplace
+#define _i_is_trivial
 
 #ifndef i_tag
   #define i_tag i_key
 #endif
-#if !defined i_keyfrom
+#ifndef i_keyfrom
   #define i_keyfrom c_default_clone
 #else
-  #undef i_no_emplace
+  #undef _i_no_emplace
 #endif
 #ifndef i_keyraw
   #define i_keyraw i_key
@@ -819,30 +826,32 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 #endif
 #ifndef i_keydrop
   #define i_keydrop c_default_drop
+#else
+  #undef _i_is_trivial
 #endif
 
 #if defined _i_is_map // ---- process hashmap/sortedmap value i_val, ... ----
 
-#if defined i_valpro
-  #define i_valclass i_valpro
-  #define i_valraw c_JOIN(i_valpro, _raw)
+#if defined i_pro_val
+  #define i_class_val i_pro_val
+  #define i_valraw c_JOIN(i_pro_val, _raw)
 #endif
 
-#ifdef i_valclass
+#ifdef i_class_val
   #ifndef i_val
-    #define i_val i_valclass
+    #define i_val i_class_val
   #endif
   #if !defined i_valclone && !defined i_no_clone
-    #define i_valclone c_JOIN(i_valclass, _clone)
+    #define i_valclone c_JOIN(i_class_val, _clone)
   #endif
   #ifndef i_valdrop
-    #define i_valdrop c_JOIN(i_valclass, _drop)
+    #define i_valdrop c_JOIN(i_class_val, _drop)
   #endif
   #if !defined i_valfrom && defined i_valraw
-    #define i_valfrom c_JOIN(i_valclass, _from)
+    #define i_valfrom c_JOIN(i_class_val, _from)
   #endif
   #if !defined i_valtoraw && defined i_valraw
-    #define i_valtoraw c_JOIN(i_valclass, _toraw)
+    #define i_valtoraw c_JOIN(i_class_val, _toraw)
   #endif
 #endif
 
@@ -854,10 +863,13 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
   #error "Both i_valclone and i_valdrop must be defined, if any"
 #endif
 
-#if !defined i_valfrom
+#ifndef i_valfrom
   #define i_valfrom c_default_clone
+  #ifdef i_valraw
+    #define _i_no_put
+  #endif
 #else
-  #undef i_no_emplace
+  #undef _i_no_emplace
 #endif
 #ifndef i_valraw
   #define i_valraw i_val
@@ -870,6 +882,8 @@ STC_INLINE char* c_strnstrn(const char *str, isize slen, const char *needle, isi
 #endif
 #ifndef i_valdrop
   #define i_valdrop c_default_drop
+#else
+  #undef _i_is_trivial
 #endif
 
 #endif // !_i_is_map
@@ -890,46 +904,52 @@ _c_DEFTYPES(_declare_queue, Self, i_key, _i_aux_def);
 #endif
 typedef i_keyraw _m_raw;
 
-STC_API bool            _c_MEMB(_reserve)(Self* self, const isize cap);
+STC_API bool            _c_MEMB(_reserve)(Self* self, const isize_t cap);
 STC_API void            _c_MEMB(_clear)(Self* self);
 STC_API void            _c_MEMB(_drop)(const Self* cself);
 STC_API _m_value*       _c_MEMB(_push)(Self* self, _m_value value); // push_back
 STC_API void            _c_MEMB(_shrink_to_fit)(Self *self);
-STC_API _m_iter         _c_MEMB(_advance)(_m_iter it, isize n);
+STC_API _m_iter         _c_MEMB(_advance)(_m_iter it, isize_t n);
 
 #define _cbuf_toidx(self, pos) (((pos) - (self)->start) & (self)->capmask)
 #define _cbuf_topos(self, idx) (((self)->start + (idx)) & (self)->capmask)
 
-STC_INLINE void _c_MEMB(_put_n)(Self* self, const _m_raw* raw, isize n)
+#ifndef _i_no_put
+STC_INLINE void _c_MEMB(_put_n)(Self* self, const _m_raw* raw, isize_t n)
     { while (n--) _c_MEMB(_push)(self, i_keyfrom((*raw))), ++raw; }
+#endif
 
 STC_INLINE void _c_MEMB(_value_drop)(const Self* self, _m_value* val)
     { (void)self; i_keydrop(val); }
 
 #ifndef _i_aux_alloc
-STC_INLINE Self _c_MEMB(_init)(void)
-    { Self out = {0}; return out; }
+    STC_INLINE Self _c_MEMB(_init)(void)
+        { Self out = {0}; return out; }
 
-STC_INLINE Self _c_MEMB(_with_capacity)(isize cap) {
-    cap = c_next_pow2(cap + 1);
-    Self out = {_i_new_n(_m_value, cap), 0, 0, cap - 1};
-    return out;
-}
-STC_INLINE Self _c_MEMB(_with_size_uninit)(isize size)
-    { Self out = _c_MEMB(_with_capacity)(size); out.end = size; return out; }
+    STC_INLINE Self _c_MEMB(_with_capacity)(isize_t cap) {
+        cap = c_next_pow2(cap + 1);
+        Self out = {_i_new_n(_m_value, cap), 0, 0, cap - 1};
+        return out;
+    }
 
-STC_INLINE Self _c_MEMB(_with_size)(isize size, _m_raw default_raw) {
-    Self out = _c_MEMB(_with_capacity)(size);
-    while (out.end < size) out.cbuf[out.end++] = i_keyfrom(default_raw);
-    return out;
-}
-STC_INLINE Self _c_MEMB(_from_n)(const _m_raw* raw, isize n) {
-    Self out = _c_MEMB(_with_capacity)(n);
-    _c_MEMB(_put_n)(&out, raw, n); return out;
-}
+    STC_INLINE Self _c_MEMB(_with_size_uninit)(isize_t size)
+        { Self out = _c_MEMB(_with_capacity)(size); out.end = size; return out; }
+
+    STC_INLINE Self _c_MEMB(_with_size)(isize_t size, _m_raw default_raw) {
+        Self out = _c_MEMB(_with_capacity)(size);
+        while (out.end < size) out.cbuf[out.end++] = i_keyfrom(default_raw);
+        return out;
+    }
+
+    #ifndef _i_no_put
+    STC_INLINE Self _c_MEMB(_from_n)(const _m_raw* raw, isize_t n) {
+        Self out = _c_MEMB(_with_capacity)(n);
+        _c_MEMB(_put_n)(&out, raw, n); return out;
+    }
+    #endif
 #endif
 
-#if !defined i_no_emplace
+#ifndef _i_no_emplace
 STC_INLINE _m_value* _c_MEMB(_emplace)(Self* self, _m_raw raw)
     { return _c_MEMB(_push)(self, i_keyfrom(raw)); }
 #endif
@@ -938,7 +958,7 @@ STC_INLINE _m_value* _c_MEMB(_emplace)(Self* self, _m_raw raw)
 STC_API bool _c_MEMB(_eq)(const Self* self, const Self* other);
 #endif
 
-#if !defined i_no_clone
+#ifndef i_no_clone
 STC_API Self _c_MEMB(_clone)(Self q);
 
 STC_INLINE _m_value _c_MEMB(_value_clone)(const Self* self, _m_value val)
@@ -951,10 +971,10 @@ STC_INLINE void _c_MEMB(_copy)(Self* self, const Self* other) {
 }
 #endif // !i_no_clone
 
-STC_INLINE isize _c_MEMB(_size)(const Self* self)
+STC_INLINE isize_t _c_MEMB(_size)(const Self* self)
     { return _cbuf_toidx(self, self->end); }
 
-STC_INLINE isize _c_MEMB(_capacity)(const Self* self)
+STC_INLINE isize_t _c_MEMB(_capacity)(const Self* self)
     { return self->capmask; }
 
 STC_INLINE bool _c_MEMB(_is_empty)(const Self* self)
@@ -993,7 +1013,7 @@ STC_INLINE void _c_MEMB(_pop)(Self* self) { // pop_front
 
 STC_INLINE _m_value _c_MEMB(_pull)(Self* self) { // move front out of queue
     c_assert(!_c_MEMB(_is_empty)(self));
-    isize s = self->start;
+    isize_t s = self->start;
     self->start = (s + 1) & self->capmask;
     return self->cbuf[s];
 }
@@ -1005,7 +1025,7 @@ STC_INLINE _m_iter _c_MEMB(_begin)(const Self* self) {
 }
 
 STC_INLINE _m_iter _c_MEMB(_rbegin)(const Self* self) {
-    isize pos = (self->end - 1) & self->capmask;
+    isize_t pos = (self->end - 1) & self->capmask;
     return c_literal(_m_iter){
         .ref=_c_MEMB(_is_empty)(self) ? NULL : self->cbuf + pos,
         .pos=pos, ._s=self};
@@ -1029,18 +1049,18 @@ STC_INLINE void _c_MEMB(_rnext)(_m_iter* it) {
     else it->ref += (it->pos = it->_s->capmask);
 }
 
-STC_INLINE isize _c_MEMB(_index)(const Self* self, _m_iter it)
+STC_INLINE isize_t _c_MEMB(_index)(const Self* self, _m_iter it)
     { return _cbuf_toidx(self, it.pos); }
 
-STC_INLINE void _c_MEMB(_adjust_end_)(Self* self, isize n)
+STC_INLINE void _c_MEMB(_adjust_end_)(Self* self, isize_t n)
     { self->end = (self->end + n) & self->capmask; }
 
 /* -------------------------- IMPLEMENTATION ------------------------- */
 #if defined i_implement
 
-STC_DEF _m_iter _c_MEMB(_advance)(_m_iter it, isize n) {
-    isize len = _c_MEMB(_size)(it._s);
-    isize pos = it.pos, idx = _cbuf_toidx(it._s, pos);
+STC_DEF _m_iter _c_MEMB(_advance)(_m_iter it, isize_t n) {
+    isize_t len = _c_MEMB(_size)(it._s);
+    isize_t pos = it.pos, idx = _cbuf_toidx(it._s, pos);
     it.pos = (pos + n) & it._s->capmask;
     it.ref += it.pos - pos;
     if (!c_uless(idx + n, len)) it.ref = NULL;
@@ -1062,15 +1082,15 @@ _c_MEMB(_drop)(const Self* cself) {
 }
 
 STC_DEF bool
-_c_MEMB(_reserve)(Self* self, const isize cap) {
-    isize oldpow2 = self->capmask + (self->capmask & 1); // handle capmask = 0
-    isize newpow2 = c_next_pow2(cap + 1);
+_c_MEMB(_reserve)(Self* self, const isize_t cap) {
+    isize_t oldpow2 = self->capmask + (self->capmask & 1); // handle capmask = 0
+    isize_t newpow2 = c_next_pow2(cap + 1);
     if (newpow2 <= oldpow2)
         return self->cbuf != NULL;
     _m_value* d = (_m_value *)_i_realloc_n(self->cbuf, oldpow2, newpow2);
     if (d == NULL)
         return false;
-    isize head = oldpow2 - self->start;
+    isize_t head = oldpow2 - self->start;
     if (self->start <= self->end)       // [..S########E....|................]
         ;
     else if (head < self->end) {        // [#######E.....S##|.............s!!]
@@ -1087,7 +1107,7 @@ _c_MEMB(_reserve)(Self* self, const isize cap) {
 
 STC_DEF _m_value*
 _c_MEMB(_push)(Self* self, _m_value value) { // push_back
-    isize end = (self->end + 1) & self->capmask;
+    isize_t end = (self->end + 1) & self->capmask;
     if (end == self->start) { // full
         if (!_c_MEMB(_reserve)(self, self->capmask + 3)) // => 2x expand
             return NULL;
@@ -1101,15 +1121,15 @@ _c_MEMB(_push)(Self* self, _m_value value) { // push_back
 
 STC_DEF void
 _c_MEMB(_shrink_to_fit)(Self *self) {
-    isize sz = _c_MEMB(_size)(self);
-    isize newpow2 = c_next_pow2(sz + 1);
+    isize_t sz = _c_MEMB(_size)(self);
+    isize_t newpow2 = c_next_pow2(sz + 1);
     if (newpow2 > self->capmask)
         return;
     if (self->start <= self->end) {
         c_memmove(self->cbuf, self->cbuf + self->start, sz*c_sizeof *self->cbuf);
         self->start = 0, self->end = sz;
     } else {
-        isize n = self->capmask - self->start + 1;
+        isize_t n = self->capmask - self->start + 1;
         c_memmove(self->cbuf + (newpow2 - n), self->cbuf + self->start, n*c_sizeof *self->cbuf);
         self->start = newpow2 - n;
     }
@@ -1117,14 +1137,14 @@ _c_MEMB(_shrink_to_fit)(Self *self) {
     self->capmask = newpow2 - 1;
 }
 
-#if !defined i_no_clone
+#ifndef i_no_clone
 STC_DEF Self
 _c_MEMB(_clone)(Self q) {
     Self out = q, *self = &out; (void)self; // may be used by _i_new_n/i_keyclone via i_aux.
     out.start = 0; out.end = _c_MEMB(_size)(&q);
     out.capmask = c_next_pow2(out.end + 1) - 1;
     out.cbuf = _i_new_n(_m_value, out.capmask + 1);
-    isize i = 0;
+    isize_t i = 0;
     if (out.cbuf)
         for (c_each(it, Self, q))
             out.cbuf[i++] = i_keyclone((*it.ref));
@@ -1180,13 +1200,15 @@ _c_MEMB(_eq)(const Self* self, const Self* other) {
 #undef i_opt
 #undef i_capacity
 
+#undef i_compare_key  // define i_keyraw, and bind i_cmp, i_eq, i_hash "class members"
+#undef i_class_key
+#undef i_pro_key
+#undef i_cmpclass  // [deprecated]
+#undef i_keycomp   // [deprecated]
+#undef i_keyclass  // [deprecated]
+#undef i_keypro    // [deprecated]
+
 #undef i_key
-#undef i_keypro     // Replaces next two
-#undef i_key_str    // [deprecated]
-#undef i_key_arcbox // [deprecated]
-#undef i_keyclass
-#undef i_cmpclass   // define i_keyraw, and bind i_cmp, i_eq, i_hash "class members"
-#undef i_rawclass   // [deprecated] for i_cmpclass
 #undef i_keyclone
 #undef i_keydrop
 #undef i_keyraw
@@ -1197,11 +1219,12 @@ _c_MEMB(_eq)(const Self* self, const Self* other) {
 #undef i_eq
 #undef i_hash
 
+#undef i_class_val
+#undef i_pro_val
+#undef i_valclass  // [deprecated]
+#undef i_valpro    // [deprecated]
+
 #undef i_val
-#undef i_valpro     // Replaces next two
-#undef i_val_str    // [deprecated]
-#undef i_val_arcbox // [deprecated]
-#undef i_valclass
 #undef i_valclone
 #undef i_valdrop
 #undef i_valraw
@@ -1212,12 +1235,15 @@ _c_MEMB(_eq)(const Self* self, const Self* other) {
 #undef i_use_eq
 #undef i_no_hash
 #undef i_no_clone
-#undef i_no_emplace
 #undef i_declared
 
+#undef _i_no_put
+#undef _i_no_emplace
+#undef _i_is_trivial
 #undef _i_aux_def
 #undef _i_has_cmp
 #undef _i_has_eq
+#undef _i_has_default_eq
 #undef _i_prefix
 #undef _i_template
 #undef Self
