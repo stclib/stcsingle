@@ -538,10 +538,11 @@ enum {
     /* compile-flags */
     CREG_DOTALL = 1<<0,    /* dot matches newline too */
     CREG_ICASE = 1<<1,     /* ignore case */
+    CREG_MULTILINE = 1<<2, /* multi-line input, ^=bol $=eol */
 
     /* match-flags */
-    CREG_FULLMATCH = 1<<2, /* like start-, end-of-line anchors were in pattern: "^ ... $" */
-    CREG_NEXT = 1<<3,      /* use end of previous match[0] as start of input */
+    CREG_FULLMATCH = 1<<3, /* like start-, end-of-line anchors were in pattern: "^ ... $" */
+    CREG_NEXT = 1<<4,      /* use end of previous match[0] as start of input */
 
     /* replace-flags */
     CREG_STRIP = 1<<5,     /* only keep the matched strings, strip rest */
@@ -2607,6 +2608,7 @@ typedef struct _Reinst
 typedef struct {
     bool icase;
     bool dotall;
+    bool multln;
 } _Reflags;
 
 typedef struct _Reprog
@@ -2737,30 +2739,32 @@ chartorune(_Rune *rune, const char *s)
 }
 
 static const char*
-utfrune(const char *s, _Rune c) // search
+utfrune(const char *s, _Rune c, const char* eol) // search
 {
-    if (c < 0x80)        /* ascii */
-        return strchr((char *)s, (int)c);
-
-    utf8_decode_t d = {.state=0};
-    while (*s != 0) {
-        int n = utf8_decode_codepoint(&d, s, NULL);
-        if (d.codep == c) return s;
-        s += n;
+    if (c < 0x80) {  /* ascii */
+        for (; *s != 0 && s != eol; ++s)
+            if (*s == (int)c) return s;
+    } else {
+        utf8_decode_t d = {.state=0};
+        while (*s != 0 && s != eol) {
+            int n = utf8_decode_codepoint(&d, s, NULL);
+            if (d.codep == c) return s;
+            s += n;
+        }
     }
     return NULL;
 }
 
 static const char*
-utfruneicase(const char *s, _Rune c) {
+utfruneicase(const char *s, _Rune c, const char* eol) {
     if (c < 0x80) {
-        for (int low = tolower((int)c); *s != 0; ++s)
+        for (int low = tolower((int)c); *s != 0 && s != eol; ++s)
             if (tolower(*s) == low)
                 return s;
     } else {
         utf8_decode_t d = {.state=0};
         c = utf8_casefold(c);
-        while (*s != 0) {
+        while (*s != 0 && s != eol) {
             int n = utf8_decode_codepoint(&d, s, NULL);
             if (utf8_casefold(d.codep) == c)
                 return s;
@@ -2856,8 +2860,10 @@ typedef struct _Parser
     short cursubid;      /* id of current subexpression */
     int error;
     _Reflags flags;
-    int dot_type;
-    int rune_type;
+    int dot_type;  /* dot also match newline or not */
+    int rune_type; /* cased / ignore case TOK_RUNE */
+    int boi_type;  /* begin of input */
+    int eoi_type;  /* end of input */
     bool litmode;
     bool lastwasand;     /* Last token was _operand */
     short nbra;
@@ -3250,8 +3256,8 @@ _lex(_Parser *par)
     case '?': return TOK_QUEST;
     case '+': return TOK_PLUS;
     case '|': return TOK_OR;
-    case '^': return TOK_BOL;
-    case '$': return TOK_EOL;
+    case '^': return par->boi_type;
+    case '$': return par->eoi_type;
     case '.': return par->dot_type;
     case '[': return _bldcclass(par);
     case '(':
@@ -3259,10 +3265,13 @@ _lex(_Parser *par)
             for (int k = 1, enable = 1; ; ++k) switch (par->exprp[k]) {
                 case  0 : par->exprp += k; return TOK_END;
                 case ')': par->exprp += k + 1;
-                          return TOK_CASED + (par->rune_type == TOK_IRUNE);
+                          return (par->rune_type == TOK_IRUNE ? TOK_ICASE : TOK_CASED);
                 case '-': enable = 0; break;
-                case 's': par->dot_type = TOK_ANY + enable; break;
-                case 'i': par->rune_type = TOK_RUNE + enable; break;
+                case 's': par->dot_type = enable ? TOK_ANYNL : TOK_ANY; break;
+                case 'i': par->rune_type = enable ? TOK_IRUNE : TOK_RUNE; break;
+                case 'm': if (enable) par->boi_type = TOK_BOL, par->eoi_type = TOK_EOL;
+                          else        par->boi_type = TOK_BOS, par->eoi_type = TOK_EOZ;
+                          break;
                 default: _rcerror(par, CREG_UNKNOWNOPERATOR); return 0;
             }
         }
@@ -3377,6 +3386,7 @@ _regcomp1(_Reprog *pp, _Parser *par, const char *s, int cflags)
     pp->allocsize = new_allocsize;
     pp->flags.icase = (cflags & CREG_ICASE) != 0;
     pp->flags.dotall = (cflags & CREG_DOTALL) != 0;
+    pp->flags.multln = (cflags & CREG_MULTILINE) != 0;
     par->instcap = instcap;
     par->freep = pp->firstinst;
     par->classp = pp->cclass;
@@ -3389,6 +3399,8 @@ _regcomp1(_Reprog *pp, _Parser *par, const char *s, int cflags)
     par->flags = pp->flags;
     par->rune_type = pp->flags.icase ? TOK_IRUNE : TOK_RUNE;
     par->dot_type = pp->flags.dotall ? TOK_ANYNL : TOK_ANY;
+    if (pp->flags.multln) par->boi_type = TOK_BOL, par->eoi_type = TOK_EOL;
+    else                  par->boi_type = TOK_BOS, par->eoi_type = TOK_EOZ;
     par->litmode = false;
     par->exprp = s;
     par->nclass = 0;
@@ -3532,10 +3544,10 @@ _regexec1(const _Reprog *progp,  /* program to run */
         if (checkstart) {
             switch (j->starttype) {
             case TOK_IRUNE:
-                p = utfruneicase(s, j->startchar);
+                p = utfruneicase(s, j->startchar, j->eol);
                 goto next1;
             case TOK_RUNE:
-                p = utfrune(s, j->startchar);
+                p = utfrune(s, j->startchar, j->eol);
                 next1:
                 if (p == NULL || s == j->eol)
                     return match;
@@ -3544,7 +3556,7 @@ _regexec1(const _Reprog *progp,  /* program to run */
             case TOK_BOL:
                 if (s == bol)
                     break;
-                p = utfrune(s, '\n');
+                p = utfrune(s, '\n', j->eol);
                 if (p == NULL || s == j->eol)
                     return match;
                 s = p+1;
@@ -3600,10 +3612,10 @@ _regexec1(const _Reprog *progp,  /* program to run */
                 case TOK_EOL:
                     if (r == '\n') continue; /* FALLTHRU */
                 case TOK_EOS:
-                    if (s == j->eol || r == 0) continue;
+                    if (r == 0 || s == j->eol) continue;
                     break;
                 case TOK_EOZ:
-                    if (s == j->eol || r == 0 || (r == '\n' && s[1] == 0)) continue;
+                    if (r == 0 || s == j->eol || (r == '\n' && s[1] == 0)) continue;
                     break;
                 case TOK_NWBOUND:
                     ok = true; /* FALLTHRU */
