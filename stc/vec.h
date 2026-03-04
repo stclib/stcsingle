@@ -558,11 +558,9 @@ STC_INLINE size_t c_hash_mix_n(size_t h[], isize_t n) {
 // generic typesafe swap
 #define c_swap(xp, yp) do { \
     (void)sizeof((xp) == (yp)); \
-    char _tv[sizeof *(xp)]; \
-    void *_xp = xp, *_yp = yp; \
-    memcpy(_tv, _xp, sizeof _tv); \
-    memcpy(_xp, _yp, sizeof _tv); \
-    memcpy(_yp, _tv, sizeof _tv); \
+    typedef struct { char d[sizeof *(xp)]; } _te; \
+    _te *_xp = (_te*)(xp), *_yp = (_te*)(yp); \
+    _te _e = *_xp; *_xp = *_yp; *_yp = _e; \
 } while (0)
 
 // get next power of two
@@ -1075,9 +1073,11 @@ STC_INLINE void _c_MEMB(_adjust_end_)(Self* self, isize_t n)
     { self->size += n; }
 
 #if defined _i_has_eq
-STC_INLINE _m_iter _c_MEMB(_find)(const Self* self, _m_raw raw) {
-    return _c_MEMB(_find_in)(self, _c_MEMB(_begin)(self), _c_MEMB(_end)(self), raw);
-}
+STC_INLINE _m_iter _c_MEMB(_find)(const Self* self, _m_raw raw)
+    { return _c_MEMB(_find_in)(self, _c_MEMB(_begin)(self), _c_MEMB(_end)(self), raw); }
+
+STC_INLINE bool _c_MEMB(_contains)(const Self* self, _m_raw raw)
+    { return _c_MEMB(_find)(self, raw).ref != NULL; }
 
 STC_INLINE bool _c_MEMB(_eq)(const Self* self, const Self* other) {
 #ifdef _i_has_default_eq

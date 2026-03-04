@@ -299,11 +299,9 @@ STC_INLINE size_t c_hash_mix_n(size_t h[], isize_t n) {
 // generic typesafe swap
 #define c_swap(xp, yp) do { \
     (void)sizeof((xp) == (yp)); \
-    char _tv[sizeof *(xp)]; \
-    void *_xp = xp, *_yp = yp; \
-    memcpy(_tv, _xp, sizeof _tv); \
-    memcpy(_xp, _yp, sizeof _tv); \
-    memcpy(_yp, _tv, sizeof _tv); \
+    typedef struct { char d[sizeof *(xp)]; } _te; \
+    _te *_xp = (_te*)(xp), *_yp = (_te*)(yp); \
+    _te _e = *_xp; *_xp = *_yp; *_yp = _e; \
 } while (0)
 
 // get next power of two
@@ -544,7 +542,7 @@ typedef union {
 // The following functions assume valid utf8 strings:
 
 /* number of bytes in the utf8 codepoint from s */
-STC_INLINE int utf8_chr_size(const char *s) {
+STC_INLINE int cutf8_chr_size(const char *s) {
     unsigned b = (uint8_t)*s;
     if (b < 0x80) return 1;
     /*if (b < 0xC2) return 0;*/
@@ -555,14 +553,14 @@ STC_INLINE int utf8_chr_size(const char *s) {
 }
 
 /* number of codepoints in the utf8 string s */
-STC_INLINE isize_t utf8_count(const char *s) {
+STC_INLINE isize_t cutf8_count(const char *s) {
     isize_t size = 0;
     while (*s)
         size += (*++s & 0xC0) != 0x80;
     return size;
 }
 
-STC_INLINE isize_t utf8_count_n(const char *s, isize_t nbytes) {
+STC_INLINE isize_t cutf8_count_n(const char *s, isize_t nbytes) {
     isize_t size = 0;
     while ((nbytes-- != 0) & (*s != 0)) {
         size += (*++s & 0xC0) != 0x80;
@@ -570,13 +568,13 @@ STC_INLINE isize_t utf8_count_n(const char *s, isize_t nbytes) {
     return size;
 }
 
-STC_INLINE const char* utf8_at(const char *s, isize_t u8pos) {
+STC_INLINE const char* cutf8_at(const char *s, isize_t u8pos) {
     while ((u8pos > 0) & (*s != 0))
         u8pos -= (*++s & 0xC0) != 0x80;
     return s;
 }
 
-STC_INLINE const char* utf8_offset(const char* s, isize_t u8pos) {
+STC_INLINE const char* cutf8_offset(const char* s, isize_t u8pos) {
     int inc = 1;
     if (u8pos < 0) u8pos = -u8pos, inc = -1;
     while (u8pos && *s)
@@ -584,13 +582,13 @@ STC_INLINE const char* utf8_offset(const char* s, isize_t u8pos) {
     return s;
 }
 
-STC_INLINE isize_t utf8_to_index(const char* s, isize_t u8pos)
-    { return utf8_at(s, u8pos) - s; }
+STC_INLINE isize_t cutf8_to_index(const char* s, isize_t u8pos)
+    { return cutf8_at(s, u8pos) - s; }
 
-STC_INLINE csview utf8_subview(const char *s, isize_t u8pos, isize_t u8len) {
+STC_INLINE csview cutf8_subview(const char *s, isize_t u8pos, isize_t u8len) {
     csview span;
-    span.buf = utf8_at(s, u8pos);
-    span.size = utf8_to_index(span.buf, u8len);
+    span.buf = cutf8_at(s, u8pos);
+    span.size = cutf8_to_index(span.buf, u8len);
     return span;
 }
 
@@ -600,51 +598,51 @@ STC_INLINE csview utf8_subview(const char *s, isize_t u8pos, isize_t u8len) {
 // one of cstr, csview, zsview, or link with src/libstc.a
 
 /* decode next utf8 codepoint. https://bjoern.hoehrmann.de/utf-8/decoder/dfa */
-typedef struct { uint32_t state, codep; } utf8_decode_t;
-extern const uint8_t utf8_dtab[]; /* utf8code.c */
-#define utf8_ACCEPT 0
-#define utf8_REJECT 12
+typedef struct { uint32_t state, codep; } cutf8_decode_t;
+extern const uint8_t cutf8_dtab[]; /* utf8code.c */
+#define cutf8_ACCEPT 0
+#define cutf8_REJECT 12
 
-extern bool     utf8_valid(const char* s);
-extern bool     utf8_valid_n(const char* s, isize_t nbytes);
-extern int      utf8_encode(char *out, uint32_t c);
-extern int      utf8_decode_codepoint(utf8_decode_t* d, const char* s, const char* end);
-extern int      utf8_icompare(const csview s1, const csview s2);
-extern uint32_t utf8_peek_at(const char* s, isize_t u8offset);
-extern uint32_t utf8_casefold(uint32_t c);
-extern uint32_t utf8_tolower(uint32_t c);
-extern uint32_t utf8_toupper(uint32_t c);
+extern bool     cutf8_valid(const char* s);
+extern bool     cutf8_valid_n(const char* s, isize_t nbytes);
+extern int      cutf8_encode(char *out, uint32_t c);
+extern int      cutf8_decode_codepoint(cutf8_decode_t* d, const char* s, const char* end);
+extern int      cutf8_icompare(const csview s1, const csview s2);
+extern uint32_t cutf8_peek_at(const char* s, isize_t u8offset);
+extern uint32_t cutf8_casefold(uint32_t c);
+extern uint32_t cutf8_tolower(uint32_t c);
+extern uint32_t cutf8_toupper(uint32_t c);
 
-STC_INLINE bool utf8_isupper(uint32_t c)
-    { return c < 128 ? (c >= 'A') & (c <= 'Z') : utf8_tolower(c) != c; }
+STC_INLINE bool cutf8_isupper(uint32_t c)
+    { return c < 128 ? (c >= 'A') & (c <= 'Z') : cutf8_tolower(c) != c; }
 
-STC_INLINE bool utf8_islower(uint32_t c)
-    { return c < 128 ? (c >= 'a') & (c <= 'z') : utf8_toupper(c) != c; }
+STC_INLINE bool cutf8_islower(uint32_t c)
+    { return c < 128 ? (c >= 'a') & (c <= 'z') : cutf8_toupper(c) != c; }
 
-STC_INLINE uint32_t utf8_decode(utf8_decode_t* d, const uint32_t byte) {
-    const uint32_t type = utf8_dtab[byte];
+STC_INLINE uint32_t cutf8_decode(cutf8_decode_t* d, const uint32_t byte) {
+    const uint32_t type = cutf8_dtab[byte];
     d->codep = d->state ? (byte & 0x3fu) | (d->codep << 6)
                         : (0xffU >> type) & byte;
-    return d->state = utf8_dtab[256 + d->state + type];
+    return d->state = cutf8_dtab[256 + d->state + type];
 }
 
-STC_INLINE uint32_t utf8_peek(const char* s) {
-    utf8_decode_t d = {.state=0};
+STC_INLINE uint32_t cutf8_peek(const char* s) {
+    cutf8_decode_t d = {.state=0};
     do {
-        utf8_decode(&d, (uint8_t)*s++);
-    } while (d.state > utf8_REJECT);
-    return d.state == utf8_ACCEPT ? d.codep : 0xFFFD;
+        cutf8_decode(&d, (uint8_t)*s++);
+    } while (d.state > cutf8_REJECT);
+    return d.state == cutf8_ACCEPT ? d.codep : 0xFFFD;
 }
 
 /* case-insensitive utf8 string comparison */
-STC_INLINE int utf8_icmp(const char* s1, const char* s2) {
-    return utf8_icompare(c_sv(s1, INTPTR_MAX), c_sv(s2, INTPTR_MAX));
+STC_INLINE int cutf8_icmp(const char* s1, const char* s2) {
+    return cutf8_icompare(c_sv(s1, INTPTR_MAX), c_sv(s2, INTPTR_MAX));
 }
 
 // ------------------------------------------------------
 // Functions below must be linked with ucd_prv.c content
 
-enum utf8_group {
+enum cutf8_group {
     U8G_Cc, U8G_L, U8G_Lm, U8G_Lt, U8G_Nd, U8G_Nl, U8G_No,
     U8G_P, U8G_Pc, U8G_Pd, U8G_Pe, U8G_Pf, U8G_Pi, U8G_Ps,
     U8G_Sc, U8G_Sk, U8G_Sm, U8G_Zl, U8G_Zp, U8G_Zs,
@@ -655,37 +653,37 @@ enum utf8_group {
     U8G_SIZE
 };
 
-extern bool utf8_isgroup(int group, uint32_t c);
+extern bool cutf8_isgroup(int group, uint32_t c);
 
-STC_INLINE bool utf8_isdigit(uint32_t c)
-    { return c < 128 ? (c >= '0') & (c <= '9') : utf8_isgroup(U8G_Nd, c); }
+STC_INLINE bool cutf8_isdigit(uint32_t c)
+    { return c < 128 ? (c >= '0') & (c <= '9') : cutf8_isgroup(U8G_Nd, c); }
 
-STC_INLINE bool utf8_isalpha(uint32_t c)
-    { return (c < 128 ? isalpha((int)c) != 0 : utf8_isgroup(U8G_L, c)); }
+STC_INLINE bool cutf8_isalpha(uint32_t c)
+    { return (c < 128 ? isalpha((int)c) != 0 : cutf8_isgroup(U8G_L, c)); }
 
-STC_INLINE bool utf8_iscased(uint32_t c) {
+STC_INLINE bool cutf8_iscased(uint32_t c) {
     if (c < 128) return isalpha((int)c) != 0;
-    return utf8_toupper(c) != c || utf8_tolower(c) != c || utf8_isgroup(U8G_Lt, c);
+    return cutf8_toupper(c) != c || cutf8_tolower(c) != c || cutf8_isgroup(U8G_Lt, c);
 }
 
-STC_INLINE bool utf8_isalnum(uint32_t c) {
+STC_INLINE bool cutf8_isalnum(uint32_t c) {
     if (c < 128) return isalnum((int)c) != 0;
-    return utf8_isgroup(U8G_L, c) || utf8_isgroup(U8G_Nd, c);
+    return cutf8_isgroup(U8G_L, c) || cutf8_isgroup(U8G_Nd, c);
 }
 
-STC_INLINE bool utf8_isword(uint32_t c) {
+STC_INLINE bool cutf8_isword(uint32_t c) {
     if (c < 128) return (isalnum((int)c) != 0) | (c == '_');
-    return utf8_isgroup(U8G_L, c) || utf8_isgroup(U8G_Nd, c) || utf8_isgroup(U8G_Pc, c);
+    return cutf8_isgroup(U8G_L, c) || cutf8_isgroup(U8G_Nd, c) || cutf8_isgroup(U8G_Pc, c);
 }
 
-STC_INLINE bool utf8_isblank(uint32_t c) {
+STC_INLINE bool cutf8_isblank(uint32_t c) {
     if (c < 128) return (c == ' ') | (c == '\t');
-    return utf8_isgroup(U8G_Zs, c);
+    return cutf8_isgroup(U8G_Zs, c);
 }
 
-STC_INLINE bool utf8_isspace(uint32_t c) {
+STC_INLINE bool cutf8_isspace(uint32_t c) {
     if (c < 128) return isspace((int)c) != 0;
-    return ((c == 8232) | (c == 8233)) || utf8_isgroup(U8G_Zs, c);
+    return ((c == 8232) | (c == 8233)) || cutf8_isgroup(U8G_Zs, c);
 }
 
 #define c_lowerbound(T, c, at, less, N, ret) do { \
@@ -785,7 +783,7 @@ STC_INLINE csview csview_tail(csview sv, isize_t len)
 
 /* utf8 iterator */
 STC_INLINE csview_iter csview_begin(const csview* self) {
-    csview_iter it = {.u8 = {{self->buf, utf8_chr_size(self->buf)},
+    csview_iter it = {.u8 = {{self->buf, cutf8_chr_size(self->buf)},
                              self->buf + self->size}};
     return it;
 }
@@ -794,19 +792,19 @@ STC_INLINE csview_iter csview_end(const csview* self) {
 }
 STC_INLINE void csview_next(csview_iter* it) {
     it->ref += it->chr.size;
-    it->chr.size = utf8_chr_size(it->ref);
+    it->chr.size = cutf8_chr_size(it->ref);
     if (it->ref == it->u8.end) it->ref = NULL;
 }
 
 /* utf8 */
 STC_INLINE csview csview_u8_from(const char* str, isize_t u8pos, isize_t u8len)
-    { return utf8_subview(str, u8pos, u8len); }
+    { return cutf8_subview(str, u8pos, u8len); }
 
 STC_INLINE isize_t csview_u8_size(csview sv)
-    { return utf8_count_n(sv.buf, sv.size); }
+    { return cutf8_count_n(sv.buf, sv.size); }
 
 STC_INLINE bool csview_u8_valid(csview sv) // requires linking with utf8 symbols
-    { return utf8_valid_n(sv.buf, sv.size); }
+    { return cutf8_valid_n(sv.buf, sv.size); }
 
 #define c_fortoken(...) for (c_token(__VA_ARGS__)) // [deprecated]
 
@@ -832,7 +830,7 @@ STC_INLINE bool csview_eq(const csview* x, const csview* y)
 /* ---- case insensitive ---- */
 
 STC_INLINE bool csview_iequals_sv(csview sv1, csview sv2)
-    { return sv1.size == sv2.size && !utf8_icompare(sv1, sv2); }
+    { return sv1.size == sv2.size && !cutf8_icompare(sv1, sv2); }
 
 STC_INLINE bool csview_iequals(csview sv, const char* str)
     { return csview_iequals_sv(sv, c_sv(str, c_strlen(str))); }
@@ -841,16 +839,16 @@ STC_INLINE bool csview_ieq(const csview* x, const csview* y)
     { return csview_iequals_sv(*x, *y); }
 
 STC_INLINE int csview_icmp(const csview* x, const csview* y)
-    { return utf8_icompare(*x, *y); }
+    { return cutf8_icompare(*x, *y); }
 
 STC_INLINE bool csview_istarts_with(csview sv, const char* str) {
     isize_t n = c_strlen(str);
-    return n <= sv.size && !utf8_icompare(sv, c_sv(str, n));
+    return n <= sv.size && !cutf8_icompare(sv, c_sv(str, n));
 }
 
 STC_INLINE bool csview_iends_with(csview sv, const char* str) {
     isize_t n = c_strlen(str);
-    return n <= sv.size && !utf8_icmp(sv.buf + sv.size - n, str);
+    return n <= sv.size && !cutf8_icmp(sv.buf + sv.size - n, str);
 }
 #endif // STC_CSVIEW_H_INCLUDED
 
@@ -864,7 +862,7 @@ csview_iter csview_advance(csview_iter it, isize_t u8pos) {
     while (u8pos && it.ref != it.u8.end)
         u8pos -= (*(it.ref += inc) & 0xC0) != 0x80;
     if (it.ref == it.u8.end) it.ref = NULL;
-    else it.chr.size = utf8_chr_size(it.ref);
+    else it.chr.size = cutf8_chr_size(it.ref);
     return it;
 }
 
@@ -910,7 +908,7 @@ csview_iter csview_u8_at(csview sv, isize_t u8pos) {
     const char *end = &sv.buf[sv.size];
     while ((u8pos > 0) & (sv.buf != end))
         u8pos -= (*++sv.buf & 0xC0) != 0x80;
-    sv.size = utf8_chr_size(sv.buf);
+    sv.size = cutf8_chr_size(sv.buf);
     c_assert(sv.buf != end);
     return c_literal(csview_iter){.u8 = {sv, end}};
 }
@@ -1174,7 +1172,7 @@ static uint8_t lowcase_ind[184] = {
 };
 // ### END_FILE_INCLUDE: utf8_tab.c
 
-const uint8_t utf8_dtab[] = {
+const uint8_t cutf8_dtab[] = {
    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -1190,7 +1188,7 @@ const uint8_t utf8_dtab[] = {
   12,36,12,12,12,12,12,12,12,12,12,12,
 };
 
-int utf8_encode(char *out, uint32_t c) {
+int cutf8_encode(char *out, uint32_t c) {
     if (c < 0x80U) {
         out[0] = (char) c;
         return 1;
@@ -1215,26 +1213,26 @@ int utf8_encode(char *out, uint32_t c) {
     return 0;
 }
 
-uint32_t utf8_peek_at(const char* s, isize_t offset) {
-    return utf8_peek(utf8_offset(s, offset));
+uint32_t cutf8_peek_at(const char* s, isize_t offset) {
+    return cutf8_peek(cutf8_offset(s, offset));
 }
 
-bool utf8_valid(const char* s) {
-    utf8_decode_t d = {.state=0};
-    while ((utf8_decode(&d, (uint8_t)*s) != utf8_REJECT) & (*s != '\0'))
+bool cutf8_valid(const char* s) {
+    cutf8_decode_t d = {.state=0};
+    while ((cutf8_decode(&d, (uint8_t)*s) != cutf8_REJECT) & (*s != '\0'))
         ++s;
-    return d.state == utf8_ACCEPT;
+    return d.state == cutf8_ACCEPT;
 }
 
-bool utf8_valid_n(const char* s, isize_t nbytes) {
-    utf8_decode_t d = {.state=0};
+bool cutf8_valid_n(const char* s, isize_t nbytes) {
+    cutf8_decode_t d = {.state=0};
     for (; nbytes-- != 0; ++s)
-        if ((utf8_decode(&d, (uint8_t)*s) == utf8_REJECT) | (*s == '\0'))
+        if ((cutf8_decode(&d, (uint8_t)*s) == cutf8_REJECT) | (*s == '\0'))
             break;
-    return d.state == utf8_ACCEPT;
+    return d.state == cutf8_ACCEPT;
 }
 
-uint32_t utf8_casefold(uint32_t c) {
+uint32_t cutf8_casefold(uint32_t c) {
     #define _at_fold(idx) &casemappings[idx].c2
     int i;
     c_lowerbound(uint32_t, c, _at_fold, c_default_less, casefold_len, &i);
@@ -1247,7 +1245,7 @@ uint32_t utf8_casefold(uint32_t c) {
     return c;
 }
 
-uint32_t utf8_tolower(uint32_t c) {
+uint32_t cutf8_tolower(uint32_t c) {
     #define _at_upper(idx) &casemappings[upcase_ind[idx]].c2
     int i, n = c_countof(upcase_ind);
     c_lowerbound(uint32_t, c, _at_upper, c_default_less, n, &i);
@@ -1262,7 +1260,7 @@ uint32_t utf8_tolower(uint32_t c) {
     return c;
 }
 
-uint32_t utf8_toupper(uint32_t c) {
+uint32_t cutf8_toupper(uint32_t c) {
     #define _at_lower(idx) &casemappings[lowcase_ind[idx]].m2
     int i, n = c_countof(lowcase_ind);
     c_lowerbound(uint32_t, c, _at_lower, c_default_less, n, &i);
@@ -1277,32 +1275,32 @@ uint32_t utf8_toupper(uint32_t c) {
     return c;
 }
 
-int utf8_decode_codepoint(utf8_decode_t* d, const char* s, const char* end) { // s < end
+int cutf8_decode_codepoint(cutf8_decode_t* d, const char* s, const char* end) { // s < end
     const char* start = s;
-    do switch (utf8_decode(d, (uint8_t)*s++)) {
-        case utf8_ACCEPT: return (int)(s - start);
-        case utf8_REJECT: goto recover;
+    do switch (cutf8_decode(d, (uint8_t)*s++)) {
+        case cutf8_ACCEPT: return (int)(s - start);
+        case cutf8_REJECT: goto recover;
     } while (s != end);
 
-    recover: // non-complete utf8 is also treated as utf8_REJECT
-    d->state = utf8_ACCEPT;
+    recover: // non-complete utf8 is also treated as cutf8_REJECT
+    d->state = cutf8_ACCEPT;
     d->codep = 0xFFFD;
     //return 1;
     int n = (int)(s - start);
     return n > 2 ? n - 1 : 1;
 }
 
-int utf8_icompare(const csview s1, const csview s2) {
-    utf8_decode_t d1 = {.state=0}, d2 = {.state=0};
+int cutf8_icompare(const csview s1, const csview s2) {
+    cutf8_decode_t d1 = {.state=0}, d2 = {.state=0};
     const char *e1 = s1.buf + s1.size, *e2 = s2.buf + s2.size;
     isize_t j1 = 0, j2 = 0;
     while ((j1 < s1.size) & (j2 < s2.size)) {
         if (s2.buf[j2] == '\0') return s1.buf[j1];
 
-        j1 += utf8_decode_codepoint(&d1, s1.buf + j1, e1);
-        j2 += utf8_decode_codepoint(&d2, s2.buf + j2, e2);
+        j1 += cutf8_decode_codepoint(&d1, s1.buf + j1, e1);
+        j2 += cutf8_decode_codepoint(&d2, s2.buf + j2, e2);
 
-        int32_t c = (int32_t)utf8_casefold(d1.codep) - (int32_t)utf8_casefold(d2.codep);
+        int32_t c = (int32_t)cutf8_casefold(d1.codep) - (int32_t)cutf8_casefold(d2.codep);
         if (c != 0) return (int)c;
     }
     return (int)(s1.size - s2.size);

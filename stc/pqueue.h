@@ -557,11 +557,9 @@ STC_INLINE size_t c_hash_mix_n(size_t h[], isize_t n) {
 // generic typesafe swap
 #define c_swap(xp, yp) do { \
     (void)sizeof((xp) == (yp)); \
-    char _tv[sizeof *(xp)]; \
-    void *_xp = xp, *_yp = yp; \
-    memcpy(_tv, _xp, sizeof _tv); \
-    memcpy(_xp, _yp, sizeof _tv); \
-    memcpy(_yp, _tv, sizeof _tv); \
+    typedef struct { char d[sizeof *(xp)]; } _te; \
+    _te *_xp = (_te*)(xp), *_yp = (_te*)(yp); \
+    _te _e = *_xp; *_xp = *_yp; *_yp = _e; \
 } while (0)
 
 // get next power of two
@@ -903,6 +901,7 @@ typedef i_keyraw _m_raw;
 STC_API void        _c_MEMB(_make_heap)(Self* self);
 STC_API void        _c_MEMB(_erase_at)(Self* self, isize_t idx);
 STC_API _m_value*   _c_MEMB(_push)(Self* self, _m_value value);
+STC_API void        _c_MEMB(_sift_down_)(Self* self, const isize_t idx, const isize_t n);
 
 #ifndef _i_no_put
 STC_INLINE void _c_MEMB(_put_n)(Self* self, const _m_raw* raw, isize_t n)
@@ -964,13 +963,32 @@ STC_INLINE isize_t _c_MEMB(_capacity)(const Self* q)
     { return q->capacity; }
 
 STC_INLINE const _m_value* _c_MEMB(_top)(const Self* self)
-    { return &self->data[0]; }
+    { c_assert(self->size); return &self->data[0]; }
 
 STC_INLINE void _c_MEMB(_pop)(Self* self)
-    { c_assert(!_c_MEMB(_is_empty)(self)); _c_MEMB(_erase_at)(self, 0); }
+    { c_assert(self->size); _c_MEMB(_erase_at)(self, 0); }
 
-STC_INLINE _m_value _c_MEMB(_pull)(Self* self)
-    { _m_value v = self->data[0]; _c_MEMB(_erase_at)(self, 0); return v; }
+STC_INLINE _m_value _c_MEMB(_pull)(Self* self) {
+    c_assert(self->size);
+    _m_value v = self->data[0];
+    _c_MEMB(_erase_at)(self, 0);
+    return v;
+}
+
+STC_INLINE _m_value _c_MEMB(_pushpull)(Self* self, _m_value val) {
+    if (self->size && (i_less((&val), (&self->data[0])))) {
+        c_swap(&val, &self->data[0]);
+        _c_MEMB(_sift_down_)(self, 1, self->size);
+    }
+    return val;
+}
+
+STC_INLINE _m_value _c_MEMB(_exchange)(Self* self, _m_value val) { 
+    c_assert(self->size);
+    c_swap(&val, &self->data[0]);
+    _c_MEMB(_sift_down_)(self, 1, self->size);
+    return val;
+}
 
 #ifndef i_no_clone
 STC_API Self _c_MEMB(_clone)(Self q);

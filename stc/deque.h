@@ -559,11 +559,9 @@ STC_INLINE size_t c_hash_mix_n(size_t h[], isize_t n) {
 // generic typesafe swap
 #define c_swap(xp, yp) do { \
     (void)sizeof((xp) == (yp)); \
-    char _tv[sizeof *(xp)]; \
-    void *_xp = xp, *_yp = yp; \
-    memcpy(_tv, _xp, sizeof _tv); \
-    memcpy(_xp, _yp, sizeof _tv); \
-    memcpy(_yp, _tv, sizeof _tv); \
+    typedef struct { char d[sizeof *(xp)]; } _te; \
+    _te *_xp = (_te*)(xp), *_yp = (_te*)(yp); \
+    _te _e = *_xp; *_xp = *_yp; *_yp = _e; \
 } while (0)
 
 // get next power of two
@@ -1227,29 +1225,26 @@ _c_MEMB(_erase_range)(Self* self, _m_iter it1, _m_iter it2) {
 }
 
 #ifndef _i_no_emplace
-STC_API _m_iter
-_c_MEMB(_emplace_n)(Self* self, isize_t idx, const _m_raw* raw, isize_t n);
+STC_API _m_iter _c_MEMB(_emplace_n)(Self* self, isize_t idx, const _m_raw* raw, isize_t n);
 
-STC_INLINE _m_value*
-_c_MEMB(_emplace_front)(Self* self, const _m_raw raw)
+STC_INLINE _m_value* _c_MEMB(_emplace_front)(Self* self, const _m_raw raw)
     { return _c_MEMB(_push_front)(self, i_keyfrom(raw)); }
 
-STC_INLINE _m_value*
-_c_MEMB(_emplace_back)(Self* self, const _m_raw raw)
+STC_INLINE _m_value* _c_MEMB(_emplace_back)(Self* self, const _m_raw raw)
     { return _c_MEMB(_push)(self, i_keyfrom(raw)); }
 
-STC_INLINE _m_iter
-_c_MEMB(_emplace_at)(Self* self, _m_iter it, const _m_raw raw)
+STC_INLINE _m_iter _c_MEMB(_emplace_at)(Self* self, _m_iter it, const _m_raw raw)
     { return _c_MEMB(_insert_at)(self, it, i_keyfrom(raw)); }
 #endif
 
 #if defined _i_has_eq
 STC_API _m_iter _c_MEMB(_find_in)(const Self* self, _m_iter p1, _m_iter p2, _m_raw raw);
 
-STC_INLINE _m_iter
-_c_MEMB(_find)(const Self* self, _m_raw raw) {
-    return _c_MEMB(_find_in)(self, _c_MEMB(_begin)(self), _c_MEMB(_end)(self), raw);
-}
+STC_INLINE _m_iter _c_MEMB(_find)(const Self* self, _m_raw raw)
+    { return _c_MEMB(_find_in)(self, _c_MEMB(_begin)(self), _c_MEMB(_end)(self), raw); }
+
+STC_INLINE bool _c_MEMB(_contains)(const Self* self, _m_raw raw)
+    { return _c_MEMB(_find)(self, raw).ref != NULL; }
 #endif // _i_has_eq
 
 #if defined _i_has_cmp
