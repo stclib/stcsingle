@@ -76,9 +76,9 @@
     #define ISIZE_MIN   PTRDIFF_MIN
     #define ISIZE_MAX   PTRDIFF_MAX
 #endif
-#if !defined STC_HAS_TYPEOF && (_MSC_FULL_VER >= 193933428 || \
-    defined __GNUC__ || defined __clang__ || defined __TINYC__)
-    #define STC_HAS_TYPEOF 1
+#if defined __GNUC__ || defined __clang__ || \
+    defined __TINYC__ || _MSC_FULL_VER >= 193933428
+    #define STC_HAS_TYPEOF
 #endif
 #if defined __GNUC__
   #define c_GNUATTR(...) __attribute__((__VA_ARGS__))
@@ -139,9 +139,9 @@
     #define c_realloc c_JOIN(STC_ALLOCATOR, _realloc)
     #define c_free c_JOIN(STC_ALLOCATOR, _free)
 #else
-    #define c_malloc(sz) malloc(c_i2u_size(sz))
-    #define c_calloc(n, sz) calloc(c_i2u_size(n), c_i2u_size(sz))
-    #define c_realloc(ptr, old_sz, sz) realloc(ptr, c_i2u_size(1 ? (sz) : (old_sz)))
+    #define c_malloc(sz) malloc(c_i2u_cast(sz))
+    #define c_calloc(n, sz) calloc(c_i2u_cast(n), c_i2u_cast(sz))
+    #define c_realloc(ptr, old_sz, sz) realloc(ptr, c_i2u_cast(1 ? (sz) : (old_sz)))
     #define c_free(ptr, sz) ((void)(sz), free(ptr))
 #endif
 
@@ -161,24 +161,23 @@
     #define c_assert(expr)      assert(expr)
 #endif
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
-#define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
-#define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
 #define c_countof(a)            (isize_t)(sizeof(a)/sizeof 0[a])
-#define c_arraylen(a)           c_countof(a) // [deprecated]?
+#define c_as_mut(Tp, p)         ((Tp)(1 ? (p) : (Tp)0))
+#define c_safe_cast(T, From, x) ((T)(1 ? (x) : (From){0}))
 
 // expect signed ints to/from these (use with gcc -Wconversion)
 #define c_sizeof                (isize_t)sizeof
 #define c_strlen(s)             (isize_t)strlen(s)
-#define c_strncmp(a, b, ilen)   strncmp(a, b, c_i2u_size(ilen))
-#define c_memcpy(d, s, ilen)    memcpy(d, s, c_i2u_size(ilen))
-#define c_memmove(d, s, ilen)   memmove(d, s, c_i2u_size(ilen))
-#define c_memset(d, val, ilen)  memset(d, val, c_i2u_size(ilen))
-#define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u_size(ilen))
+#define c_strncmp(a, b, ilen)   strncmp(a, b, c_i2u_cast(ilen))
+#define c_memcpy(d, s, ilen)    memcpy(d, s, c_i2u_cast(ilen))
+#define c_memmove(d, s, ilen)   memmove(d, s, c_i2u_cast(ilen))
+#define c_memset(d, val, ilen)  memset(d, val, c_i2u_cast(ilen))
+#define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u_cast(ilen))
 // library internal, but may be useful in user code:
-#define c_u2i_size(u)           (isize_t)(1 ? (u) : (size_t)1) // warns if u is signed
-#define c_i2u_size(i)           (size_t)(1 ? (i) : -1)       // warns if i is unsigned
+#define c_u2i_cast(u)           (isize_t)(1 ? (u) : (size_t)1) // warns if u is signed
+#define c_i2u_cast(i)           (size_t)(1 ? (i) : -1)         // warns if i is unsigned
 #define c_uless(a, b)           ((size_t)(a) < (size_t)(b))
-#define c_safe_cast(T, From, x) ((T)(1 ? (x) : (From){0}))
+#define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
 
 // x, y are i_keyraw* type, which defaults to i_key*. vp is i_key* type.
 #define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
@@ -194,14 +193,15 @@
 
 // [deprecated]:
 #define c_init(...) c_make(__VA_ARGS__)
-#define c_forlist(...) for (c_items(_VA_ARGS__))
-#define c_foritems(...) for (c_items(__VA_ARGS__))
+#define c_items(...) c_each_item(__VA_ARGS__)
+#define c_foritems(...) for (c_each_item(__VA_ARGS__))
 #define c_foreach(...) for (c_each(__VA_ARGS__))
-#define c_foreach_n(...) for (c_each_n(__VA_ARGS__))
 #define c_foreach_kv(...) for (c_each_kv(__VA_ARGS__))
-#define c_foreach_reverse(...) for (c_each_reverse(__VA_ARGS__))
 #define c_forrange(...) for (c_range(__VA_ARGS__))
 #define c_forrange32(...) for (c_range32(__VA_ARGS__))
+#define c_arraylen(a) c_countof(a)
+#define c_const_cast(Tp, p) c_as_mut(Tp, p)
+// End [deprecated]
 
 // New:
 #define c_each(...) c_MACRO_OVERLOAD(c_each, __VA_ARGS__)
@@ -213,7 +213,6 @@
 #define c_each_ref(v, C, cnt) \
     C##_value* v = (C##_value*)&v; v; ) \
     for (C##_iter v##_itr_ = C##_begin(&cnt); (v = v##_itr_.ref); C##_next(&v##_itr_)
-#define c_each_item(...) c_each_ref(__VA_ARGS__) // [deprecated]
 
 #define c_each_n(...) c_MACRO_OVERLOAD(c_each_n, __VA_ARGS__)
 #define c_each_n_3(it, C, cnt) c_each_n_4(it, C, cnt, INTPTR_MAX)
@@ -244,7 +243,7 @@
          _it_##key.ref != (C##_value*)_endref_##key && (key = &_it_##key.ref->first, val = &_it_##key.ref->second); \
          C##_next(&_it_##key)
 
-#define c_items(it, T, ...) \
+#define c_each_item(it, T, ...) \
     struct {T* ref; int size, index;} \
     it = {.ref=c_make_array(T, __VA_ARGS__), .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
     ; it.index < it.size ; ++it.ref, ++it.index
@@ -279,7 +278,7 @@
 
 // drop multiple containers of same type
 #define c_drop(C, ...) \
-    do { for (c_items(_c_i2, C*, {__VA_ARGS__})) C##_drop(*_c_i2.ref); } while(0)
+    do { for (c_each_item(_c_i2, C*, {__VA_ARGS__})) C##_drop(*_c_i2.ref); } while(0)
 
 // RAII scopes
 #define c_defer(...) \
@@ -350,12 +349,21 @@ STC_INLINE size_t c_hash_mix_n(size_t h[], isize_t n) {
 }
 
 // generic typesafe swap
+#ifdef STC_HAS_TYPEOF
+#define c_swap(xp, yp) do { \
+    __typeof__(xp) _xp = (xp), _yp = (yp); \
+    __typeof__(0[xp]) _tv = *_xp; *_xp = *_yp; *_yp = _tv; \
+} while (0)
+#else
 #define c_swap(xp, yp) do { \
     (void)sizeof((xp) == (yp)); \
-    typedef struct { char d[sizeof *(xp)]; } _te; \
-    _te *_xp = (_te*)(xp), *_yp = (_te*)(yp); \
-    _te _e = *_xp; *_xp = *_yp; *_yp = _e; \
+    char _tv[sizeof *(xp)]; \
+    void *_xp = xp, *_yp = yp; \
+    memcpy(_tv, _xp, sizeof _tv); \
+    memcpy(_xp, _yp, sizeof _tv); \
+    memcpy(_yp, _tv, sizeof _tv); \
 } while (0)
+#endif
 
 // get next power of two
 STC_INLINE isize_t c_next_pow2(isize_t n) {
@@ -424,6 +432,7 @@ STC_INLINE char* c_strnstrn(const char *str, isize_t slen, const char *needle, i
   #define c_declared      (1<<0)
   #define c_no_atomic     (1<<1)
   #define c_use_arc2      (1<<2)
+  #define c_use_rc2       c_use_arc2
   #define c_no_clone      (1<<3)
   #define c_use_cmp       (1<<5)
   #define c_use_eq        (1<<6)

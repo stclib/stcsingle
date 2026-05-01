@@ -84,9 +84,9 @@
     #define ISIZE_MIN   PTRDIFF_MIN
     #define ISIZE_MAX   PTRDIFF_MAX
 #endif
-#if !defined STC_HAS_TYPEOF && (_MSC_FULL_VER >= 193933428 || \
-    defined __GNUC__ || defined __clang__ || defined __TINYC__)
-    #define STC_HAS_TYPEOF 1
+#if defined __GNUC__ || defined __clang__ || \
+    defined __TINYC__ || _MSC_FULL_VER >= 193933428
+    #define STC_HAS_TYPEOF
 #endif
 #if defined __GNUC__
   #define c_GNUATTR(...) __attribute__((__VA_ARGS__))
@@ -147,9 +147,9 @@
     #define c_realloc c_JOIN(STC_ALLOCATOR, _realloc)
     #define c_free c_JOIN(STC_ALLOCATOR, _free)
 #else
-    #define c_malloc(sz) malloc(c_i2u_size(sz))
-    #define c_calloc(n, sz) calloc(c_i2u_size(n), c_i2u_size(sz))
-    #define c_realloc(ptr, old_sz, sz) realloc(ptr, c_i2u_size(1 ? (sz) : (old_sz)))
+    #define c_malloc(sz) malloc(c_i2u_cast(sz))
+    #define c_calloc(n, sz) calloc(c_i2u_cast(n), c_i2u_cast(sz))
+    #define c_realloc(ptr, old_sz, sz) realloc(ptr, c_i2u_cast(1 ? (sz) : (old_sz)))
     #define c_free(ptr, sz) ((void)(sz), free(ptr))
 #endif
 
@@ -169,24 +169,23 @@
     #define c_assert(expr)      assert(expr)
 #endif
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
-#define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
-#define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
 #define c_countof(a)            (isize_t)(sizeof(a)/sizeof 0[a])
-#define c_arraylen(a)           c_countof(a) // [deprecated]?
+#define c_as_mut(Tp, p)         ((Tp)(1 ? (p) : (Tp)0))
+#define c_safe_cast(T, From, x) ((T)(1 ? (x) : (From){0}))
 
 // expect signed ints to/from these (use with gcc -Wconversion)
 #define c_sizeof                (isize_t)sizeof
 #define c_strlen(s)             (isize_t)strlen(s)
-#define c_strncmp(a, b, ilen)   strncmp(a, b, c_i2u_size(ilen))
-#define c_memcpy(d, s, ilen)    memcpy(d, s, c_i2u_size(ilen))
-#define c_memmove(d, s, ilen)   memmove(d, s, c_i2u_size(ilen))
-#define c_memset(d, val, ilen)  memset(d, val, c_i2u_size(ilen))
-#define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u_size(ilen))
+#define c_strncmp(a, b, ilen)   strncmp(a, b, c_i2u_cast(ilen))
+#define c_memcpy(d, s, ilen)    memcpy(d, s, c_i2u_cast(ilen))
+#define c_memmove(d, s, ilen)   memmove(d, s, c_i2u_cast(ilen))
+#define c_memset(d, val, ilen)  memset(d, val, c_i2u_cast(ilen))
+#define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u_cast(ilen))
 // library internal, but may be useful in user code:
-#define c_u2i_size(u)           (isize_t)(1 ? (u) : (size_t)1) // warns if u is signed
-#define c_i2u_size(i)           (size_t)(1 ? (i) : -1)       // warns if i is unsigned
+#define c_u2i_cast(u)           (isize_t)(1 ? (u) : (size_t)1) // warns if u is signed
+#define c_i2u_cast(i)           (size_t)(1 ? (i) : -1)         // warns if i is unsigned
 #define c_uless(a, b)           ((size_t)(a) < (size_t)(b))
-#define c_safe_cast(T, From, x) ((T)(1 ? (x) : (From){0}))
+#define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
 
 // x, y are i_keyraw* type, which defaults to i_key*. vp is i_key* type.
 #define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
@@ -202,14 +201,15 @@
 
 // [deprecated]:
 #define c_init(...) c_make(__VA_ARGS__)
-#define c_forlist(...) for (c_items(_VA_ARGS__))
-#define c_foritems(...) for (c_items(__VA_ARGS__))
+#define c_items(...) c_each_item(__VA_ARGS__)
+#define c_foritems(...) for (c_each_item(__VA_ARGS__))
 #define c_foreach(...) for (c_each(__VA_ARGS__))
-#define c_foreach_n(...) for (c_each_n(__VA_ARGS__))
 #define c_foreach_kv(...) for (c_each_kv(__VA_ARGS__))
-#define c_foreach_reverse(...) for (c_each_reverse(__VA_ARGS__))
 #define c_forrange(...) for (c_range(__VA_ARGS__))
 #define c_forrange32(...) for (c_range32(__VA_ARGS__))
+#define c_arraylen(a) c_countof(a)
+#define c_const_cast(Tp, p) c_as_mut(Tp, p)
+// End [deprecated]
 
 // New:
 #define c_each(...) c_MACRO_OVERLOAD(c_each, __VA_ARGS__)
@@ -221,7 +221,6 @@
 #define c_each_ref(v, C, cnt) \
     C##_value* v = (C##_value*)&v; v; ) \
     for (C##_iter v##_itr_ = C##_begin(&cnt); (v = v##_itr_.ref); C##_next(&v##_itr_)
-#define c_each_item(...) c_each_ref(__VA_ARGS__) // [deprecated]
 
 #define c_each_n(...) c_MACRO_OVERLOAD(c_each_n, __VA_ARGS__)
 #define c_each_n_3(it, C, cnt) c_each_n_4(it, C, cnt, INTPTR_MAX)
@@ -252,7 +251,7 @@
          _it_##key.ref != (C##_value*)_endref_##key && (key = &_it_##key.ref->first, val = &_it_##key.ref->second); \
          C##_next(&_it_##key)
 
-#define c_items(it, T, ...) \
+#define c_each_item(it, T, ...) \
     struct {T* ref; int size, index;} \
     it = {.ref=c_make_array(T, __VA_ARGS__), .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
     ; it.index < it.size ; ++it.ref, ++it.index
@@ -287,7 +286,7 @@
 
 // drop multiple containers of same type
 #define c_drop(C, ...) \
-    do { for (c_items(_c_i2, C*, {__VA_ARGS__})) C##_drop(*_c_i2.ref); } while(0)
+    do { for (c_each_item(_c_i2, C*, {__VA_ARGS__})) C##_drop(*_c_i2.ref); } while(0)
 
 // RAII scopes
 #define c_defer(...) \
@@ -358,12 +357,21 @@ STC_INLINE size_t c_hash_mix_n(size_t h[], isize_t n) {
 }
 
 // generic typesafe swap
+#ifdef STC_HAS_TYPEOF
+#define c_swap(xp, yp) do { \
+    __typeof__(xp) _xp = (xp), _yp = (yp); \
+    __typeof__(0[xp]) _tv = *_xp; *_xp = *_yp; *_yp = _tv; \
+} while (0)
+#else
 #define c_swap(xp, yp) do { \
     (void)sizeof((xp) == (yp)); \
-    typedef struct { char d[sizeof *(xp)]; } _te; \
-    _te *_xp = (_te*)(xp), *_yp = (_te*)(yp); \
-    _te _e = *_xp; *_xp = *_yp; *_yp = _e; \
+    char _tv[sizeof *(xp)]; \
+    void *_xp = xp, *_yp = yp; \
+    memcpy(_tv, _xp, sizeof _tv); \
+    memcpy(_xp, _yp, sizeof _tv); \
+    memcpy(_yp, _tv, sizeof _tv); \
 } while (0)
+#endif
 
 // get next power of two
 STC_INLINE isize_t c_next_pow2(isize_t n) {
@@ -691,10 +699,10 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
     while ((value = _it.ref) && !(pred)) \
         C##_next(&_it); \
     for (_i = _it; (value = _it.ref); C##_next(&_it)) { \
-        if (pred) C##_value_drop(_cnt, _it.ref), ++_n; \
-        else *_i.ref = *_it.ref, C##_next(&_i); \
+        if (pred) { C##_value_drop(_cnt, _it.ref); --_n; } \
+        else { *_i.ref = *_it.ref; C##_next(&_i); } \
     } \
-    C##_adjust_end_(_cnt, -_n); \
+    C##_adjust_end_(_cnt, _n); \
 } while (0)
 
 // --------------------------------
@@ -747,38 +755,40 @@ static inline bool _flt_takewhile(struct _flt_base* base, bool pred) {
 } while (0)
 
 // --------------------------------
-// c_min, c_max, c_min_n, c_max_n
+// c_min_*(...), c_max_*(...)
 // --------------------------------
+
 #define _c_minmax_call(fn, T, ...) \
    fn(c_make_array(T, {__VA_ARGS__}), c_sizeof((T[]){__VA_ARGS__})/c_sizeof(T))
 
-#define c_min(...) _c_minmax_call(c_min_n, isize_t, __VA_ARGS__)
-#define c_umin(...) _c_minmax_call(c_umin_n, size_t, __VA_ARGS__)
-#define c_min32(...) _c_minmax_call(c_min32_n, int32_t, __VA_ARGS__)
-#define c_fmin(...) _c_minmax_call(c_fmin_n, float, __VA_ARGS__)
-#define c_dmin(...) _c_minmax_call(c_dmin_n, double, __VA_ARGS__)
-#define c_max(...) _c_minmax_call(c_max_n, isize_t, __VA_ARGS__)
-#define c_umax(...) _c_minmax_call(c_umax_n, size_t, __VA_ARGS__)
-#define c_max32(...) _c_minmax_call(c_max32_n, int32_t, __VA_ARGS__)
-#define c_fmax(...) _c_minmax_call(c_fmax_n, float, __VA_ARGS__)
-#define c_dmax(...) _c_minmax_call(c_dmax_n, double, __VA_ARGS__)
+#define c_min_i32(...) _c_minmax_call(c_min_i32n, int32_t, __VA_ARGS__)
+#define c_max_i32(...) _c_minmax_call(c_max_i32n, int32_t, __VA_ARGS__)
+#define c_min_zi(...)  _c_minmax_call(c_min_zin, isize_t, __VA_ARGS__)
+#define c_max_zi(...)  _c_minmax_call(c_max_zin, isize_t, __VA_ARGS__)
+#define c_min_zu(...)  _c_minmax_call(c_min_zun, size_t, __VA_ARGS__)
+#define c_max_zu(...)  _c_minmax_call(c_max_zun, size_t, __VA_ARGS__)
+#define c_min_f32(...) _c_minmax_call(c_min_f32n, float, __VA_ARGS__)
+#define c_max_f32(...) _c_minmax_call(c_max_f32n, float, __VA_ARGS__)
+#define c_min_f64(...) _c_minmax_call(c_min_f64n, double, __VA_ARGS__)
+#define c_max_f64(...) _c_minmax_call(c_max_f64n, double, __VA_ARGS__)
 
-#define _c_minmax_def(fn, T, opr) \
-    static inline T fn(const T a[], isize_t n) { \
+#define _c_minmax_def(ext, T) \
+    static inline T c_min_##ext(const T a[], isize_t n) { \
         T x = a[0]; \
-        for (isize_t i = 1; i < n; ++i) if (a[i] opr x) x = a[i]; \
+        for (isize_t i = 1; i < n; ++i) if (a[i] < x) x = a[i]; \
+        return x; \
+    } \
+    static inline T c_max_##ext(const T a[], isize_t n) { \
+        T x = a[0]; \
+        for (isize_t i = 1; i < n; ++i) if (a[i] > x) x = a[i]; \
         return x; \
     }
-_c_minmax_def(c_min32_n, int32_t, <)
-_c_minmax_def(c_min_n, isize_t, <)
-_c_minmax_def(c_umin_n, size_t, <)
-_c_minmax_def(c_fmin_n, float, <)
-_c_minmax_def(c_dmin_n, double, <)
-_c_minmax_def(c_max32_n, int32_t, >)
-_c_minmax_def(c_max_n, isize_t, >)
-_c_minmax_def(c_umax_n, size_t, >)
-_c_minmax_def(c_fmax_n, float, >)
-_c_minmax_def(c_dmax_n, double, >)
+
+_c_minmax_def(i32n, int32_t)
+_c_minmax_def(zin, isize_t)
+_c_minmax_def(zun, size_t)
+_c_minmax_def(f32n, float)
+_c_minmax_def(f64n, double)
 
 #endif // STC_UTILITY_H_INCLUDED
 // ### END_FILE_INCLUDE: utility.h
@@ -815,7 +825,7 @@ _c_minmax_def(c_dmax_n, double, >)
     }
 #define c_sumtype c_union
 
-#if defined STC_HAS_TYPEOF && STC_HAS_TYPEOF
+#ifdef STC_HAS_TYPEOF
     #define c_when(varptr) \
         for (__typeof__(varptr) _vp1 = (varptr); _vp1; _vp1 = NULL) \
         switch (_vp1->_any_.tag)
@@ -840,7 +850,7 @@ _c_minmax_def(c_dmax_n, double, >)
         for (Tag##_type *x = &((Tag##_sumtype *)_vp1)->Tag.get; x; x = NULL)
 
     #define c_is_3(varptr, Tag, x) \
-        false) ; else for (Tag##_sumtype* _vp2 = c_const_cast(Tag##_sumtype*, varptr); _vp2; _vp2 = NULL) \
+        false) ; else for (Tag##_sumtype* _vp2 = c_as_mut(Tag##_sumtype*, varptr); _vp2; _vp2 = NULL) \
             if (c_is_variant(_vp2, Tag)) \
                 for (Tag##_type *x = &_vp2->Tag.get; x; x = NULL
 #endif

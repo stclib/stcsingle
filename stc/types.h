@@ -7,17 +7,21 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+#define c_true(...) __VA_ARGS__
+#define c_false(...)
+
 #define declare_rc(C, KEY) declare_arc(C, KEY)
+#define declare_rc2(SELF, VAL) declare_arc2(SELF, VAL)
 #define declare_list(C, KEY) _declare_list(C, KEY,)
 #define declare_stack(C, KEY) _declare_stack(C, KEY,)
 #define declare_vec(C, KEY) _declare_stack(C, KEY,)
 #define declare_pqueue(C, KEY) _declare_stack(C, KEY,)
 #define declare_queue(C, KEY) _declare_queue(C, KEY,)
 #define declare_deque(C, KEY) _declare_queue(C, KEY,)
-#define declare_hashmap(C, KEY, VAL) _declare_htable(C, KEY, VAL, c_true, c_false,)
-#define declare_hashset(C, KEY) _declare_htable(C, KEY, KEY, c_false, c_true,)
-#define declare_sortedmap(C, KEY, VAL) _declare_aatree(C, KEY, VAL, c_true, c_false,)
-#define declare_sortedset(C, KEY) _declare_aatree(C, KEY, KEY, c_false, c_true,)
+#define declare_hashmap(C, KEY, VAL) _declare_htable(C, c_true, c_false, KEY, VAL,)
+#define declare_hashset(C, KEY) _declare_htable(C, c_false, c_true, KEY, KEY,)
+#define declare_sortedmap(C, KEY, VAL) _declare_aatree(C, c_true, c_false, KEY, VAL,)
+#define declare_sortedset(C, KEY) _declare_aatree(C, c_false, c_true, KEY, KEY,)
 
 #define declare_list_aux(C, KEY, AUX) _declare_list(C, KEY, AUX aux;)
 #define declare_stack_aux(C, KEY, AUX) _declare_stack(C, KEY, AUX aux;)
@@ -25,10 +29,12 @@
 #define declare_pqueue_aux(C, KEY, AUX) _declare_stack(C, KEY, AUX aux;)
 #define declare_queue_aux(C, KEY, AUX) _declare_queue(C, KEY, AUX aux;)
 #define declare_deque_aux(C, KEY, AUX) _declare_queue(C, KEY, AUX aux;)
-#define declare_hashmap_aux(C, KEY, VAL, AUX) _declare_htable(C, KEY, VAL, c_true, c_false, AUX aux;)
-#define declare_hashset_aux(C, KEY, AUX) _declare_htable(C, KEY, KEY, c_false, c_true, AUX aux;)
-#define declare_sortedmap_aux(C, KEY, VAL, AUX) _declare_aatree(C, KEY, VAL, c_true, c_false, AUX aux;)
-#define declare_sortedset_aux(C, KEY, AUX) _declare_aatree(C, KEY, KEY, c_false, c_true, AUX aux;)
+#define declare_hashmap_aux(C, KEY, VAL) _declare_htable(C, c_true, c_false, KEY, VAL, AUX aux;)
+#define declare_hashset_aux(C, KEY) _declare_htable(C, c_false, c_true, KEY, KEY, AUX aux;)
+#define declare_sortedmap_aux(C, KEY, VAL) _declare_aatree(C, c_true, c_false, KEY, VAL, AUX aux;)
+#define declare_sortedset_aux(C, KEY) _declare_aatree(C, c_false, c_true, KEY, KEY, AUX aux;)
+
+typedef struct { uint32_t state, codep; } cutf8_decode_t;
 
 // csview : non-null terminated string view
 typedef const char csview_value;
@@ -38,13 +44,13 @@ typedef struct csview {
 } csview;
 
 typedef union {
-    csview_value* ref;
+    struct { csview chr; csview_value* end; cutf8_decode_t dec; } u8;
     csview chr;
-    struct { csview chr; csview_value* end; } u8;
+    csview_value* ref;
 } csview_iter;
 
 #define c_sv(...) c_MACRO_OVERLOAD(c_sv, __VA_ARGS__)
-#define c_sv_1(literal) c_sv_2(literal, c_litstrlen(literal))
+#define c_sv_1(STRLIT) c_sv_2(STRLIT, c_litstrlen(STRLIT))
 #define c_sv_2(str, n) (c_literal(csview){str, n})
 #define c_svfmt "%.*s"
 #define c_svarg(sv) (int)(sv).size, (sv).buf // printf(c_svfmt "\n", c_svarg(sv));
@@ -57,8 +63,9 @@ typedef struct zsview {
 } zsview;
 
 typedef union {
-    zsview_value* ref;
+    struct { csview chr; cutf8_decode_t dec; } u8;
     csview chr;
+    zsview_value* ref;
 } zsview_iter;
 
 #define c_zv(literal) (c_literal(zsview){literal, c_litstrlen(literal)})
@@ -67,18 +74,22 @@ typedef union {
 typedef char cstr_value;
 typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {
-    struct { cstr_buf *a, *b, *c; } _dummy;
-    struct { cstr_value* data; uintptr_t size; uintptr_t ncap; } lon;
     struct { cstr_value data[ sizeof(cstr_buf) - 1 ]; uint8_t size; } sml;
+    struct { cstr_value* data; uintptr_t size; uintptr_t ncap; } lon;
 } cstr;
 
 typedef union {
+    struct { csview chr; cutf8_decode_t dec; } u8;
     csview chr; // utf8 character/codepoint
     const cstr_value* ref;
 } cstr_iter;
 
-#define c_true(...) __VA_ARGS__
-#define c_false(...)
+// non-owning char pointer
+typedef const char* cstr_raw;
+#define cstr_raw_cmp(x, y) strcmp(*(x), *(y))
+#define cstr_raw_eq(x, y)  (cstr_raw_cmp(x, y) == 0)
+#define cstr_raw_hash(vp)  c_hash_str(*(vp))
+
 
 #define declare_arc(SELF, VAL) \
     typedef VAL SELF##_value; \
@@ -134,7 +145,7 @@ typedef union {
         AUXDEF \
     } SELF
 
-#define _declare_htable(SELF, KEY, VAL, MAP_ONLY, SET_ONLY, AUXDEF) \
+#define _declare_htable(SELF, MAP_ONLY, SET_ONLY, KEY, VAL, AUXDEF) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
 \
@@ -162,7 +173,7 @@ typedef union {
         AUXDEF \
     } SELF
 
-#define _declare_aatree(SELF, KEY, VAL, MAP_ONLY, SET_ONLY, AUXDEF) \
+#define _declare_aatree(SELF, MAP_ONLY, SET_ONLY, KEY, VAL, AUXDEF) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
     typedef struct SELF##_node SELF##_node; \

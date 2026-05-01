@@ -23,9 +23,9 @@
     #define ISIZE_MIN   PTRDIFF_MIN
     #define ISIZE_MAX   PTRDIFF_MAX
 #endif
-#if !defined STC_HAS_TYPEOF && (_MSC_FULL_VER >= 193933428 || \
-    defined __GNUC__ || defined __clang__ || defined __TINYC__)
-    #define STC_HAS_TYPEOF 1
+#if defined __GNUC__ || defined __clang__ || \
+    defined __TINYC__ || _MSC_FULL_VER >= 193933428
+    #define STC_HAS_TYPEOF
 #endif
 #if defined __GNUC__
   #define c_GNUATTR(...) __attribute__((__VA_ARGS__))
@@ -86,9 +86,9 @@
     #define c_realloc c_JOIN(STC_ALLOCATOR, _realloc)
     #define c_free c_JOIN(STC_ALLOCATOR, _free)
 #else
-    #define c_malloc(sz) malloc(c_i2u_size(sz))
-    #define c_calloc(n, sz) calloc(c_i2u_size(n), c_i2u_size(sz))
-    #define c_realloc(ptr, old_sz, sz) realloc(ptr, c_i2u_size(1 ? (sz) : (old_sz)))
+    #define c_malloc(sz) malloc(c_i2u_cast(sz))
+    #define c_calloc(n, sz) calloc(c_i2u_cast(n), c_i2u_cast(sz))
+    #define c_realloc(ptr, old_sz, sz) realloc(ptr, c_i2u_cast(1 ? (sz) : (old_sz)))
     #define c_free(ptr, sz) ((void)(sz), free(ptr))
 #endif
 
@@ -108,24 +108,23 @@
     #define c_assert(expr)      assert(expr)
 #endif
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
-#define c_const_cast(Tp, p)     ((Tp)(1 ? (p) : (Tp)0))
-#define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
 #define c_countof(a)            (isize_t)(sizeof(a)/sizeof 0[a])
-#define c_arraylen(a)           c_countof(a) // [deprecated]?
+#define c_as_mut(Tp, p)         ((Tp)(1 ? (p) : (Tp)0))
+#define c_safe_cast(T, From, x) ((T)(1 ? (x) : (From){0}))
 
 // expect signed ints to/from these (use with gcc -Wconversion)
 #define c_sizeof                (isize_t)sizeof
 #define c_strlen(s)             (isize_t)strlen(s)
-#define c_strncmp(a, b, ilen)   strncmp(a, b, c_i2u_size(ilen))
-#define c_memcpy(d, s, ilen)    memcpy(d, s, c_i2u_size(ilen))
-#define c_memmove(d, s, ilen)   memmove(d, s, c_i2u_size(ilen))
-#define c_memset(d, val, ilen)  memset(d, val, c_i2u_size(ilen))
-#define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u_size(ilen))
+#define c_strncmp(a, b, ilen)   strncmp(a, b, c_i2u_cast(ilen))
+#define c_memcpy(d, s, ilen)    memcpy(d, s, c_i2u_cast(ilen))
+#define c_memmove(d, s, ilen)   memmove(d, s, c_i2u_cast(ilen))
+#define c_memset(d, val, ilen)  memset(d, val, c_i2u_cast(ilen))
+#define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u_cast(ilen))
 // library internal, but may be useful in user code:
-#define c_u2i_size(u)           (isize_t)(1 ? (u) : (size_t)1) // warns if u is signed
-#define c_i2u_size(i)           (size_t)(1 ? (i) : -1)       // warns if i is unsigned
+#define c_u2i_cast(u)           (isize_t)(1 ? (u) : (size_t)1) // warns if u is signed
+#define c_i2u_cast(i)           (size_t)(1 ? (i) : -1)         // warns if i is unsigned
 #define c_uless(a, b)           ((size_t)(a) < (size_t)(b))
-#define c_safe_cast(T, From, x) ((T)(1 ? (x) : (From){0}))
+#define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
 
 // x, y are i_keyraw* type, which defaults to i_key*. vp is i_key* type.
 #define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
@@ -141,14 +140,15 @@
 
 // [deprecated]:
 #define c_init(...) c_make(__VA_ARGS__)
-#define c_forlist(...) for (c_items(_VA_ARGS__))
-#define c_foritems(...) for (c_items(__VA_ARGS__))
+#define c_items(...) c_each_item(__VA_ARGS__)
+#define c_foritems(...) for (c_each_item(__VA_ARGS__))
 #define c_foreach(...) for (c_each(__VA_ARGS__))
-#define c_foreach_n(...) for (c_each_n(__VA_ARGS__))
 #define c_foreach_kv(...) for (c_each_kv(__VA_ARGS__))
-#define c_foreach_reverse(...) for (c_each_reverse(__VA_ARGS__))
 #define c_forrange(...) for (c_range(__VA_ARGS__))
 #define c_forrange32(...) for (c_range32(__VA_ARGS__))
+#define c_arraylen(a) c_countof(a)
+#define c_const_cast(Tp, p) c_as_mut(Tp, p)
+// End [deprecated]
 
 // New:
 #define c_each(...) c_MACRO_OVERLOAD(c_each, __VA_ARGS__)
@@ -160,7 +160,6 @@
 #define c_each_ref(v, C, cnt) \
     C##_value* v = (C##_value*)&v; v; ) \
     for (C##_iter v##_itr_ = C##_begin(&cnt); (v = v##_itr_.ref); C##_next(&v##_itr_)
-#define c_each_item(...) c_each_ref(__VA_ARGS__) // [deprecated]
 
 #define c_each_n(...) c_MACRO_OVERLOAD(c_each_n, __VA_ARGS__)
 #define c_each_n_3(it, C, cnt) c_each_n_4(it, C, cnt, INTPTR_MAX)
@@ -191,7 +190,7 @@
          _it_##key.ref != (C##_value*)_endref_##key && (key = &_it_##key.ref->first, val = &_it_##key.ref->second); \
          C##_next(&_it_##key)
 
-#define c_items(it, T, ...) \
+#define c_each_item(it, T, ...) \
     struct {T* ref; int size, index;} \
     it = {.ref=c_make_array(T, __VA_ARGS__), .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
     ; it.index < it.size ; ++it.ref, ++it.index
@@ -226,7 +225,7 @@
 
 // drop multiple containers of same type
 #define c_drop(C, ...) \
-    do { for (c_items(_c_i2, C*, {__VA_ARGS__})) C##_drop(*_c_i2.ref); } while(0)
+    do { for (c_each_item(_c_i2, C*, {__VA_ARGS__})) C##_drop(*_c_i2.ref); } while(0)
 
 // RAII scopes
 #define c_defer(...) \
@@ -297,12 +296,21 @@ STC_INLINE size_t c_hash_mix_n(size_t h[], isize_t n) {
 }
 
 // generic typesafe swap
+#ifdef STC_HAS_TYPEOF
+#define c_swap(xp, yp) do { \
+    __typeof__(xp) _xp = (xp), _yp = (yp); \
+    __typeof__(0[xp]) _tv = *_xp; *_xp = *_yp; *_yp = _tv; \
+} while (0)
+#else
 #define c_swap(xp, yp) do { \
     (void)sizeof((xp) == (yp)); \
-    typedef struct { char d[sizeof *(xp)]; } _te; \
-    _te *_xp = (_te*)(xp), *_yp = (_te*)(yp); \
-    _te _e = *_xp; *_xp = *_yp; *_yp = _e; \
+    char _tv[sizeof *(xp)]; \
+    void *_xp = xp, *_yp = yp; \
+    memcpy(_tv, _xp, sizeof _tv); \
+    memcpy(_xp, _yp, sizeof _tv); \
+    memcpy(_yp, _tv, sizeof _tv); \
 } while (0)
+#endif
 
 // get next power of two
 STC_INLINE isize_t c_next_pow2(isize_t n) {
@@ -338,17 +346,21 @@ STC_INLINE char* c_strnstrn(const char *str, isize_t slen, const char *needle, i
 #include <stddef.h>
 #include <stdbool.h>
 
+#define c_true(...) __VA_ARGS__
+#define c_false(...)
+
 #define declare_rc(C, KEY) declare_arc(C, KEY)
+#define declare_rc2(SELF, VAL) declare_arc2(SELF, VAL)
 #define declare_list(C, KEY) _declare_list(C, KEY,)
 #define declare_stack(C, KEY) _declare_stack(C, KEY,)
 #define declare_vec(C, KEY) _declare_stack(C, KEY,)
 #define declare_pqueue(C, KEY) _declare_stack(C, KEY,)
 #define declare_queue(C, KEY) _declare_queue(C, KEY,)
 #define declare_deque(C, KEY) _declare_queue(C, KEY,)
-#define declare_hashmap(C, KEY, VAL) _declare_htable(C, KEY, VAL, c_true, c_false,)
-#define declare_hashset(C, KEY) _declare_htable(C, KEY, KEY, c_false, c_true,)
-#define declare_sortedmap(C, KEY, VAL) _declare_aatree(C, KEY, VAL, c_true, c_false,)
-#define declare_sortedset(C, KEY) _declare_aatree(C, KEY, KEY, c_false, c_true,)
+#define declare_hashmap(C, KEY, VAL) _declare_htable(C, c_true, c_false, KEY, VAL,)
+#define declare_hashset(C, KEY) _declare_htable(C, c_false, c_true, KEY, KEY,)
+#define declare_sortedmap(C, KEY, VAL) _declare_aatree(C, c_true, c_false, KEY, VAL,)
+#define declare_sortedset(C, KEY) _declare_aatree(C, c_false, c_true, KEY, KEY,)
 
 #define declare_list_aux(C, KEY, AUX) _declare_list(C, KEY, AUX aux;)
 #define declare_stack_aux(C, KEY, AUX) _declare_stack(C, KEY, AUX aux;)
@@ -356,10 +368,12 @@ STC_INLINE char* c_strnstrn(const char *str, isize_t slen, const char *needle, i
 #define declare_pqueue_aux(C, KEY, AUX) _declare_stack(C, KEY, AUX aux;)
 #define declare_queue_aux(C, KEY, AUX) _declare_queue(C, KEY, AUX aux;)
 #define declare_deque_aux(C, KEY, AUX) _declare_queue(C, KEY, AUX aux;)
-#define declare_hashmap_aux(C, KEY, VAL, AUX) _declare_htable(C, KEY, VAL, c_true, c_false, AUX aux;)
-#define declare_hashset_aux(C, KEY, AUX) _declare_htable(C, KEY, KEY, c_false, c_true, AUX aux;)
-#define declare_sortedmap_aux(C, KEY, VAL, AUX) _declare_aatree(C, KEY, VAL, c_true, c_false, AUX aux;)
-#define declare_sortedset_aux(C, KEY, AUX) _declare_aatree(C, KEY, KEY, c_false, c_true, AUX aux;)
+#define declare_hashmap_aux(C, KEY, VAL) _declare_htable(C, c_true, c_false, KEY, VAL, AUX aux;)
+#define declare_hashset_aux(C, KEY) _declare_htable(C, c_false, c_true, KEY, KEY, AUX aux;)
+#define declare_sortedmap_aux(C, KEY, VAL) _declare_aatree(C, c_true, c_false, KEY, VAL, AUX aux;)
+#define declare_sortedset_aux(C, KEY) _declare_aatree(C, c_false, c_true, KEY, KEY, AUX aux;)
+
+typedef struct { uint32_t state, codep; } cutf8_decode_t;
 
 // csview : non-null terminated string view
 typedef const char csview_value;
@@ -369,13 +383,13 @@ typedef struct csview {
 } csview;
 
 typedef union {
-    csview_value* ref;
+    struct { csview chr; csview_value* end; cutf8_decode_t dec; } u8;
     csview chr;
-    struct { csview chr; csview_value* end; } u8;
+    csview_value* ref;
 } csview_iter;
 
 #define c_sv(...) c_MACRO_OVERLOAD(c_sv, __VA_ARGS__)
-#define c_sv_1(literal) c_sv_2(literal, c_litstrlen(literal))
+#define c_sv_1(STRLIT) c_sv_2(STRLIT, c_litstrlen(STRLIT))
 #define c_sv_2(str, n) (c_literal(csview){str, n})
 #define c_svfmt "%.*s"
 #define c_svarg(sv) (int)(sv).size, (sv).buf // printf(c_svfmt "\n", c_svarg(sv));
@@ -388,8 +402,9 @@ typedef struct zsview {
 } zsview;
 
 typedef union {
-    zsview_value* ref;
+    struct { csview chr; cutf8_decode_t dec; } u8;
     csview chr;
+    zsview_value* ref;
 } zsview_iter;
 
 #define c_zv(literal) (c_literal(zsview){literal, c_litstrlen(literal)})
@@ -398,18 +413,22 @@ typedef union {
 typedef char cstr_value;
 typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
 typedef union cstr {
-    struct { cstr_buf *a, *b, *c; } _dummy;
-    struct { cstr_value* data; uintptr_t size; uintptr_t ncap; } lon;
     struct { cstr_value data[ sizeof(cstr_buf) - 1 ]; uint8_t size; } sml;
+    struct { cstr_value* data; uintptr_t size; uintptr_t ncap; } lon;
 } cstr;
 
 typedef union {
+    struct { csview chr; cutf8_decode_t dec; } u8;
     csview chr; // utf8 character/codepoint
     const cstr_value* ref;
 } cstr_iter;
 
-#define c_true(...) __VA_ARGS__
-#define c_false(...)
+// non-owning char pointer
+typedef const char* cstr_raw;
+#define cstr_raw_cmp(x, y) strcmp(*(x), *(y))
+#define cstr_raw_eq(x, y)  (cstr_raw_cmp(x, y) == 0)
+#define cstr_raw_hash(vp)  c_hash_str(*(vp))
+
 
 #define declare_arc(SELF, VAL) \
     typedef VAL SELF##_value; \
@@ -465,7 +484,7 @@ typedef union {
         AUXDEF \
     } SELF
 
-#define _declare_htable(SELF, KEY, VAL, MAP_ONLY, SET_ONLY, AUXDEF) \
+#define _declare_htable(SELF, MAP_ONLY, SET_ONLY, KEY, VAL, AUXDEF) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
 \
@@ -493,7 +512,7 @@ typedef union {
         AUXDEF \
     } SELF
 
-#define _declare_aatree(SELF, KEY, VAL, MAP_ONLY, SET_ONLY, AUXDEF) \
+#define _declare_aatree(SELF, MAP_ONLY, SET_ONLY, KEY, VAL, AUXDEF) \
     typedef KEY SELF##_key; \
     typedef VAL SELF##_mapped; \
     typedef struct SELF##_node SELF##_node; \
@@ -541,15 +560,11 @@ typedef union {
 
 // The following functions assume valid utf8 strings:
 
-/* number of bytes in the utf8 codepoint from s */
+/* number of bytes in a utf8 codepoint given its first byte */
 STC_INLINE int cutf8_chr_size(const char *s) {
-    unsigned b = (uint8_t)*s;
-    if (b < 0x80) return 1;
-    /*if (b < 0xC2) return 0;*/
-    if (b < 0xE0) return 2;
-    if (b < 0xF0) return 3;
-    /*if (b < 0xF5)*/ return 4;
-    /*return 0;*/
+    // Every nibble represents the utf8 length given the 
+    // first 4 bits of a utf8 encoded byte.
+    return (int)((0x4322000011111111ull >> (((uint8_t)*s >> 4) << 2)) & 0xf);
 }
 
 /* number of codepoints in the utf8 string s */
@@ -562,7 +577,7 @@ STC_INLINE isize_t cutf8_count(const char *s) {
 
 STC_INLINE isize_t cutf8_count_n(const char *s, isize_t nbytes) {
     isize_t size = 0;
-    while ((nbytes-- != 0) & (*s != 0)) {
+    while ((nbytes-- > 0) & (*s != 0)) {
         size += (*++s & 0xC0) != 0x80;
     }
     return size;
@@ -571,6 +586,7 @@ STC_INLINE isize_t cutf8_count_n(const char *s, isize_t nbytes) {
 STC_INLINE const char* cutf8_at(const char *s, isize_t u8pos) {
     while ((u8pos > 0) & (*s != 0))
         u8pos -= (*++s & 0xC0) != 0x80;
+    c_assert(u8pos == 0);
     return s;
 }
 
@@ -579,6 +595,7 @@ STC_INLINE const char* cutf8_offset(const char* s, isize_t u8pos) {
     if (u8pos < 0) u8pos = -u8pos, inc = -1;
     while (u8pos && *s)
         u8pos -= (*(s += inc) & 0xC0) != 0x80;
+    c_assert(u8pos == 0);
     return s;
 }
 
@@ -593,25 +610,42 @@ STC_INLINE csview cutf8_subview(const char *s, isize_t u8pos, isize_t u8len) {
 }
 
 // ------------------------------------------------------
-// Functions below must be linked with utf8_prv.c content
+// Functions below must be linked with utf8_prv.c and utf8_decode.c
 // To call them, either define i_import before including
 // one of cstr, csview, zsview, or link with src/libstc.a
 
-/* decode next utf8 codepoint. https://bjoern.hoehrmann.de/utf-8/decoder/dfa */
-typedef struct { uint32_t state, codep; } cutf8_decode_t;
-extern const uint8_t cutf8_dtab[]; /* utf8code.c */
-#define cutf8_ACCEPT 0
-#define cutf8_REJECT 12
+// ### BEGIN_FILE_INCLUDE: utf8_decode.h
+#ifndef STC_UTF8_DECODE_H_INCLUDED
+#define STC_UTF8_DECODE_H_INCLUDED
+
+enum { cutf8_ACCEPT=0, cutf8_REJECT=12 };
+
+extern int      cutf8_decode_codepoint(cutf8_decode_t* d, const char* s, const char* end); // s < end
+extern uint32_t cutf8_peek(const char* s);
+
+static inline uint32_t cutf8_decode(cutf8_decode_t* d, const uint32_t byte) {
+    /* decode next utf8 codepoint. https://bjoern.hoehrmann.de/utf-8/decoder/dfa */
+    extern const uint8_t cutf8_dtab[]; /* utf8_decode.c */
+
+    const uint32_t type = cutf8_dtab[byte];
+    d->codep = d->state ? (byte & 0x3fu) | (d->codep << 6)
+                        : (0xffU >> type) & byte;
+    return d->state = cutf8_dtab[256 + d->state + type];
+}
+
+#endif // STC_UTF8_DECODE_H_INCLUDED
+// ### END_FILE_INCLUDE: utf8_decode.h
 
 extern bool     cutf8_valid(const char* s);
 extern bool     cutf8_valid_n(const char* s, isize_t nbytes);
 extern int      cutf8_encode(char *out, uint32_t c);
-extern int      cutf8_decode_codepoint(cutf8_decode_t* d, const char* s, const char* end);
-extern int      cutf8_icompare(const csview s1, const csview s2);
-extern uint32_t cutf8_peek_at(const char* s, isize_t u8offset);
 extern uint32_t cutf8_casefold(uint32_t c);
 extern uint32_t cutf8_tolower(uint32_t c);
 extern uint32_t cutf8_toupper(uint32_t c);
+extern int      cutf8_icmp_sv(const csview s1, const csview s2);
+
+STC_INLINE uint32_t cutf8_peek_at(const char* s, isize_t offset)
+    { return cutf8_peek(cutf8_offset(s, offset)); }
 
 STC_INLINE bool cutf8_isupper(uint32_t c)
     { return c < 128 ? (c >= 'A') & (c <= 'Z') : cutf8_tolower(c) != c; }
@@ -619,24 +653,9 @@ STC_INLINE bool cutf8_isupper(uint32_t c)
 STC_INLINE bool cutf8_islower(uint32_t c)
     { return c < 128 ? (c >= 'a') & (c <= 'z') : cutf8_toupper(c) != c; }
 
-STC_INLINE uint32_t cutf8_decode(cutf8_decode_t* d, const uint32_t byte) {
-    const uint32_t type = cutf8_dtab[byte];
-    d->codep = d->state ? (byte & 0x3fu) | (d->codep << 6)
-                        : (0xffU >> type) & byte;
-    return d->state = cutf8_dtab[256 + d->state + type];
-}
-
-STC_INLINE uint32_t cutf8_peek(const char* s) {
-    cutf8_decode_t d = {.state=0};
-    do {
-        cutf8_decode(&d, (uint8_t)*s++);
-    } while (d.state > cutf8_REJECT);
-    return d.state == cutf8_ACCEPT ? d.codep : 0xFFFD;
-}
-
 /* case-insensitive utf8 string comparison */
 STC_INLINE int cutf8_icmp(const char* s1, const char* s2) {
-    return cutf8_icompare(c_sv(s1, INTPTR_MAX), c_sv(s2, INTPTR_MAX));
+    return cutf8_icmp_sv(c_sv(s1, INTPTR_MAX), c_sv(s2, INTPTR_MAX));
 }
 
 // ------------------------------------------------------
@@ -705,13 +724,18 @@ STC_INLINE bool cutf8_isspace(uint32_t c) {
 #endif // STC_UTF8_PRV_H_INCLUDED
 // ### END_FILE_INCLUDE: utf8_prv.h
 
+// [deprecated]:
+#define c_token(...) c_each_split(__VA_ARGS__)
+#define csview_token(...) csview_split(__VA_ARGS__)
+
 #define             csview_init() c_sv_1("")
 #define             csview_drop(p) c_default_drop(p)
 #define             csview_clone(sv) c_default_clone(sv)
 
 csview_iter         csview_advance(csview_iter it, isize_t u8pos);
 csview              csview_subview_pro(csview sv, isize_t pos, isize_t n);
-csview              csview_token(csview sv, const char* sep, isize_t* pos);
+csview              csview_split(csview sv, const char* separator, isize_t* pos);
+csview              csview_strtok(csview sv, const char* delimiters, isize_t* pos);
 csview              csview_u8_subview(csview sv, isize_t u8pos, isize_t u8len);
 csview              csview_u8_tail(csview sv, isize_t u8len);
 csview_iter         csview_u8_at(csview sv, isize_t u8pos);
@@ -783,18 +807,25 @@ STC_INLINE csview csview_tail(csview sv, isize_t len)
 
 /* utf8 iterator */
 STC_INLINE csview_iter csview_begin(const csview* self) {
-    csview_iter it = {.u8 = {{self->buf, cutf8_chr_size(self->buf)},
-                             self->buf + self->size}};
+    csview_iter it = {.u8={{self->buf}, self->buf + self->size}};
+    if (it.ref == it.u8.end) it.ref = NULL;
+    else it.u8.chr.size = cutf8_decode_codepoint(&it.u8.dec, it.ref, it.u8.end);
     return it;
 }
+
 STC_INLINE csview_iter csview_end(const csview* self) {
     (void)self; csview_iter it = {0}; return it;
 }
+
 STC_INLINE void csview_next(csview_iter* it) {
     it->ref += it->chr.size;
-    it->chr.size = cutf8_chr_size(it->ref);
     if (it->ref == it->u8.end) it->ref = NULL;
+    else it->chr.size = cutf8_decode_codepoint(&it->u8.dec, it->ref, it->u8.end);
 }
+
+STC_INLINE uint32_t csview_codepoint(const csview_iter* it)
+    { return it->u8.dec.codep; }
+
 
 /* utf8 */
 STC_INLINE csview csview_u8_from(const char* str, isize_t u8pos, isize_t u8len)
@@ -806,15 +837,22 @@ STC_INLINE isize_t csview_u8_size(csview sv)
 STC_INLINE bool csview_u8_valid(csview sv) // requires linking with utf8 symbols
     { return cutf8_valid_n(sv.buf, sv.size); }
 
-#define c_fortoken(...) for (c_token(__VA_ARGS__)) // [deprecated]
-
-#define c_token_sv(it, separator, sv) \
+#define c_each_split_sv(it, separator, sv) \
     struct { csview input, token; const char* sep; isize_t pos; } \
     it = {.input=sv, .sep=separator} ; \
-    it.pos <= it.input.size && (it.token = csview_token(it.input, it.sep, &it.pos)).buf ;
+    it.pos < it.input.size && (it.token = csview_split(it.input, it.sep, &it.pos), 1) ;
 
-#define c_token(it, separator, str) \
-    c_token_sv(it, separator, csview_from(str))
+#define c_each_strtok_sv(it, delimiters, sv) \
+    struct { csview input, token; const char* delims; isize_t pos; } \
+    it = {.input=sv, .delims=delimiters} ; \
+    it.pos < it.input.size && (it.token = csview_strtok(it.input, it.delims, &it.pos), 1) ;
+
+#define c_each_split(it, separator, str) \
+    c_each_split_sv(it, separator, csview_from(str))
+
+#define c_each_strtok(it, delimiters, str) \
+    c_each_strtok_sv(it, delimiters, csview_from(str))
+
 
 /* ---- Container helper functions ---- */
 
@@ -830,7 +868,7 @@ STC_INLINE bool csview_eq(const csview* x, const csview* y)
 /* ---- case insensitive ---- */
 
 STC_INLINE bool csview_iequals_sv(csview sv1, csview sv2)
-    { return sv1.size == sv2.size && !cutf8_icompare(sv1, sv2); }
+    { return sv1.size == sv2.size && !cutf8_icmp_sv(sv1, sv2); }
 
 STC_INLINE bool csview_iequals(csview sv, const char* str)
     { return csview_iequals_sv(sv, c_sv(str, c_strlen(str))); }
@@ -839,11 +877,11 @@ STC_INLINE bool csview_ieq(const csview* x, const csview* y)
     { return csview_iequals_sv(*x, *y); }
 
 STC_INLINE int csview_icmp(const csview* x, const csview* y)
-    { return cutf8_icompare(*x, *y); }
+    { return cutf8_icmp_sv(*x, *y); }
 
 STC_INLINE bool csview_istarts_with(csview sv, const char* str) {
     isize_t n = c_strlen(str);
-    return n <= sv.size && !cutf8_icompare(sv, c_sv(str, n));
+    return n <= sv.size && !cutf8_icmp_sv(sv, c_sv(str, n));
 }
 
 STC_INLINE bool csview_iends_with(csview sv, const char* str) {
@@ -862,7 +900,7 @@ csview_iter csview_advance(csview_iter it, isize_t u8pos) {
     while (u8pos && it.ref != it.u8.end)
         u8pos -= (*(it.ref += inc) & 0xC0) != 0x80;
     if (it.ref == it.u8.end) it.ref = NULL;
-    else it.chr.size = cutf8_chr_size(it.ref);
+    else it.chr.size = cutf8_decode_codepoint(&it.u8.dec, it.ref, it.u8.end);
     return it;
 }
 
@@ -877,13 +915,30 @@ csview csview_subview_pro(csview sv, isize_t pos, isize_t len) {
     return sv;
 }
 
-csview csview_token(csview sv, const char* sep, isize_t* pos) {
+csview csview_split(csview sv, const char* sep, isize_t* pos) {
+    if (*pos >= sv.size) return c_sv("");
     isize_t sep_size = c_strlen(sep);
-    csview slice = {sv.buf + *pos, sv.size - *pos};
-    const char* res = c_strnstrn(slice.buf, slice.size, sep, sep_size);
-    csview tok = {slice.buf, res ? (res - slice.buf) : slice.size};
-    *pos += tok.size + sep_size;
-    return tok;
+    csview in = {sv.buf + *pos, sv.size - *pos};
+    const char* res = c_strnstrn(in.buf, in.size, sep, sep_size);
+    if (res) { in.size = res - in.buf; *pos += in.size + sep_size; }
+    else *pos = c_NPOS;
+    return in;
+}
+
+csview csview_strtok(csview sv, const char* delims, isize_t* pos) {
+    if (*pos >= sv.size) return c_sv("");
+    cutf8_decode_t dec = {0};
+    csview in = {sv.buf + *pos, sv.size - *pos};
+    for (c_each(i, csview, in)) {
+        for (const char *m = delims; *m; ++m) {
+            if (cutf8_decode(&dec, (uint8_t)*m) == cutf8_ACCEPT && i.u8.dec.codep == dec.codep) {
+                in.size = i.ref - in.buf; *pos += in.size + cutf8_chr_size(i.ref);
+                return in;
+            }
+        }
+    }
+    *pos = c_NPOS;
+    return in;
 }
 
 csview csview_u8_subview(csview sv, isize_t u8pos, isize_t u8len) {
@@ -905,12 +960,12 @@ csview csview_u8_tail(csview sv, isize_t u8len) {
 }
 
 csview_iter csview_u8_at(csview sv, isize_t u8pos) {
-    const char *end = &sv.buf[sv.size];
-    while ((u8pos > 0) & (sv.buf != end))
-        u8pos -= (*++sv.buf & 0xC0) != 0x80;
-    sv.size = cutf8_chr_size(sv.buf);
-    c_assert(sv.buf != end);
-    return c_literal(csview_iter){.u8 = {sv, end}};
+    csview_iter it = {.u8={sv, sv.buf + sv.size}};
+    while ((u8pos > 0) & (it.ref != it.u8.end))
+        u8pos -= (*++it.ref & 0xC0) != 0x80;
+    c_assert(u8pos == 0);
+    it.chr.size = cutf8_decode_codepoint(&it.u8.dec, it.ref, it.u8.end);
+    return it;
 }
 #endif // IMPLEMENT
 
@@ -1172,22 +1227,6 @@ static uint8_t lowcase_ind[184] = {
 };
 // ### END_FILE_INCLUDE: utf8_tab.c
 
-const uint8_t cutf8_dtab[] = {
-   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-   1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,  9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,
-   7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,  7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
-   8,8,2,2,2,2,2,2,2,2,2,2,2,2,2,2,  2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
-  10,3,3,3,3,3,3,3,3,3,3,3,3,4,3,3, 11,6,6,6,5,8,8,8,8,8,8,8,8,8,8,8,
-   0,12,24,36,60,96,84,12,12,12,48,72, 12,12,12,12,12,12,12,12,12,12,12,12,
-  12, 0,12,12,12,12,12, 0,12, 0,12,12, 12,24,12,12,12,12,12,24,12,24,12,12,
-  12,12,12,12,12,12,12,24,12,12,12,12, 12,24,12,12,12,12,12,12,12,24,12,12,
-  12,12,12,12,12,12,12,36,12,36,12,12, 12,36,12,12,12,12,12,36,12,36,12,12,
-  12,36,12,12,12,12,12,12,12,12,12,12,
-};
-
 int cutf8_encode(char *out, uint32_t c) {
     if (c < 0x80U) {
         out[0] = (char) c;
@@ -1211,10 +1250,6 @@ int cutf8_encode(char *out, uint32_t c) {
         return 4;
     }
     return 0;
-}
-
-uint32_t cutf8_peek_at(const char* s, isize_t offset) {
-    return cutf8_peek(cutf8_offset(s, offset));
 }
 
 bool cutf8_valid(const char* s) {
@@ -1275,22 +1310,7 @@ uint32_t cutf8_toupper(uint32_t c) {
     return c;
 }
 
-int cutf8_decode_codepoint(cutf8_decode_t* d, const char* s, const char* end) { // s < end
-    const char* start = s;
-    do switch (cutf8_decode(d, (uint8_t)*s++)) {
-        case cutf8_ACCEPT: return (int)(s - start);
-        case cutf8_REJECT: goto recover;
-    } while (s != end);
-
-    recover: // non-complete utf8 is also treated as cutf8_REJECT
-    d->state = cutf8_ACCEPT;
-    d->codep = 0xFFFD;
-    //return 1;
-    int n = (int)(s - start);
-    return n > 2 ? n - 1 : 1;
-}
-
-int cutf8_icompare(const csview s1, const csview s2) {
+int cutf8_icmp_sv(const csview s1, const csview s2) {
     cutf8_decode_t d1 = {.state=0}, d2 = {.state=0};
     const char *e1 = s1.buf + s1.size, *e2 = s2.buf + s2.size;
     isize_t j1 = 0, j2 = 0;
