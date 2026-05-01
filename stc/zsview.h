@@ -1129,6 +1129,51 @@ static uint8_t lowcase_ind[184] = {
     189, 181, 195, 191,
 };
 // ### END_FILE_INCLUDE: utf8_tab.c
+// ### BEGIN_FILE_INCLUDE: utf8_decode.c
+#ifndef STC_UTF8_DECODE_C_INCLUDED
+#define STC_UTF8_DECODE_C_INCLUDED
+
+
+int cutf8_decode_codepoint(cutf8_decode_t* d, const char* s, const char* end) { // s < end
+    const char* start = s;
+    do switch (cutf8_decode(d, (uint8_t)*s++)) {
+        case cutf8_ACCEPT: return (int)(s - start);
+        case cutf8_REJECT: goto recover;
+    } while (s != end);
+
+    recover: // Accept error/non-complete codepoints too.
+    d->state = cutf8_ACCEPT;
+    d->codep = 0xFFFD; // � replacement chr
+    int len = (int)(s - start);
+    return len <= 2 ? 1 : len - 1; // backtrack 1 byte for faster resync
+}
+
+uint32_t cutf8_peek(const char* s) {
+    cutf8_decode_t d = {0};
+    do {
+        cutf8_decode(&d, (uint8_t)*s++);
+    } while (d.state > cutf8_REJECT);
+    return d.state == cutf8_ACCEPT ? d.codep : 0xFFFD;
+}
+
+const uint8_t cutf8_dtab[] = {
+   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+   1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,  9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,
+   7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,  7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+   8,8,2,2,2,2,2,2,2,2,2,2,2,2,2,2,  2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+  10,3,3,3,3,3,3,3,3,3,3,3,3,4,3,3, 11,6,6,6,5,8,8,8,8,8,8,8,8,8,8,8,
+   0,12,24,36,60,96,84,12,12,12,48,72, 12,12,12,12,12,12,12,12,12,12,12,12,
+  12, 0,12,12,12,12,12, 0,12, 0,12,12, 12,24,12,12,12,12,12,24,12,24,12,12,
+  12,12,12,12,12,12,12,24,12,12,12,12, 12,24,12,12,12,12,12,12,12,24,12,12,
+  12,12,12,12,12,12,12,36,12,36,12,12, 12,36,12,12,12,12,12,36,12,36,12,12,
+  12,36,12,12,12,12,12,12,12,12,12,12,
+};
+
+#endif // STC_UTF8_DECODE_C_INCLUDED
+// ### END_FILE_INCLUDE: utf8_decode.c
 
 int cutf8_encode(char *out, uint32_t c) {
     if (c < 0x80U) {
