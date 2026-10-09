@@ -20,8 +20,8 @@
     #define ISIZE_MIN   PTRDIFF_MIN
     #define ISIZE_MAX   PTRDIFF_MAX
 #endif
-#if defined __GNUC__ || defined __clang__ || \
-    defined __TINYC__ || _MSC_FULL_VER >= 193933428
+#if defined __GNUC__ || defined __clang__ || defined __TINYC__ || \
+    defined __cplusplus || _MSC_FULL_VER >= 193933428
     #define STC_HAS_TYPEOF
 #endif
 #if defined __GNUC__
@@ -30,6 +30,7 @@
   #define c_GNUATTR(...)
 #endif
 #define STC_INLINE static inline c_GNUATTR(unused)
+
 #define c_ZI PRIiPTR
 #define c_ZU PRIuPTR
 #define c_NPOS INTPTR_MAX
@@ -41,8 +42,8 @@
 #define c_JOIN(a, b) c_JOIN0(a, b)
 #define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
 #define _c_APPLY_ARG_N(args) _c_ARG_N args
-#define _c_RSEQ_N 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
-#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,_17,_18,_19,_20,N,...) N
+#define _c_RSEQ_N 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,_17,_18,_19,_20,_21,_22,_23,_24,_25,_26,_27,_28,_29,_30,_31,_32,N,...) N
 
 // Saturated overloading
 // #define foo(...) foo_I(__VA_ARGS__, c_COMMA_N(foo_3), c_COMMA_N(foo_2), c_COMMA_N(foo_1),)(__VA_ARGS__)
@@ -59,29 +60,44 @@
 #define c_ARG_4(a, b, c, d, ...) d
 
 #define _i_new_n(T, n) ((T*)i_malloc((n)*c_sizeof(T)))
-#define _i_new_zeros(T, n) ((T*)i_calloc(n, c_sizeof(T)))
-#define _i_realloc_n(ptr, old_n, n) i_realloc(ptr, (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
-#define _i_free_n(ptr, n) i_free(ptr, (n)*c_sizeof *(ptr))
+#define _i_new_zeros(T, n) ((T*)i_calloc((n), c_sizeof(T)))
+#define _i_realloc_n(ptr, old_n, n) i_realloc((ptr), (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
+#define _i_free_n(ptr, n) i_free((ptr), (n)*c_sizeof *(ptr))
 
 #ifndef __cplusplus
     #define c_new(T, ...) ((T*)c_safe_memcpy(c_malloc(c_sizeof(T)), ((T[]){__VA_ARGS__}), c_sizeof(T)))
     #define c_literal(T) (T)
+    #define c_literal_count(T, ...) (sizeof((T[])__VA_ARGS__) / sizeof(T))
     #define c_make_array(T, ...) ((T[])__VA_ARGS__)
     #define c_make_array2d(T, N, ...) ((T[][N])__VA_ARGS__)
-#else
+    #define c_const_arr_ref(T, name) T const* name
+    #define STC_EXTERN extern
+    #define c_typeof(x) __typeof__(x)
+    #define c_static_assert(expr)   (void)sizeof(int[(expr) ? 1 : -1])
+    #define c_safe_cast(T, From, x) ((T)(1 ? (x) : (From){0}))
+#else // C++
     #include <new>
+    #include <array>
+    #include <initializer_list>
     #define c_new(T, ...) new (c_malloc(c_sizeof(T))) T(__VA_ARGS__)
-    #define c_literal(T) T
-    template<typename T, int M, int N> struct _c_Array { T data[M][N]; };
-    #define c_make_array(T, ...) (_c_Array<T, 1, sizeof((T[])__VA_ARGS__)/sizeof(T)>{{__VA_ARGS__}}.data[0])
-    #define c_make_array2d(T, N, ...) (_c_Array<T, sizeof((T[][N])__VA_ARGS__)/sizeof(T[N]), N>{__VA_ARGS__}.data)
+    template <typename _Ty> struct _ArgType { using type = _Ty; };
+    #define c_literal(T) _ArgType<T>::type
+    #define c_literal_count(T, ...) std::initializer_list<T>__VA_ARGS__.size()
+    template <typename _Ty, int _M, int _N> struct _c_Array { _Ty data[_M][_N]; };
+    #define c_make_array(T, ...) _c_Array<T, 1, c_literal_count(T, __VA_ARGS__)>{{__VA_ARGS__}}.data[0]
+    #define c_make_array2d(T, N, ...) _c_Array<T, c_literal_count(T[N], __VA_ARGS__), N>{__VA_ARGS__}.data
+    #define c_const_arr_ref(T, name) T const (&name)[]
+    #define STC_EXTERN extern "C"
+    #define c_typeof(x) std::remove_reference_t<decltype((x))>
+    #define c_static_assert(expr) (void)0
+    #define c_safe_cast(T, From, x) reinterpret_cast<T>(static_cast<From>(x))
 #endif
 
 #ifdef STC_ALLOCATOR
-    #define c_malloc c_JOIN(STC_ALLOCATOR, _malloc)
-    #define c_calloc c_JOIN(STC_ALLOCATOR, _calloc)
-    #define c_realloc c_JOIN(STC_ALLOCATOR, _realloc)
-    #define c_free c_JOIN(STC_ALLOCATOR, _free)
+    #define c_malloc(sz) c_JOIN(STC_ALLOCATOR, _malloc)(sz)
+    #define c_calloc(n, sz) c_JOIN(STC_ALLOCATOR, _calloc)(n, sz)
+    #define c_realloc(p, old_sz, sz) c_JOIN(STC_ALLOCATOR, _realloc)(p, old_sz, sz)
+    #define c_free(p, sz) c_JOIN(STC_ALLOCATOR, _free)(p, sz)
 #else
     #define c_malloc(sz) malloc(c_i2u_cast(sz))
     #define c_calloc(n, sz) calloc(c_i2u_cast(n), c_i2u_cast(sz))
@@ -91,6 +107,7 @@
 
 #define c_new_n(T, n) ((T*)c_malloc((n)*c_sizeof(T)))
 #define c_free_n(ptr, n) c_free(ptr, (n)*c_sizeof *(ptr))
+#define c_free_obj(ptr) c_free_n(ptr, 1)
 #define c_realloc_n(ptr, old_n, n) c_realloc(ptr, (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
 #define c_delete_n(T, ptr, n) do { \
     T* _tp = ptr; isize_t _n = n, _i = _n; \
@@ -98,7 +115,6 @@
     c_free(_tp, _n*c_sizeof(T)); \
 } while (0)
 
-#define c_static_assert(expr)   (void)sizeof(int[(expr) ? 1 : -1])
 #if defined STC_NDEBUG || defined NDEBUG
     #define c_assert(expr)      (void)sizeof(expr)
 #else
@@ -107,7 +123,6 @@
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
 #define c_countof(a)            (isize_t)(sizeof(a)/sizeof 0[a])
 #define c_as_mut(Tp, p)         ((Tp)(1 ? (p) : (Tp)0))
-#define c_safe_cast(T, From, x) ((T)(1 ? (x) : (From){0}))
 
 // expect signed ints to/from these (use with gcc -Wconversion)
 #define c_sizeof                (isize_t)sizeof
@@ -137,7 +152,6 @@
 
 // [deprecated]:
 #define c_init(...) c_make(__VA_ARGS__)
-#define c_items(...) c_each_item(__VA_ARGS__)
 #define c_foritems(...) for (c_each_item(__VA_ARGS__))
 #define c_foreach(...) for (c_each(__VA_ARGS__))
 #define c_foreach_kv(...) for (c_each_kv(__VA_ARGS__))
@@ -188,8 +202,8 @@
          C##_next(&_it_##key)
 
 #define c_each_item(it, T, ...) \
-    struct {T* ref; int size, index;} \
-    it = {.ref=c_make_array(T, __VA_ARGS__), .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
+    struct { c_const_arr_ref(T, _ref); T* ref; int size, index; } \
+    it = {._ref=c_make_array(T, __VA_ARGS__), .ref = (T*)it._ref, .size=(int)c_literal_count(T, __VA_ARGS__)} \
     ; it.index < it.size ; ++it.ref, ++it.index
 
 // c_range, c_range32: python-like int range iteration
@@ -214,11 +228,11 @@
 
 // make container from a literal list
 #define c_make(C, ...) \
-    C##_from_n(c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
+    C##_from_n(c_make_array(C##_raw, __VA_ARGS__), c_literal_count(C##_raw, __VA_ARGS__))
 
 // put multiple raw-type elements from a literal list into a container
 #define c_put_items(C, cnt, ...) \
-    C##_put_n(cnt, c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
+    C##_put_n(cnt, c_make_array(C##_raw, __VA_ARGS__), c_literal_count(C##_raw, __VA_ARGS__))
 
 // drop multiple containers of same type
 #define c_drop(C, ...) \
@@ -285,7 +299,7 @@ STC_INLINE size_t c_hash_str(const char *str) {
 }
 
 #define c_hash_mix(...) /* non-commutative hash combine */ \
-    c_hash_mix_n(c_make_array(size_t, {__VA_ARGS__}), c_sizeof((size_t[]){__VA_ARGS__})/c_sizeof(size_t))
+    c_hash_mix_n(c_make_array(size_t, {__VA_ARGS__}), c_literal_count(size_t, {__VA_ARGS__}))
 
 STC_INLINE size_t c_hash_mix_n(size_t h[], isize_t n) {
     for (isize_t i = 1; i < n; ++i) h[0] += h[0] ^ h[i];
@@ -295,8 +309,8 @@ STC_INLINE size_t c_hash_mix_n(size_t h[], isize_t n) {
 // generic typesafe swap
 #ifdef STC_HAS_TYPEOF
 #define c_swap(xp, yp) do { \
-    __typeof__(xp) _xp = (xp), _yp = (yp); \
-    __typeof__(0[xp]) _tv = *_xp; *_xp = *_yp; *_yp = _tv; \
+    c_typeof(xp) _xp = (xp), _yp = (yp); \
+    c_typeof(0[xp]) _tv = *_xp; *_xp = *_yp; *_yp = _tv; \
 } while (0)
 #else
 #define c_swap(xp, yp) do { \
@@ -309,7 +323,7 @@ STC_INLINE size_t c_hash_mix_n(size_t h[], isize_t n) {
 } while (0)
 #endif
 
-// get next power of two
+// get next power of two >= n
 STC_INLINE isize_t c_next_pow2(isize_t n) {
     n--;
     n |= n >> 1, n |= n >> 2;
@@ -461,7 +475,7 @@ typedef const char* cstr_raw;
         AUXDEF \
     } SELF; \
 \
-    typedef struct { \
+    typedef struct SELF##_iter { \
         SELF##_value *ref; \
         ptrdiff_t pos; \
         const SELF* _s; \
@@ -471,7 +485,7 @@ typedef const char* cstr_raw;
     typedef VAL SELF##_value; \
     typedef struct SELF##_node SELF##_node; \
 \
-    typedef struct { \
+    typedef struct SELF##_iter { \
         SELF##_value *ref; \
         SELF##_node *const *_last, *prev; \
     } SELF##_iter; \
@@ -489,7 +503,7 @@ typedef const char* cstr_raw;
             MAP_ONLY( struct SELF##_value ) \
     SELF##_value, SELF##_entry; \
 \
-    typedef struct { \
+    typedef struct SELF##_result { \
         SELF##_value *ref; \
         size_t idx; \
         bool inserted; \
@@ -497,7 +511,7 @@ typedef const char* cstr_raw;
         uint16_t dist; \
     } SELF##_result; \
 \
-    typedef struct { \
+    typedef struct SELF##_iter { \
         SELF##_value *ref, *_end; \
         struct hmap_meta *_mref; \
     } SELF##_iter; \
@@ -518,12 +532,12 @@ typedef const char* cstr_raw;
             MAP_ONLY( struct SELF##_value ) \
     SELF##_value, SELF##_entry; \
 \
-    typedef struct { \
+    typedef struct SELF##_result { \
         SELF##_value *ref; \
         bool inserted; \
     } SELF##_result; \
 \
-    typedef struct { \
+    typedef struct SELF##_iter { \
         SELF##_value *ref; \
         SELF##_node *_d; \
         int _top; \
@@ -538,12 +552,12 @@ typedef const char* cstr_raw;
 
 #define _declare_inplace_stack(SELF, VAL, CAP, AUXDEF) \
     typedef VAL SELF##_value; \
-    typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
+    typedef struct SELF##_iter { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { ptrdiff_t size; SELF##_value data[CAP]; AUXDEF } SELF
 
 #define _declare_stack(SELF, VAL, AUXDEF) \
     typedef VAL SELF##_value; \
-    typedef struct { SELF##_value *ref, *end; } SELF##_iter; \
+    typedef struct SELF##_iter { SELF##_value *ref, *end; } SELF##_iter; \
     typedef struct SELF { SELF##_value *data; ptrdiff_t size, capacity; AUXDEF } SELF
 
 #endif // STC_TYPES_H_INCLUDED
@@ -610,7 +624,7 @@ typedef struct {
 
 
 /* compile a regex from a pattern. return CREG_OK, or negative error code on failure. */
-extern int cregex_compile_pro(cregex *re, const char* pattern, int cflags);
+STC_EXTERN int cregex_compile_pro(cregex *re, const char* pattern, int cflags);
 
 #define cregex_compile(...) \
     c_ARG_4(__VA_ARGS__, cregex_compile_pro(__VA_ARGS__), cregex_compile_pro(__VA_ARGS__, CREG_DEFAULT), _too_few_args_)
@@ -625,57 +639,51 @@ STC_INLINE cregex cregex_from(const char* pattern)
     { return cregex_make(pattern, CREG_DEFAULT); }
 
 /* destroy regex */
-extern void cregex_drop(cregex* re);
+STC_EXTERN void cregex_drop(cregex* re);
 
 /* number of capture groups in a regex pattern, excluding the full match capture (0) */
-extern int cregex_captures(const cregex* re);
+STC_EXTERN int cregex_captures(const cregex* re);
+
+/* cregex_match*(): return CREG_OK, CREG_NOMATCH or CREG_MATCHERROR. aio = all-in-one, i.e. compile, match (, replace), drop */
+#define cregex_match(...) _cregex_match(__VA_ARGS__,)
+#define cregex_match_sv(...) _cregex_match_sv(__VA_ARGS__,)
+#define cregex_match_aio(...) _cregex_match_aio(__VA_ARGS__,)
+#define cregex_match_aio_sv(...) _cregex_match_aio_sv(__VA_ARGS__,)
+#define cregex_is_match(re, str) (_cregex_match(re, str, 0) == CREG_OK)
+
+/* cregex_replace*(): return a cstr where matches are replaced with a substitute string expression */
+#define cregex_replace(...) _cregex_replace(__VA_ARGS__,)
+#define cregex_replace_sv(...) _cregex_replace_sv(__VA_ARGS__,)
+#define cregex_replace_aio(...) _cregex_replace_aio(__VA_ARGS__,)
+#define cregex_replace_aio_sv(...) _cregex_replace_aio_sv(__VA_ARGS__,)
 
 /* ----- Private ----- */
 
-struct cregex_match_opt { csview* match; int flags; int _dummy; };
-struct cregex_replace_opt { int count; bool(*xform)(int group, csview match, cstr* out); int flags; int _dummy; };
+typedef struct { csview* match; int flags; } cregex_match_opt_s;
+typedef struct { int count, flags; bool(*transform)(int group, csview match, cstr* out); } cregex_replace_opt_s;
 
-extern int cregex_match_opt(const cregex* re, const char* input, const char* input_end, struct cregex_match_opt opt);
-extern int cregex_match_aio_opt(const char* pattern, const char* input, const char* input_end, struct cregex_match_opt opt);
-extern cstr cregex_replace_opt(const cregex* re, const char* input, const char* input_end, const char* replace, struct cregex_replace_opt opt);
-extern cstr cregex_replace_aio_opt(const char* pattern, const char* input, const char* input_end, const char* replace, struct cregex_replace_opt opt);
+#define _cregex_match(re, str, ...) cregex_match_opt(re, str, NULL, (cregex_match_opt_s){__VA_ARGS__})
+#define _cregex_match_sv(re, sv, ...) cregex_match_sv_opt(re, sv, (cregex_match_opt_s){__VA_ARGS__})
+#define _cregex_match_aio(pattern, str, ...) cregex_match_aio_opt(pattern, str, NULL, (cregex_match_opt_s){__VA_ARGS__})
+#define _cregex_match_aio_sv(pattern, sv, ...) cregex_match_aio_sv_opt(pattern, sv, (cregex_match_opt_s){__VA_ARGS__})
+#define _cregex_replace(re, str, repl, ...) cregex_replace_opt(re, str, NULL, repl, (cregex_replace_opt_s){__VA_ARGS__})
+#define _cregex_replace_sv(re, sv, repl, ...) cregex_replace_sv_opt(re, sv, repl, (cregex_replace_opt_s){__VA_ARGS__})
+#define _cregex_replace_aio(pattern, str, repl, ...) cregex_replace_aio_opt(pattern, str, NULL, repl, (cregex_replace_opt_s){__VA_ARGS__})
+#define _cregex_replace_aio_sv(pattern, sv, repl, ...) cregex_replace_aio_sv_opt(pattern, sv, repl, (cregex_replace_opt_s){__VA_ARGS__})
 
-static inline int cregex_match_sv_opt(const cregex* re, csview sv, struct cregex_match_opt opt)
+STC_EXTERN int cregex_match_opt(const cregex* re, const char* input, const char* input_end, cregex_match_opt_s opt);
+STC_EXTERN int cregex_match_aio_opt(const char* pattern, const char* input, const char* input_end, cregex_match_opt_s opt);
+STC_EXTERN cstr cregex_replace_opt(const cregex* re, const char* input, const char* input_end, const char* repl, cregex_replace_opt_s opt);
+STC_EXTERN cstr cregex_replace_aio_opt(const char* pattern, const char* input, const char* input_end, const char* repl, cregex_replace_opt_s opt);
+
+static inline int cregex_match_sv_opt(const cregex* re, csview sv, cregex_match_opt_s opt)
     { return cregex_match_opt(re, sv.buf, sv.buf+sv.size, opt); }
-static inline int cregex_match_aio_sv_opt(const char* pattern, csview sv, struct cregex_match_opt opt)
+static inline int cregex_match_aio_sv_opt(const char* pattern, csview sv, cregex_match_opt_s opt)
     { return cregex_match_aio_opt(pattern, sv.buf, sv.buf+sv.size, opt); }
-static inline cstr cregex_replace_sv_opt(const cregex* re, csview sv, const char* replace, struct cregex_replace_opt opt)
-    { return cregex_replace_opt(re, sv.buf, sv.buf+sv.size, replace, opt); }
-static inline cstr cregex_replace_aio_sv_opt(const char* pattern, csview sv, const char* replace, struct cregex_replace_opt opt)
-    { return cregex_replace_aio_opt(pattern, sv.buf, sv.buf+sv.size, replace, opt); }
-
-/* match: return CREG_OK, CREG_NOMATCH or CREG_MATCHERROR. */
-#define _cregex_match(re, str, ...) cregex_match_opt(re, str, NULL, (struct cregex_match_opt){__VA_ARGS__})
-#define _cregex_match_sv(re, sv, ...) cregex_match_sv_opt(re, sv, (struct cregex_match_opt){__VA_ARGS__})
-/* all-in-one: compile RE pattern + match + free */
-#define _cregex_match_aio(pattern, str, ...) cregex_match_aio_opt(pattern, str, NULL, (struct cregex_match_opt){__VA_ARGS__})
-#define _cregex_match_aio_sv(pattern, sv, ...) cregex_match_aio_sv_opt(pattern, sv, (struct cregex_match_opt){__VA_ARGS__})
-
-/* replace input with a string using regular expression */
-#define _cregex_replace(re, str, replace, ...) cregex_replace_opt(re, str, NULL, replace, (struct cregex_replace_opt){__VA_ARGS__})
-#define _cregex_replace_sv(re, sv, replace, ...) cregex_replace_sv_opt(re, sv, replace, (struct cregex_replace_opt){__VA_ARGS__})
-/* all-in-one: compile RE string pattern + match + replace + free */
-#define _cregex_replace_aio(pattern, str, replace, ...) cregex_replace_aio_opt(pattern, str, NULL, replace, (struct cregex_replace_opt){__VA_ARGS__})
-#define _cregex_replace_aio_sv(pattern, sv, replace, ...) cregex_replace_aio_sv_opt(pattern, sv, replace, (struct cregex_replace_opt){__VA_ARGS__})
-
-/* ----- API functions ---- */
-
-#define cregex_match(...) _cregex_match(__VA_ARGS__, ._dummy=0)
-#define cregex_match_sv(...) _cregex_match_sv(__VA_ARGS__, ._dummy=0)
-#define cregex_match_aio(...) _cregex_match_aio(__VA_ARGS__, ._dummy=0)
-#define cregex_match_aio_sv(...) _cregex_match_aio_sv(__VA_ARGS__, ._dummy=0)
-#define cregex_is_match(re, str) (_cregex_match(re, str, 0) == CREG_OK)
-
-#define cregex_replace(...) _cregex_replace(__VA_ARGS__, ._dummy=0)
-#define cregex_replace_sv(...) _cregex_replace_sv(__VA_ARGS__, ._dummy=0)
-#define cregex_replace_aio(...) _cregex_replace_aio(__VA_ARGS__, ._dummy=0)
-#define cregex_replace_aio_sv(...) _cregex_replace_aio_sv(__VA_ARGS__, ._dummy=0)
-
+static inline cstr cregex_replace_sv_opt(const cregex* re, csview sv, const char* repl, cregex_replace_opt_s opt)
+    { return cregex_replace_opt(re, sv.buf, sv.buf+sv.size, repl, opt); }
+static inline cstr cregex_replace_aio_sv_opt(const char* pattern, csview sv, const char* repl, cregex_replace_opt_s opt)
+    { return cregex_replace_aio_opt(pattern, sv.buf, sv.buf+sv.size, repl, opt); }
 #endif // STC_CREGEX_H_INCLUDED
 
 #if defined STC_IMPLEMENT || defined i_implement || defined i_import
@@ -683,21 +691,28 @@ static inline cstr cregex_replace_aio_sv_opt(const char* pattern, csview sv, con
 #undef STC_API
 #undef STC_DEF
 
-#if !defined i_static && !defined STC_STATIC && (defined i_header || defined STC_HEADER  || \
-                                                 defined i_implement || defined STC_IMPLEMENT)
-  #define STC_API extern
+#if !defined i_implement && (defined STC_IMPLEMENT || defined i_import || defined i_body)
+  #define i_implement
+#endif
+#if defined i_header || defined STC_HEADER || defined i_implement
+  // external linking, used for non-templated modules
+  #ifdef __cplusplus
+    #define STC_API extern "C"
+  #else
+    #define STC_API extern
+  #endif
   #define STC_DEF
 #else
-  #define i_implement
+  // static linking, default for templated containers
   #if defined __GNUC__ || defined __clang__ || defined __INTEL_LLVM_COMPILER
     #define STC_API static __attribute__((unused))
   #else
     #define STC_API static inline
   #endif
   #define STC_DEF static
-#endif
-#if defined STC_IMPLEMENT || defined i_import
-  #define i_implement
+  #ifndef i_implement
+    #define i_implement
+  #endif
 #endif
 
 #if defined i_aux && defined i_allocator
@@ -767,7 +782,7 @@ STC_INLINE isize_t cutf8_count(const char *s) {
 
 STC_INLINE isize_t cutf8_count_n(const char *s, isize_t nbytes) {
     isize_t size = 0;
-    while ((nbytes-- > 0) & (*s != 0)) {
+    while (nbytes-- != 0 && *s != 0) {
         size += (*++s & 0xC0) != 0x80;
     }
     return size;
@@ -810,8 +825,8 @@ STC_INLINE csview cutf8_subview(const char *s, isize_t u8pos, isize_t u8len) {
 
 enum { cutf8_ACCEPT=0, cutf8_REJECT=12 };
 
-extern int      cutf8_decode_codepoint(cutf8_decode_t* d, const char* s, const char* end); // s < end
-extern uint32_t cutf8_peek(const char* s);
+STC_EXTERN int      cutf8_decode_codepoint(cutf8_decode_t* d, const char* s, const char* end); // s < end
+STC_EXTERN uint32_t cutf8_peek(const char* s);
 
 static inline uint32_t cutf8_decode(cutf8_decode_t* d, const uint32_t byte) {
     /* decode next utf8 codepoint. https://bjoern.hoehrmann.de/utf-8/decoder/dfa */
@@ -826,13 +841,14 @@ static inline uint32_t cutf8_decode(cutf8_decode_t* d, const uint32_t byte) {
 #endif // STC_UTF8_DECODE_H_INCLUDED
 // ### END_FILE_INCLUDE: utf8_decode.h
 
-extern bool     cutf8_valid(const char* s);
-extern bool     cutf8_valid_n(const char* s, isize_t nbytes);
-extern int      cutf8_encode(char *out, uint32_t c);
-extern uint32_t cutf8_casefold(uint32_t c);
-extern uint32_t cutf8_tolower(uint32_t c);
-extern uint32_t cutf8_toupper(uint32_t c);
-extern int      cutf8_icmp_sv(const csview s1, const csview s2);
+STC_EXTERN bool     cutf8_valid(const char* s);
+STC_EXTERN bool     cutf8_valid_n(const char* s, isize_t nbytes);
+STC_EXTERN int      cutf8_encode(char *out, uint32_t c);
+STC_EXTERN uint32_t cutf8_casefold(uint32_t c);
+STC_EXTERN uint32_t cutf8_tolower(uint32_t c);
+STC_EXTERN uint32_t cutf8_toupper(uint32_t c);
+STC_EXTERN int      cutf8_icmp_sv(const csview s1, const csview s2);
+STC_EXTERN bool     cutf8_isgroup(int group, uint32_t c);
 
 STC_INLINE uint32_t cutf8_peek_at(const char* s, isize_t offset)
     { return cutf8_peek(cutf8_offset(s, offset)); }
@@ -861,8 +877,6 @@ enum cutf8_group {
     U8G_Latin, U8G_Thai,
     U8G_SIZE
 };
-
-extern bool cutf8_isgroup(int group, uint32_t c);
 
 STC_INLINE bool cutf8_isdigit(uint32_t c)
     { return c < 128 ? (c >= '0') & (c <= '9') : cutf8_isgroup(U8G_Nd, c); }
@@ -949,36 +963,36 @@ enum  { cstr_s_cap = sizeof(cstr_buf) - 2 };
 #define cstr_l_drop(s)          c_free((s)->lon.data, cstr_l_cap(s) + 1)
 
 #define cstr_is_long(s)         ((s)->sml.size >= 128)
-extern  char* _cstr_init(cstr* self, isize_t len, isize_t cap);
-extern  char* _cstr_internal_move(cstr* self, isize_t pos1, isize_t pos2);
+STC_EXTERN char* _cstr_init(cstr* self, isize_t len, isize_t cap);
+STC_EXTERN char* _cstr_internal_move(cstr* self, isize_t pos1, isize_t pos2);
 
 /**************************** PUBLIC API **********************************/
 
 #define             cstr_init() (c_literal(cstr){0})
 #define             cstr_lit(literal) cstr_from_n(literal, c_litstrlen(literal))
 
-extern  cstr        cstr_from_replace(csview sv, csview search, csview repl, int32_t count);
-extern  cstr        cstr_from_fmt(const char* fmt, ...) c_GNUATTR(format(printf, 1, 2));
+STC_EXTERN  cstr        cstr_from_replace(csview sv, csview search, csview repl, int32_t count);
+STC_EXTERN  cstr        cstr_from_fmt(const char* fmt, ...) c_GNUATTR(format(printf, 1, 2));
+STC_EXTERN  cstr        cstr_from_file(const char* fname);
+STC_EXTERN  void        cstr_drop(const cstr* self);
+STC_EXTERN  cstr*       cstr_take(cstr* self, const cstr s);
+STC_EXTERN  char*       cstr_reserve(cstr* self, isize_t cap);
+STC_EXTERN  void        cstr_shrink_to_fit(cstr* self);
+STC_EXTERN  char*       cstr_resize(cstr* self, isize_t size, char value);
+STC_EXTERN  isize_t     cstr_find_at(const cstr* self, isize_t pos, const char* search);
+STC_EXTERN  isize_t     cstr_find_sv(const cstr* self, csview search);
+STC_EXTERN  char*       cstr_assign_n(cstr* self, const char* str, isize_t len);
+STC_EXTERN  char*       cstr_append_n(cstr* self, const char* str, isize_t len);
+STC_EXTERN  isize_t     cstr_append_fmt(cstr* self, const char* fmt, ...) c_GNUATTR(format(printf, 2, 3));
+STC_EXTERN  char*       cstr_append_uninit(cstr *self, isize_t len);
 
-extern  void        cstr_drop(const cstr* self);
-extern  cstr*       cstr_take(cstr* self, const cstr s);
-extern  char*       cstr_reserve(cstr* self, isize_t cap);
-extern  void        cstr_shrink_to_fit(cstr* self);
-extern  char*       cstr_resize(cstr* self, isize_t size, char value);
-extern  isize_t     cstr_find_at(const cstr* self, isize_t pos, const char* search);
-extern  isize_t     cstr_find_sv(const cstr* self, csview search);
-extern  char*       cstr_assign_n(cstr* self, const char* str, isize_t len);
-extern  char*       cstr_append_n(cstr* self, const char* str, isize_t len);
-extern  isize_t     cstr_append_fmt(cstr* self, const char* fmt, ...) c_GNUATTR(format(printf, 2, 3));
-extern  char*       cstr_append_uninit(cstr *self, isize_t len);
-
-extern  bool        cstr_getdelim(cstr *self, int delim, FILE *fp);
-extern  void        cstr_erase(cstr* self, isize_t pos, isize_t len);
-extern  isize_t     cstr_printf(cstr* self, const char* fmt, ...) c_GNUATTR(format(printf, 2, 3));
-extern  isize_t     cstr_vfmt(cstr* self, isize_t start, const char* fmt, va_list args);
-extern  size_t      cstr_hash(const cstr *self);
-extern  bool        cstr_u8_valid(const cstr* self);
-extern  void        cstr_u8_erase(cstr* self, isize_t u8pos, isize_t u8len);
+STC_EXTERN  bool        cstr_getdelim(cstr *self, int delim, FILE *fp);
+STC_EXTERN  void        cstr_erase(cstr* self, isize_t pos, isize_t len);
+STC_EXTERN  isize_t     cstr_printf(cstr* self, const char* fmt, ...) c_GNUATTR(format(printf, 2, 3));
+STC_EXTERN  isize_t     cstr_vfmt(cstr* self, isize_t start, const char* fmt, va_list args);
+STC_EXTERN  size_t      cstr_hash(const cstr *self);
+STC_EXTERN  bool        cstr_u8_valid(const cstr* self);
+STC_EXTERN  void        cstr_u8_erase(cstr* self, isize_t u8pos, isize_t u8len);
 
 STC_INLINE cstr_buf cstr_getbuf(cstr* s) {
     return cstr_is_long(s) ? c_literal(cstr_buf){s->lon.data, cstr_l_size(s), cstr_l_cap(s)}
@@ -1136,7 +1150,7 @@ STC_INLINE uint32_t cstr_codepoint(const cstr_iter* it)
 
 
 // utf8 case conversion: requires `#define i_import` before including cstr.h in one TU.
-extern  cstr cstr_tocase_sv(csview sv, int k);
+STC_EXTERN  cstr cstr_tocase_sv(csview sv, int k);
 
 STC_INLINE cstr cstr_casefold_sv(csview sv)
     { return cstr_tocase_sv(sv, 0); }
@@ -1261,21 +1275,21 @@ STC_INLINE char* cstr_append_sv(cstr* self, csview sv)
 STC_INLINE char* cstr_append_s(cstr* self, cstr s)
     { return cstr_append_sv(self, cstr_sv(&s)); }
 
-#define cstr_join(self, sep, vec) do { \
-    struct _vec_s { cstr* data; ptrdiff_t size; } \
-          *_vec = (struct _vec_s*)&(vec); \
-    (void)sizeof((vec).data == _vec->data && &(vec).size == &_vec->size); \
-    cstr_join_sn(self, sep, _vec->data, _vec->size); \
-} while (0);
+#define cstr_join(self, sep, CntType, cnt) do { \
+    cstr* _s = self; const CntType* _cnt = cnt; \
+    const char *_isep = sep, *_sep = cstr_is_empty(_s) ? "" : _isep; \
+    for (c_each(_i, CntType, *_cnt)) { \
+        cstr_append(_s, _sep); \
+        cstr_append(_s, CntType##_value_toraw(_i.ref)); \
+        _sep = _isep; \
+    } \
+} while (0)
 
-#define cstr_join_items(self, sep, ...) \
-    cstr_join_n(self, sep, c_make_array(const char*, __VA_ARGS__), c_sizeof((const char*[])__VA_ARGS__)/c_sizeof(char*))
-
-STC_INLINE void cstr_join_n(cstr* self, const char* sep, const char* arr[], isize_t n) {
+STC_INLINE void cstr_join_array(cstr* self, const char* sep, const char* arr[], isize_t n) {
     const char* _sep = cstr_is_empty(self) ? "" : sep;
     while (n--) { cstr_append(self, _sep); cstr_append(self, *arr++); _sep = sep; }
 }
-STC_INLINE void cstr_join_sn(cstr* self, const char* sep, const cstr arr[], isize_t n) {
+STC_INLINE void cstr_join_array_s(cstr* self, const char* sep, const cstr arr[], isize_t n) {
     const char* _sep = cstr_is_empty(self) ? "" : sep;
     while (n--) { cstr_append(self, _sep); cstr_append_s(self, *arr++); _sep = sep; }
 }
@@ -2901,7 +2915,7 @@ static void _operator(_Parser *par, _Token type);
 static void _pushand(_Parser *par, _Reinst *first, _Reinst *last);
 static void _pushator(_Parser *par, _Token type);
 static void _evaluntil(_Parser *par, _Token type);
-static int  _bldcclass(_Parser *par);
+static _Token _bldcclass(_Parser *par);
 
 static void
 _rcerror(_Parser *par, cregex_result err)
@@ -3815,7 +3829,7 @@ void cregex_drop(cregex* self) {
     c_free(self->prog, self->prog->allocsize);
 }
 
-int cregex_match_opt(const cregex* re, const char* input, const char* input_end, struct cregex_match_opt opt) {
+int cregex_match_opt(const cregex* re, const char* input, const char* input_end, cregex_match_opt_s opt) {
     int res = _regexec(re->prog, input, input_end, cregex_captures(re) + 1, opt.match, opt.flags);
     switch (res) {
         case 1: return CREG_OK;
@@ -3824,7 +3838,7 @@ int cregex_match_opt(const cregex* re, const char* input, const char* input_end,
     }
 }
 
-int cregex_match_aio_opt(const char* pattern, const char* input, const char* input_end, struct cregex_match_opt opt) {
+int cregex_match_aio_opt(const char* pattern, const char* input, const char* input_end, cregex_match_opt_s opt) {
     cregex re = cregex_make(pattern, opt.flags);
     if (re.error != CREG_OK) return re.error;
     int res = cregex_match_opt(&re, input, input_end, opt);
@@ -3832,17 +3846,17 @@ int cregex_match_aio_opt(const char* pattern, const char* input, const char* inp
     return res;
 }
 
-cstr cregex_replace_opt(const cregex* re, const char* input, const char* input_end, const char* replace, struct cregex_replace_opt opt) {
+cstr cregex_replace_opt(const cregex* re, const char* input, const char* input_end, const char* replace, cregex_replace_opt_s opt) {
     cstr out = {0};
     cstr subst = {0};
     csview match[CREG_MAX_CAPTURES];
     int nmatch = cregex_captures(re) + 1;
     bool copy = !(opt.flags & CREG_STRIP);
-    struct cregex_match_opt mopt = {match};
+    cregex_match_opt_s mopt = {match};
     opt.count += (opt.count != 0);
 
     while (--opt.count && cregex_match_opt(re, input, input_end, mopt) == CREG_OK) {
-        _build_substitution(replace, nmatch, match, opt.xform, &subst);
+        _build_substitution(replace, nmatch, match, opt.transform, &subst);
         const isize_t mpos = (match[0].buf - input);
         if (copy & (mpos > 0))
             cstr_append_n(&out, input, mpos);
@@ -3857,7 +3871,7 @@ cstr cregex_replace_opt(const cregex* re, const char* input, const char* input_e
     return out;
 }
 
-cstr cregex_replace_aio_opt(const char* pattern, const char* input, const char* input_end, const char* replace, struct cregex_replace_opt opt) {
+cstr cregex_replace_aio_opt(const char* pattern, const char* input, const char* input_end, const char* replace, cregex_replace_opt_s opt) {
     cregex re = {0};
     if (cregex_compile_pro(&re, pattern, opt.flags) != CREG_OK)
         assert(0);
@@ -3870,6 +3884,54 @@ cstr cregex_replace_aio_opt(const char* pattern, const char* input, const char* 
 // ### END_FILE_INCLUDE: cregex_prv.c
   #if defined i_import
 // ### BEGIN_FILE_INCLUDE: utf8_prv.c
+#ifdef i_import
+// ### BEGIN_FILE_INCLUDE: utf8_decode.c
+#ifndef STC_UTF8_DECODE_C_INCLUDED
+#define STC_UTF8_DECODE_C_INCLUDED
+
+
+int cutf8_decode_codepoint(cutf8_decode_t* d, const char* s, const char* end) { // s < end
+    const char* start = s;
+    do switch (cutf8_decode(d, (uint8_t)*s++)) {
+        case cutf8_ACCEPT: return (int)(s - start);
+        case cutf8_REJECT: goto recover;
+    } while (s != end);
+
+    recover: // Accept error/non-complete codepoints too.
+    d->state = cutf8_ACCEPT;
+    d->codep = 0xFFFD; // � replacement chr
+    int len = (int)(s - start);
+    return len <= 2 ? 1 : len - 1; // backtrack 1 byte for faster resync
+}
+
+uint32_t cutf8_peek(const char* s) {
+    cutf8_decode_t d = {0};
+    do {
+        cutf8_decode(&d, (uint8_t)*s++);
+    } while (d.state > cutf8_REJECT);
+    return d.state == cutf8_ACCEPT ? d.codep : 0xFFFD;
+}
+
+const uint8_t cutf8_dtab[] = {
+   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+   1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,  9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,
+   7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,  7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+   8,8,2,2,2,2,2,2,2,2,2,2,2,2,2,2,  2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+  10,3,3,3,3,3,3,3,3,3,3,3,3,4,3,3, 11,6,6,6,5,8,8,8,8,8,8,8,8,8,8,8,
+   0,12,24,36,60,96,84,12,12,12,48,72, 12,12,12,12,12,12,12,12,12,12,12,12,
+  12, 0,12,12,12,12,12, 0,12, 0,12,12, 12,24,12,12,12,12,12,24,12,24,12,12,
+  12,12,12,12,12,12,12,24,12,12,12,12, 12,24,12,12,12,12,12,12,12,24,12,12,
+  12,12,12,12,12,12,12,36,12,36,12,12, 12,36,12,12,12,12,12,36,12,36,12,12,
+  12,36,12,12,12,12,12,12,12,12,12,12,
+};
+
+#endif // STC_UTF8_DECODE_C_INCLUDED
+// ### END_FILE_INCLUDE: utf8_decode.c
+#endif
+
 #ifndef STC_UTF8_PRV_C_INCLUDED
 #define STC_UTF8_PRV_C_INCLUDED
 
@@ -4125,51 +4187,6 @@ static uint8_t lowcase_ind[184] = {
     189, 181, 195, 191,
 };
 // ### END_FILE_INCLUDE: utf8_tab.c
-// ### BEGIN_FILE_INCLUDE: utf8_decode.c
-#ifndef STC_UTF8_DECODE_C_INCLUDED
-#define STC_UTF8_DECODE_C_INCLUDED
-
-
-int cutf8_decode_codepoint(cutf8_decode_t* d, const char* s, const char* end) { // s < end
-    const char* start = s;
-    do switch (cutf8_decode(d, (uint8_t)*s++)) {
-        case cutf8_ACCEPT: return (int)(s - start);
-        case cutf8_REJECT: goto recover;
-    } while (s != end);
-
-    recover: // Accept error/non-complete codepoints too.
-    d->state = cutf8_ACCEPT;
-    d->codep = 0xFFFD; // � replacement chr
-    int len = (int)(s - start);
-    return len <= 2 ? 1 : len - 1; // backtrack 1 byte for faster resync
-}
-
-uint32_t cutf8_peek(const char* s) {
-    cutf8_decode_t d = {0};
-    do {
-        cutf8_decode(&d, (uint8_t)*s++);
-    } while (d.state > cutf8_REJECT);
-    return d.state == cutf8_ACCEPT ? d.codep : 0xFFFD;
-}
-
-const uint8_t cutf8_dtab[] = {
-   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-   1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,  9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,
-   7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,  7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
-   8,8,2,2,2,2,2,2,2,2,2,2,2,2,2,2,  2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
-  10,3,3,3,3,3,3,3,3,3,3,3,3,4,3,3, 11,6,6,6,5,8,8,8,8,8,8,8,8,8,8,8,
-   0,12,24,36,60,96,84,12,12,12,48,72, 12,12,12,12,12,12,12,12,12,12,12,12,
-  12, 0,12,12,12,12,12, 0,12, 0,12,12, 12,24,12,12,12,12,12,24,12,24,12,12,
-  12,12,12,12,12,12,12,24,12,12,12,12, 12,24,12,12,12,12,12,12,12,24,12,12,
-  12,12,12,12,12,12,12,36,12,36,12,12, 12,36,12,12,12,12,12,36,12,36,12,12,
-  12,36,12,12,12,12,12,12,12,12,12,12,
-};
-
-#endif // STC_UTF8_DECODE_C_INCLUDED
-// ### END_FILE_INCLUDE: utf8_decode.c
 
 int cutf8_encode(char *out, uint32_t c) {
     if (c < 0x80U) {
@@ -4197,17 +4214,16 @@ int cutf8_encode(char *out, uint32_t c) {
 }
 
 bool cutf8_valid(const char* s) {
-    cutf8_decode_t d = {.state=0};
+    cutf8_decode_t d = {0};
     while ((cutf8_decode(&d, (uint8_t)*s) != cutf8_REJECT) & (*s != '\0'))
         ++s;
     return d.state == cutf8_ACCEPT;
 }
 
 bool cutf8_valid_n(const char* s, isize_t nbytes) {
-    cutf8_decode_t d = {.state=0};
-    for (; nbytes-- != 0; ++s)
-        if ((cutf8_decode(&d, (uint8_t)*s) == cutf8_REJECT) | (*s == '\0'))
-            break;
+    cutf8_decode_t d = {0};
+    while (nbytes-- != 0 && ((cutf8_decode(&d, (uint8_t)*s) != cutf8_REJECT) & (*s != '\0')))
+        ++s;
     return d.state == cutf8_ACCEPT;
 }
 
@@ -4255,7 +4271,7 @@ uint32_t cutf8_toupper(uint32_t c) {
 }
 
 int cutf8_icmp_sv(const csview s1, const csview s2) {
-    cutf8_decode_t d1 = {.state=0}, d2 = {.state=0};
+    cutf8_decode_t d1 = {0}, d2 = {0};
     const char *e1 = s1.buf + s1.size, *e2 = s2.buf + s2.size;
     isize_t j1 = 0, j2 = 0;
     while ((j1 < s1.size) & (j2 < s2.size)) {
@@ -4283,10 +4299,10 @@ void cstr_drop(const cstr* self) {
         cstr_l_drop(self);
 }
 
-cstr* cstr_take(cstr* self, const cstr s) {
-    if (cstr_is_long(self) && self->lon.data != s.lon.data)
+cstr* cstr_take(cstr* self, const cstr unowned) {
+    if (cstr_is_long(self))
         cstr_l_drop(self);
-    *self = s;
+    *self = unowned;
     return self;
 }
 
@@ -4441,6 +4457,20 @@ char* cstr_append_uninit(cstr *self, isize_t len) {
     return b.data + b.size;
 }
 
+cstr cstr_from_file(const char* fname) {
+    cstr s = {0};
+    FILE* fp = fopen(fname, "rb");
+    if (fp) {
+        fseek(fp, 0, SEEK_END);
+        isize_t n = 0, sz = ftell(fp);
+        char* buf = cstr_append_uninit(&s, sz);
+        if (buf) { rewind(fp); n = (isize_t)fread(buf, 1, (size_t)sz, fp); }
+        c_assert(n == sz);
+        fclose(fp);
+    }
+    return s;
+}
+
 bool cstr_getdelim(cstr *self, const int delim, FILE *fp) {
     int c = fgetc(fp);
     if (c == EOF)
@@ -4563,8 +4593,8 @@ cstr cstr_tocase_sv(csview sv, int k) {
 #undef i_realloc
 #undef i_free
 
-#undef i_static
 #undef i_header
+#undef i_body
 #undef i_implement
 #undef i_import
 

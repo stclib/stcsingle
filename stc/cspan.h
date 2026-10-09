@@ -4,21 +4,28 @@
 #undef STC_API
 #undef STC_DEF
 
-#if !defined i_static && !defined STC_STATIC && (defined i_header || defined STC_HEADER  || \
-                                                 defined i_implement || defined STC_IMPLEMENT)
-  #define STC_API extern
+#if !defined i_implement && (defined STC_IMPLEMENT || defined i_import || defined i_body)
+  #define i_implement
+#endif
+#if defined i_header || defined STC_HEADER || defined i_implement
+  // external linking, used for non-templated modules
+  #ifdef __cplusplus
+    #define STC_API extern "C"
+  #else
+    #define STC_API extern
+  #endif
   #define STC_DEF
 #else
-  #define i_implement
+  // static linking, default for templated containers
   #if defined __GNUC__ || defined __clang__ || defined __INTEL_LLVM_COMPILER
     #define STC_API static __attribute__((unused))
   #else
     #define STC_API static inline
   #endif
   #define STC_DEF static
-#endif
-#if defined STC_IMPLEMENT || defined i_import
-  #define i_implement
+  #ifndef i_implement
+    #define i_implement
+  #endif
 #endif
 
 #if defined i_aux && defined i_allocator
@@ -79,8 +86,8 @@
     #define ISIZE_MIN   PTRDIFF_MIN
     #define ISIZE_MAX   PTRDIFF_MAX
 #endif
-#if defined __GNUC__ || defined __clang__ || \
-    defined __TINYC__ || _MSC_FULL_VER >= 193933428
+#if defined __GNUC__ || defined __clang__ || defined __TINYC__ || \
+    defined __cplusplus || _MSC_FULL_VER >= 193933428
     #define STC_HAS_TYPEOF
 #endif
 #if defined __GNUC__
@@ -89,6 +96,7 @@
   #define c_GNUATTR(...)
 #endif
 #define STC_INLINE static inline c_GNUATTR(unused)
+
 #define c_ZI PRIiPTR
 #define c_ZU PRIuPTR
 #define c_NPOS INTPTR_MAX
@@ -100,8 +108,8 @@
 #define c_JOIN(a, b) c_JOIN0(a, b)
 #define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
 #define _c_APPLY_ARG_N(args) _c_ARG_N args
-#define _c_RSEQ_N 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
-#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,_17,_18,_19,_20,N,...) N
+#define _c_RSEQ_N 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,_17,_18,_19,_20,_21,_22,_23,_24,_25,_26,_27,_28,_29,_30,_31,_32,N,...) N
 
 // Saturated overloading
 // #define foo(...) foo_I(__VA_ARGS__, c_COMMA_N(foo_3), c_COMMA_N(foo_2), c_COMMA_N(foo_1),)(__VA_ARGS__)
@@ -118,29 +126,44 @@
 #define c_ARG_4(a, b, c, d, ...) d
 
 #define _i_new_n(T, n) ((T*)i_malloc((n)*c_sizeof(T)))
-#define _i_new_zeros(T, n) ((T*)i_calloc(n, c_sizeof(T)))
-#define _i_realloc_n(ptr, old_n, n) i_realloc(ptr, (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
-#define _i_free_n(ptr, n) i_free(ptr, (n)*c_sizeof *(ptr))
+#define _i_new_zeros(T, n) ((T*)i_calloc((n), c_sizeof(T)))
+#define _i_realloc_n(ptr, old_n, n) i_realloc((ptr), (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
+#define _i_free_n(ptr, n) i_free((ptr), (n)*c_sizeof *(ptr))
 
 #ifndef __cplusplus
     #define c_new(T, ...) ((T*)c_safe_memcpy(c_malloc(c_sizeof(T)), ((T[]){__VA_ARGS__}), c_sizeof(T)))
     #define c_literal(T) (T)
+    #define c_literal_count(T, ...) (sizeof((T[])__VA_ARGS__) / sizeof(T))
     #define c_make_array(T, ...) ((T[])__VA_ARGS__)
     #define c_make_array2d(T, N, ...) ((T[][N])__VA_ARGS__)
-#else
+    #define c_const_arr_ref(T, name) T const* name
+    #define STC_EXTERN extern
+    #define c_typeof(x) __typeof__(x)
+    #define c_static_assert(expr)   (void)sizeof(int[(expr) ? 1 : -1])
+    #define c_safe_cast(T, From, x) ((T)(1 ? (x) : (From){0}))
+#else // C++
     #include <new>
+    #include <array>
+    #include <initializer_list>
     #define c_new(T, ...) new (c_malloc(c_sizeof(T))) T(__VA_ARGS__)
-    #define c_literal(T) T
-    template<typename T, int M, int N> struct _c_Array { T data[M][N]; };
-    #define c_make_array(T, ...) (_c_Array<T, 1, sizeof((T[])__VA_ARGS__)/sizeof(T)>{{__VA_ARGS__}}.data[0])
-    #define c_make_array2d(T, N, ...) (_c_Array<T, sizeof((T[][N])__VA_ARGS__)/sizeof(T[N]), N>{__VA_ARGS__}.data)
+    template <typename _Ty> struct _ArgType { using type = _Ty; };
+    #define c_literal(T) _ArgType<T>::type
+    #define c_literal_count(T, ...) std::initializer_list<T>__VA_ARGS__.size()
+    template <typename _Ty, int _M, int _N> struct _c_Array { _Ty data[_M][_N]; };
+    #define c_make_array(T, ...) _c_Array<T, 1, c_literal_count(T, __VA_ARGS__)>{{__VA_ARGS__}}.data[0]
+    #define c_make_array2d(T, N, ...) _c_Array<T, c_literal_count(T[N], __VA_ARGS__), N>{__VA_ARGS__}.data
+    #define c_const_arr_ref(T, name) T const (&name)[]
+    #define STC_EXTERN extern "C"
+    #define c_typeof(x) std::remove_reference_t<decltype((x))>
+    #define c_static_assert(expr) (void)0
+    #define c_safe_cast(T, From, x) reinterpret_cast<T>(static_cast<From>(x))
 #endif
 
 #ifdef STC_ALLOCATOR
-    #define c_malloc c_JOIN(STC_ALLOCATOR, _malloc)
-    #define c_calloc c_JOIN(STC_ALLOCATOR, _calloc)
-    #define c_realloc c_JOIN(STC_ALLOCATOR, _realloc)
-    #define c_free c_JOIN(STC_ALLOCATOR, _free)
+    #define c_malloc(sz) c_JOIN(STC_ALLOCATOR, _malloc)(sz)
+    #define c_calloc(n, sz) c_JOIN(STC_ALLOCATOR, _calloc)(n, sz)
+    #define c_realloc(p, old_sz, sz) c_JOIN(STC_ALLOCATOR, _realloc)(p, old_sz, sz)
+    #define c_free(p, sz) c_JOIN(STC_ALLOCATOR, _free)(p, sz)
 #else
     #define c_malloc(sz) malloc(c_i2u_cast(sz))
     #define c_calloc(n, sz) calloc(c_i2u_cast(n), c_i2u_cast(sz))
@@ -150,6 +173,7 @@
 
 #define c_new_n(T, n) ((T*)c_malloc((n)*c_sizeof(T)))
 #define c_free_n(ptr, n) c_free(ptr, (n)*c_sizeof *(ptr))
+#define c_free_obj(ptr) c_free_n(ptr, 1)
 #define c_realloc_n(ptr, old_n, n) c_realloc(ptr, (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
 #define c_delete_n(T, ptr, n) do { \
     T* _tp = ptr; isize_t _n = n, _i = _n; \
@@ -157,7 +181,6 @@
     c_free(_tp, _n*c_sizeof(T)); \
 } while (0)
 
-#define c_static_assert(expr)   (void)sizeof(int[(expr) ? 1 : -1])
 #if defined STC_NDEBUG || defined NDEBUG
     #define c_assert(expr)      (void)sizeof(expr)
 #else
@@ -166,7 +189,6 @@
 #define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
 #define c_countof(a)            (isize_t)(sizeof(a)/sizeof 0[a])
 #define c_as_mut(Tp, p)         ((Tp)(1 ? (p) : (Tp)0))
-#define c_safe_cast(T, From, x) ((T)(1 ? (x) : (From){0}))
 
 // expect signed ints to/from these (use with gcc -Wconversion)
 #define c_sizeof                (isize_t)sizeof
@@ -196,7 +218,6 @@
 
 // [deprecated]:
 #define c_init(...) c_make(__VA_ARGS__)
-#define c_items(...) c_each_item(__VA_ARGS__)
 #define c_foritems(...) for (c_each_item(__VA_ARGS__))
 #define c_foreach(...) for (c_each(__VA_ARGS__))
 #define c_foreach_kv(...) for (c_each_kv(__VA_ARGS__))
@@ -247,8 +268,8 @@
          C##_next(&_it_##key)
 
 #define c_each_item(it, T, ...) \
-    struct {T* ref; int size, index;} \
-    it = {.ref=c_make_array(T, __VA_ARGS__), .size=(int)(sizeof((T[])__VA_ARGS__)/sizeof(T))} \
+    struct { c_const_arr_ref(T, _ref); T* ref; int size, index; } \
+    it = {._ref=c_make_array(T, __VA_ARGS__), .ref = (T*)it._ref, .size=(int)c_literal_count(T, __VA_ARGS__)} \
     ; it.index < it.size ; ++it.ref, ++it.index
 
 // c_range, c_range32: python-like int range iteration
@@ -273,11 +294,11 @@
 
 // make container from a literal list
 #define c_make(C, ...) \
-    C##_from_n(c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
+    C##_from_n(c_make_array(C##_raw, __VA_ARGS__), c_literal_count(C##_raw, __VA_ARGS__))
 
 // put multiple raw-type elements from a literal list into a container
 #define c_put_items(C, cnt, ...) \
-    C##_put_n(cnt, c_make_array(C##_raw, __VA_ARGS__), c_sizeof((C##_raw[])__VA_ARGS__)/c_sizeof(C##_raw))
+    C##_put_n(cnt, c_make_array(C##_raw, __VA_ARGS__), c_literal_count(C##_raw, __VA_ARGS__))
 
 // drop multiple containers of same type
 #define c_drop(C, ...) \
@@ -344,7 +365,7 @@ STC_INLINE size_t c_hash_str(const char *str) {
 }
 
 #define c_hash_mix(...) /* non-commutative hash combine */ \
-    c_hash_mix_n(c_make_array(size_t, {__VA_ARGS__}), c_sizeof((size_t[]){__VA_ARGS__})/c_sizeof(size_t))
+    c_hash_mix_n(c_make_array(size_t, {__VA_ARGS__}), c_literal_count(size_t, {__VA_ARGS__}))
 
 STC_INLINE size_t c_hash_mix_n(size_t h[], isize_t n) {
     for (isize_t i = 1; i < n; ++i) h[0] += h[0] ^ h[i];
@@ -354,8 +375,8 @@ STC_INLINE size_t c_hash_mix_n(size_t h[], isize_t n) {
 // generic typesafe swap
 #ifdef STC_HAS_TYPEOF
 #define c_swap(xp, yp) do { \
-    __typeof__(xp) _xp = (xp), _yp = (yp); \
-    __typeof__(0[xp]) _tv = *_xp; *_xp = *_yp; *_yp = _tv; \
+    c_typeof(xp) _xp = (xp), _yp = (yp); \
+    c_typeof(0[xp]) _tv = *_xp; *_xp = *_yp; *_yp = _tv; \
 } while (0)
 #else
 #define c_swap(xp, yp) do { \
@@ -368,7 +389,7 @@ STC_INLINE size_t c_hash_mix_n(size_t h[], isize_t n) {
 } while (0)
 #endif
 
-// get next power of two
+// get next power of two >= n
 STC_INLINE isize_t c_next_pow2(isize_t n) {
     n--;
     n |= n >> 1, n |= n >> 2;
@@ -397,6 +418,7 @@ STC_INLINE char* c_strnstrn(const char *str, isize_t slen, const char *needle, i
     #define STC_CSPAN_INDEX_TYPE int32_t
 #endif
 typedef STC_CSPAN_INDEX_TYPE _istride;
+typedef _istride _ituple3[3];
 
 #define using_cspan use_cspan                   // [deprecated]
 #define using_cspan2 use_cspan2                 // [deprecated]
@@ -509,11 +531,11 @@ use_cspan_tuple(7); use_cspan_tuple(8);
 // Create a global scope 1d-span from constant initializer list, otherwise like c_make(Span, ...).
 #define cspan_make(Span, ...) \
     ((Span)cspan_from_n(c_make_array(Span##_value, __VA_ARGS__), \
-                        sizeof((Span##_value[])__VA_ARGS__)/sizeof(Span##_value)))
+                        c_literal_count(Span##_value, __VA_ARGS__)))
 
 // Make 1d-span from a c-array.
 #define cspan_from_array(array) \
-    cspan_from_n(array, c_arraylen(array))
+    cspan_from_n(array, c_countof(array))
 
 // Make 1d-span from a vec or stack container.
 #define cspan_from_vec(container) \
@@ -528,14 +550,14 @@ use_cspan_tuple(7); use_cspan_tuple(8);
 // Accessors
 //
 #define cspan_size(self) _cspan_size((self)->shape, cspan_rank(self))
-#define cspan_rank(self) c_arraylen((self)->shape) // constexpr
+#define cspan_rank(self) c_countof((self)->shape) // constexpr
 #define cspan_at(self, ...) ((self)->data + cspan_index(self, __VA_ARGS__))
 #define cspan_front(self) ((self)->data)
 #define cspan_back(self) ((self)->data + cspan_size(self) - 1)
 
-#define cspan_index(...) cspan_index_fn(__VA_ARGS__, c_COMMA_N(cspan_index_3d), c_COMMA_N(cspan_index_2d), \
-                                                     c_COMMA_N(cspan_index_1d),)(__VA_ARGS__)
-#define cspan_index_fn(self, i,j,k,n, ...) c_TUPLE_AT_1(n, cspan_index_nd,)
+#define cspan_index(...) cspan_index_I(__VA_ARGS__, c_COMMA_N(cspan_index_3d), c_COMMA_N(cspan_index_2d), \
+                                                    c_COMMA_N(cspan_index_1d),)(__VA_ARGS__)
+#define cspan_index_I(self, i,j,k,n, ...) c_TUPLE_AT_1(n, cspan_index_nd,)
 #define cspan_index_1d(self, i)     (c_static_assert(cspan_rank(self) == 1), \
                                      c_assert((i) < (self)->shape[0]), \
                                      (i)*(self)->stride.d[0])
@@ -596,7 +618,7 @@ typedef enum {c_ROWMAJOR, c_COLMAJOR, c_STRIDED} cspan_layout;
 #define cspan_slice(self, Outspan, ...) \
     Outspan##_slice_((self)->data, (self)->shape, (self)->stride.d, \
                      c_make_array2d(const isize_t, 3, {__VA_ARGS__}), \
-                     (c_static_assert(cspan_rank(self) == sizeof((isize_t[][3]){__VA_ARGS__})/sizeof(isize_t[3])), cspan_rank(self)))
+                     (c_static_assert(cspan_rank(self) == c_literal_count(_ituple3, {__VA_ARGS__})), cspan_rank(self)))
 
 // submd#(): Reduces rank, fully typesafe + range checked by default
 //           int ms3[N1][N2][N3];
@@ -687,7 +709,7 @@ STC_INLINE void _cspan_transpose(_istride shape[], _istride stride[], int rank) 
 }
 
 STC_INLINE isize_t _cspan_index(const _istride shape[], const _istride stride[],
-                              const isize_t args[], int rank) {
+                                const isize_t args[], int rank) {
     isize_t off = 0;
     (void)shape;
     while (rank-- != 0) {
@@ -697,11 +719,11 @@ STC_INLINE isize_t _cspan_index(const _istride shape[], const _istride stride[],
     return off;
 }
 
-STC_API void _cspan_print_assist(_istride pos[], const _istride shape[], const int rank,
-                                 const char* brackets, char result[2][20]);
+STC_EXTERN void _cspan_print_assist(_istride pos[], const _istride shape[], const int rank,
+                                    const char* brackets, char result[2][20]);
 
-STC_API bool _cspan_nextN(_istride pos[], const _istride shape[], const _istride stride[],
-                           int rank, isize_t* off);
+STC_EXTERN bool _cspan_nextN(_istride pos[], const _istride shape[], const _istride stride[],
+                             int rank, isize_t* off);
 #define _cspan_next1(pos, shape, stride, rank, off)            (++pos[0] == shape[0])
 #define _cspan_next2(pos, shape, stride, rank, off)            (++pos[1] == shape[1] && \
     (pos[1] = 0, *off += stride[0] - (isize_t)shape[1]*stride[1], ++pos[0] == shape[0]))
@@ -714,11 +736,11 @@ STC_API bool _cspan_nextN(_istride pos[], const _istride shape[], const _istride
 #define _cspan_next7 _cspan_nextN
 #define _cspan_next8 _cspan_nextN
 
-STC_API isize_t _cspan_slice(_istride oshape[], _istride ostride[], int* orank,
-                           const _istride shape[], const _istride stride[],
-                           const isize_t args[][3], int rank);
-STC_API _istride* _cspan_shape2stride(cspan_layout layout, _istride shape[], int rank);
-STC_API bool _cspan_is_layout(cspan_layout layout, const _istride shape[], const _istride strides[], int rank);
+STC_EXTERN isize_t _cspan_slice(_istride oshape[], _istride ostride[], int* orank,
+                                const _istride shape[], const _istride stride[],
+                                const isize_t args[][3], int rank);
+STC_EXTERN _istride* _cspan_shape2stride(cspan_layout layout, _istride shape[], int rank);
+STC_EXTERN bool _cspan_is_layout(cspan_layout layout, const _istride shape[], const _istride strides[], int rank);
 
 #endif // STC_CSPAN_H_INCLUDED
 
@@ -726,15 +748,15 @@ STC_API bool _cspan_is_layout(cspan_layout layout, const _istride shape[], const
 #if defined i_implement && !defined STC_CSPAN_IMPLEMENT
 #define STC_CSPAN_IMPLEMENT
 
-STC_DEF bool _cspan_is_layout(cspan_layout layout, const _istride shape[], const _istride strides[], int rank) {
+bool _cspan_is_layout(cspan_layout layout, const _istride shape[], const _istride strides[], int rank) {
     _istride tmpshape[16]; // 16 = "max" rank
     size_t sz = (size_t)rank*sizeof(_istride);
     memcpy(tmpshape, shape, sz);
     return memcmp(strides, _cspan_shape2stride(layout, tmpshape, rank), sz) == 0;
 }
 
-STC_DEF void _cspan_print_assist(_istride pos[], const _istride shape[], const int rank,
-                                 const char* brackets, char result[2][20]) {
+void _cspan_print_assist(_istride pos[], const _istride shape[], const int rank,
+                         const char* brackets, char result[2][20]) {
     int n = 0, j = 0, r = rank - 1;
     memset(result, 0, 32);
 
@@ -756,8 +778,8 @@ STC_DEF void _cspan_print_assist(_istride pos[], const _istride shape[], const i
         result[1][j++] = '\n';
 }
 
-STC_DEF bool _cspan_nextN(_istride pos[], const _istride shape[], const _istride stride[],
-                          int rank, isize_t* off) {
+bool _cspan_nextN(_istride pos[], const _istride shape[], const _istride stride[],
+                  int rank, isize_t* off) {
     ++pos[--rank];
     for (; rank && pos[rank] == shape[rank]; --rank) {
         pos[rank] = 0; ++pos[rank - 1];
@@ -766,7 +788,7 @@ STC_DEF bool _cspan_nextN(_istride pos[], const _istride shape[], const _istride
     return pos[rank] == shape[rank];
 }
 
-STC_DEF _istride* _cspan_shape2stride(cspan_layout layout, _istride shpstri[], int rank) {
+_istride* _cspan_shape2stride(cspan_layout layout, _istride shpstri[], int rank) {
     int i, inc;
     if (layout == c_COLMAJOR) i = 0, inc = 1;
     else i = rank - 1, inc = -1;
@@ -782,9 +804,9 @@ STC_DEF _istride* _cspan_shape2stride(cspan_layout layout, _istride shpstri[], i
     return shpstri;
 }
 
-STC_DEF isize_t _cspan_slice(_istride oshape[], _istride ostride[], int* orank,
-                           const _istride shape[], const _istride stride[],
-                           const isize_t args[][3], int rank) {
+isize_t _cspan_slice(_istride oshape[], _istride ostride[], int* orank,
+                     const _istride shape[], const _istride stride[],
+                     const isize_t args[][3], int rank) {
     isize_t end, off = 0;
     int i = 0, oi = 0;
 
@@ -819,8 +841,8 @@ STC_DEF isize_t _cspan_slice(_istride oshape[], _istride ostride[], int* orank,
 #undef i_realloc
 #undef i_free
 
-#undef i_static
 #undef i_header
+#undef i_body
 #undef i_implement
 #undef i_import
 
